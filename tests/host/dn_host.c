@@ -13,7 +13,8 @@
  *   wav FILE | wavstop            record the output
  *   shot FILE.png                 the screen
  *   reboot                        start again from what was saved
- *   expect WHAT VALUE             preset page dirty oct bpm gate note (MIDI, before TRANS) leds-btn;
+ *   expect WHAT VALUE             preset page dirty oct bpm gate note (MIDI, before TRANS) leds-btn leds-keys
+ *                                 playing rec trk view swing clocks midinotes len.T mute.T on.T st.T.I nt.T.I ln.T.I;
  *                                 peak (the output's peak since the last expect peak, Q15); VALUE "<N" / ">N" a bound
  */
 #define X0X_HOST 1
@@ -57,6 +58,16 @@ int32_t plat_enc(int role)
     int32_t v = enc_acc[role];
     enc_acc[role] = 0;
     return v;
+}
+static uint32_t dim_keys, midi_out_n, clock_n, midi_notes_n;
+void plat_keys_dim(uint32_t k) { dim_keys = k; }
+void plat_midi_out(uint32_t pkt)
+{
+    midi_out_n++;
+    if (((pkt >> 8) & 0xFFu) == 0xF8u)
+        clock_n++;
+    else if (((pkt >> 8) & 0xF0u) == 0x90u && (pkt >> 24))
+        midi_notes_n++;
 }
 void plat_leds(uint32_t b, uint32_t k)
 {
@@ -318,6 +329,27 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "gate")) got = dn_rs.gate;
             else if (!strcmp(b, "note")) got = dn_rs.gate ? dn_rs.note : -1;
             else if (!strcmp(b, "leds-btn")) got = (long)lit_btn;
+            else if (!strcmp(b, "leds-keys")) got = (long)lit_keys;
+            else if (!strcmp(b, "playing")) got = dn_sq.playing;
+            else if (!strcmp(b, "rec")) got = dn.rec;
+            else if (!strcmp(b, "trk")) got = dn.trk + 1;
+            else if (!strcmp(b, "view")) got = dn.view;
+            else if (!strcmp(b, "swing")) got = dn_sq.pat.swing;
+            else if (!strcmp(b, "clocks")) got = (long)clock_n;
+            else if (!strcmp(b, "midinotes")) got = (long)midi_notes_n;
+            else if (!strncmp(b, "len.", 4)) got = dn_sq.pat.tr[atoi(b + 4) - 1].len;
+            else if (!strncmp(b, "mute.", 5)) got = dn_sq.pat.tr[atoi(b + 5) - 1].mute;
+            else if (!strncmp(b, "on.", 3)) {       /* on.T: how many steps of track T are on */
+                const dn_track_t *tr = &dn_sq.pat.tr[atoi(b + 3) - 1];
+                got = 0;
+                for (uint32_t k = 0; k < tr->len; k++)
+                    got += tr->st[k].flags & DN_ST_ON;
+            } else if (!strncmp(b, "st.", 3) || !strncmp(b, "nt.", 3) || !strncmp(b, "ln.", 3)) {
+                int t = 0, i = 0;                   /* st.T.I flags, nt.T.I note, ln.T.I gate of step I (1-based) */
+                sscanf(b + 3, "%d.%d", &t, &i);
+                const dn_step_t *st = &dn_sq.pat.tr[t - 1].st[i - 1];
+                got = b[0] == 's' ? st->flags : b[0] == 'n' ? st->note : st->len;
+            }
             else if (!strncmp(b, "p.", 2)) {
                 got = -9999;
                 for (uint32_t k = 0; k < RP_COUNT; k++)

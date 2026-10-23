@@ -15,7 +15,10 @@ $CC $W tests/host/reese_test.c src/dsp/reese.c -o build/host/reese_test
 build/host/reese_test build/host
 python3 tests/host/reese_measure.py
 # shellcheck disable=SC2086
-$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c -o build/host/dn_host
+$CC $W tests/host/seq_test.c src/dsp/dn_seq.c -o build/host/seq_test
+build/host/seq_test
+# shellcheck disable=SC2086
+$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c -o build/host/dn_host
 for s in tests/host/scenarios/*.txt; do
     build/host/dn_host "$s" build/host
 done

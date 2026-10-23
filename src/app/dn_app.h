@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "reese.h"
 #include "dn_dsp.h"
+#include "dn_seq.h"
 
 void dn_app_init(void);
 void dn_app_render(int32_t *lr, uint32_t n);

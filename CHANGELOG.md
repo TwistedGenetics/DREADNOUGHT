@@ -72,3 +72,19 @@ Research notes and sources: `docs/REESE.md`.
 
 Not yet tested on a real FM-1.
 
+## 0.4 — the 8-track sequencer (2026-10-24)
+
+- Eight tracks of up to 64 steps, each its own length (polymeter); per step a note, gate length, accent and slide
+  (a tie with glide, the 303's way); swing; mutes. Sample-accurate in the audio interrupt; steps add up exactly to the
+  tempo (no drift). MIDI clock, start and stop out on USB.
+- Track 1 plays REESE; tracks 2–8 play MIDI channels 2–8 (keys play the selected track too).
+- SEQ page: eight rows of the 16 steps in view, the playhead, the held step's values. White keys are the steps, black
+  keys mute tracks, clear a track (held 1 s) and move through the 64 steps.
+- REC: live recording to the nearest step while playing, step recording when stopped; a key held under another
+  records a slide.
+- PLAY is the transport now; holding a note moved to HOME. SAVE keeps the pattern as well as the sound.
+- A demo reese line on first boot. Host tests: the sequencer's timing against the tempo, swing, slides, polymeter and
+  mutes; the SEQ page driven from the panel, including record and save over a restart.
+
+Not yet tested on a real FM-1.
+

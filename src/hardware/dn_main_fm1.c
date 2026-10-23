@@ -446,7 +446,8 @@ static void fm1_main(void)
         if (usb.ota_req) {
             usb.ota_req = 0;
             dn_lock();
-            reese_note_off(&dn_rs);                 /* nothing may hang on through an install */
+            dn_seq_stop(&dn_sq, &DN_SQ_CB);         /* nothing may hang on through an install */
+            reese_note_off(&dn_rs);
             dn_unlock();
             if (flash_ok)
                 ota_session();                      /* returns only if nothing was committed */
