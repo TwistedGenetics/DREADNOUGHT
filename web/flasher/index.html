@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DREADNOUGHT Flasher</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Barlow:wght@400;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><span class="mark" aria-hidden="true"></span>DREADNOUGHT <small>firmware flasher for the M-VAVE FM-1</small></div>
+  <a class="help" href="https://github.com/TwistedGenetics/DREADNOUGHT/blob/main/docs/RECOVERY.md" target="_blank" rel="noopener">Recovery guide</a>
+</header>
+
+<main>
+  <p id="support" class="notice" hidden>This page needs Chrome or Edge on a computer (WebMIDI with SysEx). Safari and Firefox can't flash the FM-1.</p>
+
+  <section class="panel" id="s-connect">
+    <h2><span class="n">1</span>Connect</h2>
+    <p>Plug the FM-1 straight into this computer with a data USB cable, switch it on, and close Ableton or any other app or tab using MIDI.</p>
+    <button id="detect">Find my FM-1</button>
+    <dl class="readout"><dt>On the FM-1</dt><dd id="device">Not checked yet</dd></dl>
+  </section>
+
+  <section class="panel" id="s-backup">
+    <h2><span class="n">2</span>Back up first</h2>
+    <p id="backup-text">Find your FM-1 first, so this step can tell you which tool backs it up.</p>
+    <p class="small">Firmwares don't share formats: projects, presets and samples from one don't open in another.</p>
+    <label class="check"><input type="checkbox" id="backed-up"> I have saved a backup on this computer</label>
+  </section>
+
+  <section class="panel" id="s-firmware">
+    <h2><span class="n">3</span>Choose firmware</h2>
+    <div id="release-list" class="releases"><p class="small">Loading releases…</p></div>
+    <details class="local">
+      <summary>Use a .fwsc file from this computer (CI builds, testing)</summary>
+      <input type="file" id="file" accept=".fwsc">
+    </details>
+    <dl class="readout">
+      <dt>Package</dt><dd id="pkg">None chosen</dd>
+      <dt>SHA-256</dt><dd id="pkg-sha" class="mono">—</dd>
+    </dl>
+  </section>
+
+  <section class="panel" id="s-install">
+    <h2><span class="n">4</span>Install</h2>
+    <label class="check"><input type="checkbox" id="power"> The battery is charged and the cable goes straight into the computer (no hub)</label>
+    <button id="go" class="primary" disabled>Install</button>
+    <div class="meter"><div id="bar"></div></div>
+    <p id="status" role="status" aria-live="polite">Waiting.</p>
+    <p class="small">Don't close this tab while it writes. If it stops, plug back in and press Install again: the FM-1 waits in update mode and finishes the job.</p>
+    <details><summary>Log</summary><pre id="log"></pre></details>
+  </section>
+
+  <section class="panel quiet">
+    <h2>Going back to the official firmware</h2>
+    <p>Use M-VAVE's own tools for that: the <a href="https://open.m-vave.com/fm1-workbench" target="_blank" rel="noopener">FM1 Workbench</a> (return to V15), or the M-UPGRADE updater with FM-1 V15 from m-vave.com. Back up with the editor first. If the FM-1 won't start, read the <a href="https://github.com/TwistedGenetics/DREADNOUGHT/blob/main/docs/RECOVERY.md" target="_blank" rel="noopener">recovery guide</a>.</p>
+  </section>
+</main>
+
+<footer>
+  Free software, GPL-3.0. The update protocol code comes from <a href="https://github.com/isod89/sloop-fm1">SLOOP</a> and <a href="https://github.com/hugelton/Felucca">Felucca</a>. Not affiliated with M-VAVE. Installing custom firmware is at your own risk.
+</footer>
+<script type="module" src="app.js"></script>
+</body>
+</html>

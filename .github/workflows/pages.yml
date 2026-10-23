@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Publishes the web flasher (and, later, the editor) to GitHub Pages.
+# Release packages are copied into the site so the flasher can load them from the same origin
+# (browsers cannot fetch GitHub release downloads directly: no CORS headers there).
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/pages.yml", "tools/make_site.py"]
+  release:
+    types: [published, edited, deleted]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download release packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p releases
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease,publishedAt \
+            > releases/releases.json
+          for tag in $(python3 -c "import json;print(' '.join(r['tagName'] for r in json.load(open('releases/releases.json'))))"); do
+            mkdir -p "releases/$tag"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.fwsc' --dir "releases/$tag" || true
+          done
+      - name: Build the site
+        run: python3 tools/make_site.py releases site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

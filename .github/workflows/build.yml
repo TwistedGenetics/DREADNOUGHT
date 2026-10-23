@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# DREADNOUGHT firmware build. Runs on every push and pull request; a tag v* also publishes a release.
+#
+# Phase 0: builds the pinned, unmodified base (SLOOP, see tools/fetch_base.sh) to prove the
+# toolchain -> package -> flash loop. From Phase 1 the firmware job builds DREADNOUGHT's own tree.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firmware:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python packages (UI font, icons, tables)
+        run: pip install Pillow fonttools
+
+      - name: Cache JieLi toolchain and SDK files
+        uses: actions/cache@v4
+        with:
+          path: ~/.dreadnought-deps
+          key: jieli-deps-${{ runner.os }}-${{ hashFiles('tools/get_deps.sh') }}
+
+      - name: Toolchain and SDK files
+        run: tools/get_deps.sh ~/.dreadnought-deps
+
+      - name: Fetch the pinned base
+        run: tools/fetch_base.sh build/base
+
+      - name: Build the firmware package
+        working-directory: build/base
+        run: python3 tools/build.py
+
+      - name: Host tests (base suite)
+        working-directory: build/base
+        # Phase 0 runs the base's own suite to show the toolchain behaves. Upstream notes one
+        # static budget check that can be stale, so this step reports but does not block yet.
+        continue-on-error: true
+        run: sh tests/run_tests.sh
+
+      - name: Collect the package
+        run: |
+          mkdir -p dist
+          cp build/base/build/felucca.fwsc dist/dreadnought-phase0-base.fwsc
+          cd dist
+          sha256sum *.fwsc > SHA256SUMS
+          cat SHA256SUMS
+          python3 - <<'EOF'
+          # print the package identity the device will report (FM-1_9XY)
+          d = open("dreadnought-phase0-base.fwsc", "rb").read()
+          ident = "".join(chr((d[i * 0x30 + 0x2F] - i - 1) & 0xFF) for i in range(20) if d[i * 0x30 + 0x2F] != 0x7D)
+          print("package identity:", ident)
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Flasher tests
+        run: node --test 'web/flasher/test/*.test.mjs'
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [firmware, web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware-${{ github.sha }}
+          path: dist
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "DREADNOUGHT ${GITHUB_REF_NAME}" \
+            --notes "Install from the web flasher. Back up first and read docs/RECOVERY.md." \
+            --prerelease
