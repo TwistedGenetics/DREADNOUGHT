@@ -9,9 +9,9 @@ on a device yet, as far as we know.
 | | |
 |---|---|
 | SoC | JieLi **AC791N / WL82** (AC79 family), `pi32v2` CPU. The `JL-BR22` strings in the stock firmware are inherited library names, not the chip. |
-| Clock | **240 MHz** (PLL from a 24 MHz crystal) |
+| Clock | **360 MHz** measured on a running FM-1 by X0X (M-VAVE's boot sets it; it can't go higher). Static analysis of the stock firmware (FM-1-RE) found a 240 MHz PLL set-up; the running figure is the one to plan with. |
 | Cores | **2**. Core 0 runs everything by default; core 1 can be started and handed audio jobs (X0X, SLOOP 2.7+ and Clipper do this). |
-| Floating point | **No usable hardware FPU**: the stock firmware links soft-float helpers, and every community engine is fixed-point. We write **fixed-point DSP** (Q15/Q23/Q31) in the hot loops. |
+| Floating point | **Single-precision float is usable in audio code.** X0X's DSP is floating-point, and Carnac OS measured float filters *faster* on the device than its 64-bit integer versions (~6 % per voice). Doubles go through software helpers, so: `float` yes, `double` never in the audio path, integer where it measures faster (Carnac keeps its block FX in integer). |
 | RAM | About **512 KB internal SRAM** (`RAM0_SIZE` in the official linker script is just under 0x80000), **no SDRAM/PSRAM**. SLOOP's map: a 96 KiB RAM region, a ~336 KB pool, ~29 KB of "low RAM". Plus 28 KB of data-cache RAM. |
 | Flash | **1 MB in total**, linear-mapped for execute-in-place at `0x02000000`. Single bank: there is no second copy of the firmware to fall back to. Firmware images are ~580–700 KB, so user storage (projects, presets, samples) is what's left. |
 
@@ -36,13 +36,27 @@ on a device yet, as far as we know.
 | MIDI | USB-MIDI in/out, BLE MIDI, TRS MIDI in on fitted boards (DIN in the official firmware) |
 | Other | Battery level ADC, Bluetooth audio |
 
+## Measured CPU (Carnac OS, on the device)
+
+Carnac's PERF TEST, a wavetable synth with two filters, envelopes, LFOs and a mod matrix per voice:
+
+| Scenario | CPU |
+|---|---|
+| 8 voices, one core | ~102 % (about 10 % per voice + 19 % idle) — too much for one core |
+| 8 voices, both cores (odd voices on core 1) | **~38 %** |
+| 8 voices, heavy patch (ring mod, noise, 3 mod slots, delay + reverb) | ~53 % |
+| Torture test: two layers, 4-note chords at 1/32 with 4× ratchet at 167 BPM, plus arp | ~72 % average, 74 % peak |
+
+So a rich wavetable voice costs about 5 % of the two-core budget.
+
 ## Storage budget (what this means for us)
 
 | Item | Real limit we have to design around |
 |---|---|
 | User samples | Official firmware: 8 slots sharing **~19.5 s**. SLOOP: 4 user slots, **~15 s** total, ~7 s per slot, ADPCM. |
 | Breaks | A 4-bar break at 170 BPM is ~5.6 s, so **2 full breaks** at once, or more if shorter/lower rate. |
-| Wavetables | A full Serum table (256 frames × 2048 samples × 16-bit) is **1 MB — the whole flash**. Tables have to be reduced hard on import (see the feasibility report). |
+| Wavetables | A full Serum table (256 frames × 2048 samples × 16-bit) is **1 MB — the whole flash**. Carnac OS's working format: 512-sample frames stored with 7 band-limited mip levels (2 KB per frame), 8 morph frames per bank = **16 KB per bank**, read straight from flash. 15 banks = ~229 KB. |
+| Breaks | X0X fits about **nine one-bar loops** in the three user sample slots, and has a browser page and a CLI for uploading them. |
 
 ## Software bases
 
@@ -93,8 +107,10 @@ pinned hashes; that is possible later but not needed for our chosen base (see FE
 | Screen, keys, buttons, encoders, MIDI, flash API, audio block | `m-vave/fm1_open` → `sdk/include/fm1.h`, `fm1_block.h`, `fm1_audio_io.h`, `fm1_device.h` |
 | RAM/flash layout | `m-vave/fm1_open` → `sdk/config/linker.ld.in`; `isod89/sloop-fm1` → `RAM.md` |
 | Toolchain, closed engine, Windows-only build | `m-vave/fm1_open` → `README.md`, `sdk/manifest.json`, `THIRD_PARTY.md` |
-| SoC identity, 240 MHz, soft-float, 1 MB single-bank flash | `AL-255/FM-1-RE` → `README.md`, `docs/architecture.md`, `TODO_aug2.md` |
+| SoC identity, PLL set-up, soft-float doubles, 1 MB single-bank flash | `AL-255/FM-1-RE` → `README.md`, `docs/architecture.md`, `TODO_aug2.md` |
 | Second core, measured load | `isod89/sloop-fm1` → `DUALCORE.md`; `isod89/clipper-fm1` → `README.md` |
 | Sample limits | `m-vave/fm1_open` → `README.md`; `isod89/sloop-fm1` → `README.md`; `hugelton/Felucca` → `firmware/src/slice_store.c` |
 | Linux build, packaging, identities | `hugelton/Felucca` → `BUILDING.md`, `tools/build.py`; `isod89/sloop-fm1` → `BUILDING.md` |
 | Update protocol | `hugelton/Felucca` and `isod89/sloop-fm1` → `web/fm1ota.js`, `web/fm1pkg.js` |
+| 360 MHz clock, float vs integer, measured CPU, wavetable format | `OwenKirby/carnac-os` → `docs/dual-core-plan.md`, `docs/fm1-measure-checklist.md`, `src/dsp/wavetables.h`, `src/dsp/gen_wavetables.py` |
+| Chip-level rescue, break upload | `charlesvestal/fm1-x0x` → `tools/fm1_rescue.py`, `README.md`; `OwenKirby/carnac-os` → `docs/fm1-recovery.md` |
