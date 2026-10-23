@@ -58,6 +58,11 @@ jobs:
         continue-on-error: true
         run: sh tests/run_tests.sh
 
+      - name: Target cost of the render loops (as annotations)
+        if: always()
+        continue-on-error: true
+        run: python3 tests/target_budget.py build/felucca.dis tests/target_budget.txt | sed 's/^/::notice title=target budget::/'
+
       - name: Collect the package
         run: |
           mkdir -p dist
