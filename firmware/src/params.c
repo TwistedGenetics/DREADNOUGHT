@@ -66,6 +66,7 @@ static const char *const N_CHORD[] = {"OFF", "TRIAD", "7TH", "9TH", "SUS4", "POW
 static const char *const N_ROLL[] = {"1/8", "1/16", "1/32", "32T", "1/64"};   /* seq.c ROLL_DEN */
 static const char *const N_ENGNAME[] = {"ANALOG", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
                                         "FM6", "PHYS", "NOISE",
+                                        "REESE",              /* DREADNOUGHT: ENGI_REESE */
 #if FELUCCA_SLICE
                                              "SLICE",
 #endif

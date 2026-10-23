@@ -28,12 +28,14 @@ static inline int32_t soft_knee(int32_t y, int32_t k)   /* linear up to k, then 
 #include "eng_fm6.c"            /* FM6: 6-operator FM, msfa ported (fm6_core.c, Apache-2.0); SLOOP 2.4 */
 #include "eng_phys.c"           /* PHYS: physical models, from Felucca 1.0 (DaisySP, Rings: MIT); SLOOP 2.5 */
 #include "eng_noise.c"          /* NOISE: from Felucca 1.0; SLOOP 2.5 */
+#include "eng_reese.c"          /* DREADNOUGHT: REESE, the drum & bass bass */
 
 typedef union {
     gr_part_t grain;
     drw_part_t drawbar;                  /* eng_drawbar.c: the part's wheels, percussion and rotary (sloop-lab) */
     fm6_part_t fm6;                      /* eng_fm6.c: six notes and the operator buses */
     uint32_t phys[PHYS_ARENA / 4u];      /* eng_phys.c: two SYMP slots or three small ones */
+    reese_part_t reese;                  /* DREADNOUGHT eng_reese.c: the stack, the ladder and the comb of each voice */
 } eng_arena_t;
 static eng_arena_t eng_arena[NPART] __attribute__((section(".pool")));
 static uint8_t eng_arena_own[NPART];            /* the engine + 1 whose state is in it, 0 = none */
@@ -85,12 +87,14 @@ static const engine_t *const ENGINES[NENGINES] = {&ENG_ANALOG, &ENG_DIGITAL, &EN
                                                     &ENG_GRAIN,
                                                     &ENG_FM6,    /* 9 (ENGI_FM6): always; SLICE after it (core.h) */
                                                     &ENG_PHYS, &ENG_NOISE,
+                                                    &ENG_REESE,  /* 12: ENGI_REESE (DREADNOUGHT) */
 #if FELUCCA_SLICE
                                                     &ENG_SLICE,
 #endif
 };
 _Static_assert(ENGI_FM6 == 9u, "ENGINES[ENGI_FM6] is FM6");
-_Static_assert(ENGI_GRAIN == 8u && ENGI_PHYS == 10u && ENGI_NOISE == 11u && ENGI_SLICE == 12u, "ENGINES[] order");
+_Static_assert(ENGI_GRAIN == 8u && ENGI_PHYS == 10u && ENGI_NOISE == 11u && ENGI_REESE == 12u && ENGI_SLICE == 13u,
+               "ENGINES[] order");
 
 /* every factory sound as loud as the others: a level trim per preset, 1/2 dB, measured on a phrase
  * that fits the sound (tools/level_presets.py writes preset_trim.h); a track keeps it in P_ED_FX */
