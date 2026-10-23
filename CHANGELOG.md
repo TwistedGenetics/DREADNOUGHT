@@ -42,3 +42,17 @@ pre-flight check. Not yet tested: anything on a real FM-1.
 
 - Every push to main now publishes the Release `v<VERSION>` with `DREADNOUGHT-X.Y.fwsc` and `SHA256SUMS`, and
   redeploys the flasher so it lists the release. First release: **0.1 beta** (package identity `FM-1_901`).
+
+## 0.2 — REESE rebuilt from research (2026-10-23)
+
+Research notes and sources: `docs/REESE.md`.
+
+- **OSC**: 2SAW (the CZ's 1+1' pair), 3SAW, 5SAW, 7SAW, SAWSQ (techstep grit), 2SIN (the soft original).
+- **DTN** is now the total spread in cents, 0–100 (64 = 25 cents, 90 = 50, 127 = 100); measured beat rates match
+  the maths within 2 %.
+- **BEAT**: lock the movement to 1/1 … 1/16 (and triplets) at the song tempo, the same on every note.
+- **SUB** now also high-passes the oscillators at ~120 Hz (24 dB), so the low end is a steady, clean mono sine
+  instead of pumping with the beating. Drive only works above that split.
+- **NTCH**: the swept notch comb (was HOLW).
+- Presets: CLASSIC RS, OG REESE, HOLLOW RS, TECHSTEP, NEURO RS, SYNC RS, DARK RS, SUB REESE, HOOVER RS.
+
