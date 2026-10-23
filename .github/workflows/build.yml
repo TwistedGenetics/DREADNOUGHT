@@ -53,9 +53,7 @@ jobs:
         run: python3 tools/preflight.py build
 
       - name: Host tests
-        # Failing tests show as annotations on the run. Non-blocking until the inherited suite is
-        # green in CI (it passes locally without the target-only checks).
-        continue-on-error: true
+        # Failing tests show as annotations on the run, and fail the build.
         run: sh tests/run_tests.sh
 
       - name: Target cost of the render loops (as annotations)
