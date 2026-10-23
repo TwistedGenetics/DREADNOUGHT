@@ -115,6 +115,6 @@ Regenerate with `python3 tools/ui_mock.py`.
 | | |
 |---|---|
 | Hardware facts | Read from the official SDK headers and community sources, not measured by us |
-| CI firmware build | Written and linted; **not run yet** (needs the repo push). This sandbox can't reach JieLi's toolchain server or gitee, so the first real run is on GitHub |
+| CI firmware build | **Works on GitHub**: the first run fetched the toolchain and SDK files, built and packaged the base, and uploaded the `.fwsc` artifact. The base's own host-test suite reported a failure (non-blocking in Phase 0; upstream notes a stale budget check) — to be read and fixed in Phase 1 |
 | Web flasher | Unit tests (6) and a browser end-to-end test against a simulated FM-1 pass. **Not yet used on a real FM-1** |
 | CPU/RAM numbers above | Estimates from SLOOP/Clipper's published figures; Phase 1 measures them |

@@ -11,4 +11,5 @@
 
 Tested: flasher unit tests (6 pass) and a Chromium end-to-end run against a simulated FM-1 (full
 install, cut-off and resume). Workflows lint clean with actionlint.
-Not yet tested: the CI firmware build (first run happens on GitHub), and the flasher on a real FM-1.
+The first CI run built and packaged the base firmware on GitHub; the base's own host-test suite
+reported a failure there (non-blocking for now, to be read in Phase 1). Not yet tested: the flasher on a real FM-1.
