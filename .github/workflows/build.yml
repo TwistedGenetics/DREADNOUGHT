@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-only
-# DREADNOUGHT firmware build. Runs on every push and pull request; a tag v* also publishes a release.
+# DREADNOUGHT firmware build. Every push / PR builds the firmware and runs the tests.
+# Releases: the version is in the VERSION file (X.Y, one digit each: the FM-1 package identity is FM-1_9XY).
+# A push to main publishes the Release vX.Y with DREADNOUGHT-X.Y.fwsc if it doesn't exist yet, or refreshes that
+# Release's files if it does. Pushing a vX.Y tag works too. The flasher site is then redeployed.
 #
 # Builds DREADNOUGHT's own tree (Phase 1 onward: a fork of SLOOP 2.8.1, see docs/UPSTREAM.md).
 name: build
@@ -41,13 +44,19 @@ jobs:
       - name: Toolchain and SDK files
         run: tools/get_deps.sh ~/.dreadnought-deps
 
+      - name: Read the version
+        id: ver
+        run: |
+          v=$(tr -d ' \n' < VERSION)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "v$v" ]; then
+            echo "::error title=Version::tag ${GITHUB_REF_NAME}, but VERSION says $v"; exit 1
+          fi
+
       - name: Build the firmware package
         run: |
-          if [ "${GITHUB_REF_TYPE}" = tag ]; then
-            python3 tools/build.py --release "${GITHUB_REF_NAME#v}"
-          else
-            python3 tools/build.py
-          fi
+          python3 tools/build.py --release "${{ steps.ver.outputs.version }}"
+          cp "build/felucca-${{ steps.ver.outputs.version }}.fwsc" build/felucca.fwsc   # the name the tests expect
 
       - name: Pre-flight check of the image
         run: python3 tools/preflight.py build
@@ -64,9 +73,8 @@ jobs:
       - name: Collect the package
         run: |
           mkdir -p dist
-          pkg=$(ls build/felucca*.fwsc | head -1)
-          name="dreadnought-${GITHUB_REF_NAME//\//-}.fwsc"
-          [ "${GITHUB_REF_TYPE}" = tag ] || name="dreadnought-${GITHUB_SHA::7}.fwsc"
+          pkg="build/felucca-${{ steps.ver.outputs.version }}.fwsc"
+          name="DREADNOUGHT-${{ steps.ver.outputs.version }}.fwsc"
           cp "$pkg" "dist/$name"
           cd dist
           sha256sum *.fwsc > SHA256SUMS
@@ -95,22 +103,45 @@ jobs:
         run: node --test 'web/flasher/test/*.test.mjs'
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.ref == 'refs/heads/main' && github.event_name == 'push')
     needs: [firmware, web]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: firmware-${{ github.sha }}
           path: dist
-      - name: Publish the release
+      - name: Version
+        id: ver
+        run: |
+          v=$(tr -d ' \n' < VERSION)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: DREADNOUGHT ${{ steps.ver.outputs.version }} beta
+          make_latest: true
+          files: |
+            dist/DREADNOUGHT-${{ steps.ver.outputs.version }}.fwsc
+            dist/SHA256SUMS
+          body: |
+            DREADNOUGHT — a dark jungle / drum & bass firmware for the **M-VAVE FM-1**. A fork of SLOOP 2.8.1 with the new **REESE** engine (its presets lead the BASS list).
+
+            **Beta: not yet tested on a real FM-1.** Installing custom firmware is at your own risk. Read [RECOVERY.md](https://github.com/${{ github.repository }}/blob/main/docs/RECOVERY.md) before you install.
+
+            **Install:** download `DREADNOUGHT-${{ steps.ver.outputs.version }}.fwsc`, then open the [web flasher](https://twistedgenetics.github.io/DREADNOUGHT/flasher/) in Chrome or Edge with the FM-1 on USB, back up, and pick the file (or choose this release from its list).
+
+            What's new: [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).
+      - name: Redeploy the flasher site (lists this release)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "DREADNOUGHT ${GITHUB_REF_NAME}" \
-            --notes "Install from the web flasher. Back up first and read docs/RECOVERY.md." \
-            --prerelease
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main

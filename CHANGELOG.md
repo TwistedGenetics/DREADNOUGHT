@@ -37,3 +37,8 @@ reported a failure there (non-blocking for now, to be read in Phase 1). Not yet 
 Tested on the host: every inherited host test, golden renders for the 8 new presets, health (no clipping, DC
 or hanging voices), UI fuzz, recovery hold. CI: the firmware builds, packages (610 KB) and passes the
 pre-flight check. Not yet tested: anything on a real FM-1.
+
+### Downloads (2026-10-23)
+
+- Every push to main now publishes the Release `v<VERSION>` with `DREADNOUGHT-X.Y.fwsc` and `SHA256SUMS`, and
+  redeploys the flasher so it lists the release. First release: **0.1 beta** (package identity `FM-1_901`).
