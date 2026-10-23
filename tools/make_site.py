@@ -34,7 +34,11 @@ def product_of(data: bytes) -> str:
 def main(rel_dir: Path, site: Path) -> None:
     if site.exists():
         shutil.rmtree(site)
-    shutil.copytree(ROOT / "web", site, ignore=shutil.ignore_patterns("test", "*.mjs.map"))
+    # only the flasher and the landing page: the rest of web/ is SLOOP's editor and installer sources (built by
+    # web/make_site.py, not published here yet)
+    site.mkdir(parents=True)
+    shutil.copyfile(ROOT / "web" / "index.html", site / "index.html")
+    shutil.copytree(ROOT / "web" / "flasher", site / "flasher", ignore=shutil.ignore_patterns("test"))
     listing = []
     meta = rel_dir / "releases.json"
     releases = json.loads(meta.read_text()) if meta.exists() else []
