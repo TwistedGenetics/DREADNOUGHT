@@ -61,7 +61,7 @@ jobs:
       - name: Target cost of the render loops (as annotations)
         if: always()
         continue-on-error: true
-        run: python3 tests/target_budget.py build/felucca.dis tests/target_budget.txt | sed 's/^/::notice title=target budget::/'
+        run: python3 tests/target_budget.py build/felucca.dis tests/target_budget.txt | grep -v ' ok$' | sed 's/^/::notice title=target budget::/'
 
       - name: Collect the package
         run: |
