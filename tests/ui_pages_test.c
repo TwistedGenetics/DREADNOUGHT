@@ -1784,6 +1784,25 @@ int main(int argc, char **argv)
         ui.arm = 0; song.g[G_SLOT] = 1;
         go_home(); frames(4);
     }
+    {   /* DREADNOUGHT: the REESE engine on the device: the PRESETS knob from power-on reaches CLASSIC RS, and the
+         * PRESETS page's KNOB 2 (the engine) reaches REESE; screenshots of both */
+        uint32_t k, n, total, kk, found = 0;
+        ui.menu = 0; song.sel = 0; go_home(); frames(2);
+        preset_go_to(&trk[0], 0); frames(2);
+        for (n = 0; n < NBANK + 2u && !found; n++) {
+            if (trk[0].eng_req == ENGI_REESE) found = 1;
+            else { encs[panel.enc[EN_PRESET]] = 1; frames(4); }
+        }
+        check(found && !strcmp(ENGINES[trk[0].eng_req]->presets[trk[0].preset].name, "CLASSIC RS"),
+              "REESE: the first sound of the PRESETS list (BASS) is CLASSIC RS");
+        ui.force = 1; frame(); ppm("dn-home-reese");
+        for (k = 0; k < NPAGES; k++) if (!strcmp(PAGES[k].title, "PRESETS")) break;
+        open_family(PAGES[k].fam); ui.page = (uint8_t)k; ui.fam_last[PAGES[k].fam] = (uint8_t)k; page_entered(); ui.force = 1; frames(2);
+        ui.force = 1; frame(); ppm("dn-presets-reese");
+        for (k = 0; k < 8u; k++) if (strcmp(PAGES[k].title, "EDIT 1") == 0) break;
+        (void)total; (void)kk;
+        go_home(); frames(2);
+    }
     {   /* 2.7: favourites: the PRESETS page, KNOB 4 right adds the sound to the top of the list, left removes it */
         uint32_t total0, total1, cur, e0, p0, k, e;
         int ok;
