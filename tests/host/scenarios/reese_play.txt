@@ -1,0 +1,81 @@
+# DREADNOUGHT host scenario: the REESE app from the panel. tests/run_host.sh runs it.
+splash ui-00-splash.png
+expect preset 0
+expect page 0
+shot ui-01-boot.png
+# a key: F3 -> with CLASSIC RS's TRANS -24 it sounds F1
+wav reese-keys.wav
+key 0 down
+wait 400
+expect gate 1
+expect note 53
+expect peak >6000
+# a second key held over the first: a slide up, then back when it lets go
+key 3 down
+wait 300
+expect note 56
+key 3 up
+wait 300
+expect note 53
+key 0 up
+wait 1500
+expect gate 0
+expect peak >0
+wait 400
+expect peak <40
+wavstop
+# the pages: SELECT turns through them; the page buttons jump
+turn SELECT 1
+expect page 1
+shot ui-02-filter.png
+tap ENV
+expect page 2
+tap GLO
+expect page 4
+tap SEL
+expect page 0
+# KNOB 2 on the OSC page: DTN; the sound is now changed (SAVE lit)
+turn K2 2
+expect p.DTN 72
+expect dirty 1
+expect leds-btn >127
+# the octave
+tap OCT-
+expect oct -1
+tapkey 0 200
+# PRESETS: the next sound, the edits dropped
+turn PRESET 4
+expect preset 4
+expect dirty 0
+shot ui-03-neuro.png
+# the tempo
+turn ALGO -2
+expect bpm 170
+# PLAY holds a note
+wav reese-hold.wav
+tap PLAY
+wait 800
+expect gate 1
+shot ui-04-hold.png
+tap PLAY
+wait 2000
+expect gate 0
+wavstop
+# MIDI in
+midi 90 24 64
+wait 200
+expect note 36
+midi 80 24 00
+wait 50
+expect gate 0
+# SAVE keeps it over a restart
+turn K1 2
+expect dirty 1
+tap SAVE
+expect dirty 0
+reboot
+expect preset 4
+expect bpm 170
+expect oct -1
+expect p.OSC 4
+shot ui-05-after-reboot.png

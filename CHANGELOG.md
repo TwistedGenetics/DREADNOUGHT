@@ -56,3 +56,19 @@ Research notes and sources: `docs/REESE.md`.
 - **NTCH**: the swept notch comb (was HOLW).
 - Presets: CLASSIC RS, OG REESE, HOLLOW RS, TECHSTEP, NEURO RS, SYNC RS, DARK RS, SUB REESE, HOOVER RS.
 
+## 0.3 — our own firmware (2026-10-23)
+
+- DREADNOUGHT is no longer a SLOOP fork: its own app, screen and engines, on X0X's platform pinned as a submodule
+  (boot-loop guard, safe mode, crash screen, USB MIDI and audio, TRS MIDI in, storage, the update entry and loader),
+  built the way Carnac OS builds (`tools/build_fm1.py`, with the start-up preflight and the miscompile check).
+- REESE as a standalone engine (`src/dsp/reese.c`): mono, legato with glide, ADSR, filter envelope and LFO, per-oscillator
+  drift. BEAT now locks exactly to the tempo on every note (one shared drift).
+- Massive-style screen: title bar, preset strip, a live scope, five pages of four dials, status line; the page's button
+  lights. SAVE keeps the sound over a power cycle.
+- Host harness (`tests/host/dn_host.c`): the whole app run from a script, with screenshots and recordings; the engine
+  measured: detune beat rates within 6 % (the drift is deliberate), tempo-locked beats exact at three pitches, the low
+  end steady with SUB.
+- Package identity follows X0X's scheme (FM-1_9000300); the web flasher accepts it.
+
+Not yet tested on a real FM-1.
+

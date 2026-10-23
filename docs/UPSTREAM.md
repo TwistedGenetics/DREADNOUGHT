@@ -1,27 +1,44 @@
 # Where DREADNOUGHT's code comes from
 
-DREADNOUGHT is a fork. Everything is GPL-3.0-only unless a file says otherwise; see `LICENSING.md`
-(SLOOP's, kept as it is) and `LICENSES/`.
+From 0.3, DREADNOUGHT is its own firmware on a borrowed platform. Everything is GPL-3.0-only unless a file says
+otherwise.
+
+**Ours** (Copyright (C) 2026 Jamie / TwistedGenetics): the app and the UI (`src/app/`), the engines and the DSP
+building blocks (`src/dsp/`), the device glue's changes, the build script's changes, the host harness and its tests
+(`tests/`), the tables generator, the web flasher's page and checks (`web/flasher/` except `vendor/`), the docs.
+
+**The platform** is [X0X](https://github.com/charlesvestal/fm1-x0x) by Charles Vestal, used as a git submodule
+(`x0x-firmware/`) pinned to one commit, the way [Carnac OS](https://github.com/OwenKirby/carnac-os) uses it. Nothing in
+it is edited: the build takes X0X's `firmware/src/x0x.c` up to the line where its own app starts and puts ours after
+it. What we use from X0X (and through it from [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita /
+Hügelton Instruments): the HAL, the boot-loop guard and safe mode, the crash screen and watchdog, the panel map and its
+calibration, the screen driver, the canvas and fonts, USB MIDI and USB audio, TRS MIDI in, the flash storage, the
+M-UPGRADE update entry and the update loader, the package maker and the build checks.
 
 | Part | From | Version / commit | Licence |
 |---|---|---|---|
-| Firmware, HAL, update loader, build and package tools, host tests, web editor (`firmware/`, `tools/`, `tests/`, `web/` except `web/flasher/`, `assets/`) | [SLOOP](https://github.com/isod89/sloop-fm1) by isod89, itself after [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita / Hügelton Instruments | v2.8.1, `d89364253b79a5c6002c0d90c5f16b3c3c16ea9d`, imported 2026-10-23 | GPL-3.0-only (parts MIT / Apache-2.0 / CC0 / OFL as listed in `LICENSING.md`) |
-| Second-core start-up (inside SLOOP's HAL) | [X0X](https://github.com/charlesvestal/fm1-x0x) by Charles Vestal, after Melodee | via SLOOP | GPL-3.0-only |
+| Platform (`x0x-firmware/`, submodule) | X0X, after Felucca and Melodee | `5048230b86254581d991121916ede3de0d0c91f6` | GPL-3.0-only (fonts and parts as X0X's `LICENSING.md` lists) |
+| Device glue (`src/hardware/dn_main_fm1.c`) | Carnac OS `src/hardware/synth_main_fm1.c`, after X0X's `app/main_fm1.c` | 2026-10-23 | GPL-3.0-only |
+| Build script (`tools/build_fm1.py`) | Carnac OS `src/hardware/build_fm1.py` | 2026-10-23 | GPL-3.0-only |
+| Start-up preflight (`tools/fm1_preflight.py`) | Carnac OS `src/hardware/fm1_preflight.py` (objdump path only changed) | 2026-10-23 | GPL-3.0-only |
+| Host harness's screen stubs (`tests/host/dn_host.c`) | X0X `host/x0x_host.c` | via the submodule | GPL-3.0-only |
+| REESE's ladder filter and supersaw spacing (`src/dsp/reese.c`) | [Clipper](https://github.com/isod89) `dsp.c`, `eng_hybrid.c` | 2026-10-23 | GPL-3.0-only |
+| SVF, polyBLEP, soft clip (`src/dsp/dn_dsp.h`) | written again after Felucca's `dsp.c` | | GPL-3.0-only |
 | Web flasher's update-protocol modules (`web/flasher/vendor/`) | SLOOP / Felucca `web/fm1ota.js`, `web/fm1pkg.js` | SLOOP v2.8.1 | GPL-3.0-only |
-| Start-up pre-flight check (`tools/preflight.py`) | [Carnac OS](https://github.com/OwenKirby/carnac-os) by OrbVorgis, `src/hardware/fm1_preflight.py` | 2026-10-23 | GPL-3.0-only |
-| SLOOP's own documentation | kept for reference in `docs/upstream/` | v2.8.1 | GPL-3.0-only |
 
-## What DREADNOUGHT changed in the imported code
+## What the build changes on the way through
 
-Each change is marked `DREADNOUGHT` in a comment where it is made.
+- USB names: manufacturer `TwistedGenetics`, product `DREADNOUGHT FM-1` (a copy of X0X's `usb.c` with the two
+  strings replaced; "FM-1" stays in the name so every FM-1 flasher still finds the port).
+- Package identity: X0X's scheme, `FM-1_9XXYYZZ` from `VERSION` (0.3 → `FM-1_9000300`).
+- No package is kept unless the start-up simulation passes and the JieLi indexed 64-bit store miscompile is absent.
 
-- Name: version string, USB manufacturer and port name (`DREADNOUGHT`), boot splash, About page, rescue and crash screens.
-- The installers' MIDI port filters also accept `dreadnought` (`web/fm1ota.js`, `web/editor.html`, `tools/fm1_install.py`).
-- The editor INFO reply still reports `SLOOP 2.8.1` as its protocol version, so the inherited editor keeps its version-gated behaviour.
-- Rescue screen: OCT− + OCT+ held 5 s enters the chip's own update mode (UBOOT), as the main loop already did.
-- `tests/run_tests.sh` reports failing tests as GitHub annotations; `tests/run_host_only.sh` runs the toolchain-free tests locally.
+## Taking platform fixes
 
-## Taking upstream fixes
+Move the submodule to a newer X0X commit, rebuild, run the host tests and the build checks, and record the new commit
+above. `tools/build_fm1.py` refuses to build if the lines it cuts or replaces have changed, rather than guessing.
 
-SLOOP moves fast. To bring in a later SLOOP fix, diff that SLOOP release against v2.8.1 and apply the
-change by hand, keeping the `DREADNOUGHT` changes above. Record the new base here.
+## 0.1 and 0.2
+
+DREADNOUGHT 0.1 and 0.2 were a fork of [SLOOP](https://github.com/isod89/sloop-fm1) 2.8.1 (isod89) with the REESE
+engine added. Their tree is on the `main` branch history up to `93d44c6`.

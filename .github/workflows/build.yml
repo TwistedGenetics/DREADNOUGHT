@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # DREADNOUGHT firmware build. Every push / PR builds the firmware and runs the tests.
-# Releases: the version is in the VERSION file (X.Y, one digit each: the FM-1 package identity is FM-1_9XY).
+# Releases: the version is in the VERSION file (X.Y; the FM-1 package identity is FM-1_9XXYY00, X0X's scheme).
 # A push to main publishes the Release vX.Y with DREADNOUGHT-X.Y.fwsc if it doesn't exist yet, or refreshes that
 # Release's files if it does. Pushing a vX.Y tag works too. The flasher site is then redeployed.
 #
-# Builds DREADNOUGHT's own tree (Phase 1 onward: a fork of SLOOP 2.8.1, see docs/UPSTREAM.md).
+# From 0.3: DREADNOUGHT's own app and engines on X0X's platform (the x0x-firmware submodule, pinned), built the way
+# Carnac OS builds (tools/build_fm1.py). See docs/UPSTREAM.md.
 name: build
 
 on:
   push:
-    branches: [main]
+    branches: [main, x0x-platform]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -27,13 +28,15 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Python packages (UI font, icons, tables)
-        run: pip install Pillow fonttools
+      - name: Python packages (the font, the measurements)
+        run: pip install Pillow fonttools numpy
 
       - name: Cache JieLi toolchain and SDK files
         uses: actions/cache@v4
@@ -53,27 +56,16 @@ jobs:
             echo "::error title=Version::tag ${GITHUB_REF_NAME}, but VERSION says $v"; exit 1
           fi
 
-      - name: Build the firmware package
-        run: |
-          python3 tools/build.py --release "${{ steps.ver.outputs.version }}"
-          cp "build/felucca-${{ steps.ver.outputs.version }}.fwsc" build/felucca.fwsc   # the name the tests expect
+      - name: Host tests (the engines measured, the app driven from the panel)
+        run: sh tests/run_host.sh
 
-      - name: Pre-flight check of the image
-        run: python3 tools/preflight.py build
-
-      - name: Host tests
-        # Failing tests show as annotations on the run, and fail the build.
-        run: sh tests/run_tests.sh
-
-      - name: Target cost of the render loops (as annotations)
-        if: always()
-        continue-on-error: true
-        run: python3 tests/target_budget.py build/felucca.dis tests/target_budget.txt | grep -v ' ok$' | sed 's/^/::notice title=target budget::/'
+      - name: Build the firmware package (with the start-up preflight and the miscompile check)
+        run: python3 tools/build_fm1.py --release "${{ steps.ver.outputs.version }}"
 
       - name: Collect the package
         run: |
           mkdir -p dist
-          pkg="build/felucca-${{ steps.ver.outputs.version }}.fwsc"
+          pkg="build/fm1/DREADNOUGHT-${{ steps.ver.outputs.version }}.fwsc"
           name="DREADNOUGHT-${{ steps.ver.outputs.version }}.fwsc"
           cp "$pkg" "dist/$name"
           cd dist
@@ -90,6 +82,15 @@ jobs:
           name: firmware-${{ github.sha }}
           path: dist/
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: host-${{ github.sha }}
+          path: |
+            build/host/*.png
+            build/host/*.wav
+          if-no-files-found: ignore
 
   web:
     runs-on: ubuntu-latest
@@ -134,7 +135,7 @@ jobs:
             dist/DREADNOUGHT-${{ steps.ver.outputs.version }}.fwsc
             dist/SHA256SUMS
           body: |
-            DREADNOUGHT — a dark jungle / drum & bass firmware for the **M-VAVE FM-1**. A fork of SLOOP 2.8.1 with the new **REESE** engine (its presets lead the BASS list).
+            DREADNOUGHT — a dark jungle / drum & bass firmware for the **M-VAVE FM-1**: its own app and engines (starting with **REESE**) on X0X's proven platform.
 
             **Beta: not yet tested on a real FM-1.** Installing custom firmware is at your own risk. Read [RECOVERY.md](https://github.com/${{ github.repository }}/blob/main/docs/RECOVERY.md) before you install.
 

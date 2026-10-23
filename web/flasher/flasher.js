@@ -2,8 +2,9 @@
 // DREADNOUGHT flasher: the checks, kept apart from the page so they can be tested in Node.
 import { productOf, logicalImage, sha256hex } from "./vendor/fm1pkg.js";
 
-// Packages we will write: Felucca-family identities, written through a Felucca-family loader.
-export const OUR_PRODUCT = /^FM-1_9\d\d$/;
+// Packages we will write: Felucca-family identities, written through a Felucca-family loader. FM-1_9XY (Felucca,
+// SLOOP, DREADNOUGHT 0.1-0.2) or X0X's FM-1_9XXYYZZ (DREADNOUGHT from 0.3, which builds on X0X's platform).
+export const OUR_PRODUCT = /^FM-1_9(\d\d|\d{6})$/;
 
 // What the identity the device reports tells us about the firmware on it.
 export function describeDevice(text) {
@@ -43,7 +44,7 @@ export async function checkPackage(bytes, expected = null) {
   if (product === "FM-1_015" || /^FM-1_0\d\d$/.test(product))
     throw new Error(`This is M-VAVE's own firmware (${product}). To return to it, use M-VAVE's Workbench or M-UPGRADE, not this flasher.`);
   if (!OUR_PRODUCT.test(product))
-    throw new Error(`Unknown package identity "${product}". This flasher only writes DREADNOUGHT / Felucca-family packages (FM-1_9XY).`);
+    throw new Error(`Unknown package identity "${product}". This flasher only writes DREADNOUGHT / Felucca-family packages (FM-1_9XY or FM-1_9XXYYZZ).`);
   const sha256 = await sha256hex(bytes);
   if (expected) {
     if (expected.size != null && expected.size !== bytes.length)

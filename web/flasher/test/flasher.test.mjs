@@ -60,3 +60,11 @@ test("progress only goes forward", () => {
   }
   assert.equal(last, 100);
 });
+
+test("X0X-scheme identities (DREADNOUGHT 0.3 on): accepted, and a device running one reads as Felucca-family", async () => {
+  const pkg = fakePackage("FM-1_9000300");
+  const r = await checkPackage(pkg);
+  assert.equal(r.product, "FM-1_9000300");
+  assert.equal(describeDevice("FM-1_9000300").kind, "felucca");
+  await assert.rejects(checkPackage(fakePackage("FM-1_90003")), /Unknown package identity/);
+});
