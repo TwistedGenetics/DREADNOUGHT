@@ -4,7 +4,10 @@ A dark jungle / drum & bass firmware for the **M-VAVE FM-1**: Reese and dread ba
 wavetables (with Serum import), a Rex-style break chopper, pads, tech stabs and a heavy FX section,
 sequenced from the box, with a Massive-style interface.
 
-**Status: Phase 0 — groundwork.** No DREADNOUGHT firmware to install yet.
+**Status: Phase 1 — first build.** A fork of SLOOP 2.8.1 with the DREADNOUGHT name and the new **REESE**
+engine (track engines: REESE is number 12, its presets lead the BASS list). Every push builds a `.fwsc` in
+GitHub Actions (Actions → the run → Artifacts). Not yet played on a real FM-1: read
+[docs/RECOVERY.md](docs/RECOVERY.md) first.
 
 | | |
 |---|---|
@@ -21,13 +24,15 @@ each run attaches the `.fwsc` package as an artifact. To build on Linux x86-64 y
 
 ```
 tools/get_deps.sh            # JieLi toolchain + 3 AC79 SDK files, hash-checked
-tools/fetch_base.sh          # Phase 0: the pinned base (SLOOP 2.8.1)
-cd build/base && python3 tools/build.py
+python3 tools/build.py       # build/felucca.fwsc
+python3 tools/preflight.py build
 ```
 
 ## Tests
 
 ```
+tests/run_host_only.sh                           # DSP, sequencer, UI, recovery: no JieLi toolchain needed
+sh tests/run_tests.sh                            # the full suite, after a target build
 node --test 'web/flasher/test/*.test.mjs'       # flasher checks
 python3 web/flasher/test/e2e_mock.py             # flasher in Chromium against a simulated FM-1 (needs playwright)
 ```
