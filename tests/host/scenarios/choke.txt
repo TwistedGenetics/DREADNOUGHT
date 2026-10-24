@@ -1,0 +1,33 @@
+# DREADNOUGHT host scenario: choke groups (0.6). BREAKS A and B start in group 1: a hit on one stops the other.
+tap ARP
+expect page 6
+expect trk 2
+key 0 down
+wait 50
+expect bon.1 1
+turn SELECT 1
+expect trk 3
+key 4 down
+wait 20
+expect bon.2 1
+expect bon.1 0
+key 4 up
+key 0 up
+wait 300
+# BRK2 (ARP again): B's CHOKE off; now A and B layer
+tap ARP
+expect page 9
+shot choke-01-brk2.png
+turn K1 -1
+expect dirty 1
+key 0 down
+wait 20
+turn SELECT 1
+key 4 down
+wait 20
+expect bon.1 1
+expect bon.2 1
+key 4 up
+key 0 up
+tap ARP
+expect page 6

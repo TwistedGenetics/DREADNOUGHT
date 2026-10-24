@@ -38,6 +38,10 @@ typedef struct {
     int8_t pitch;                                   /* -24..24 semitones on top of the tempo sync */
     uint8_t decay;                                  /* 0..126: release 1 ms .. 10 s after the gate; 127: none */
     uint8_t crush;                                  /* 0..127 */
+    uint8_t level;                                  /* 0..127 (100: as 0.5) */
+    uint8_t choke;                                  /* 0 off, 1..4: a hit cuts the other voices in its group (the app) */
+    uint8_t smode;                                  /* slices: 0 GRID (16 a bar), 1 AUTO (the loop's hits), 2 MANUAL */
+    uint8_t stretch;                                /* 0 REPITCH, 1 SLICE (Rex), 2 STRETCH (granular) */
     uint32_t inc;                                   /* loop samples a sample, Q16 (dn_brk_tempo) */
     /* the voice */
     uint8_t on, rev, rel, fast;                     /* fast: the release is a quick fade (the transport stopped) */
@@ -64,4 +68,5 @@ void dn_brk_tempo(dn_brk_t *b, uint32_t bpm);        /* main loop: after a tempo
 void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse);
 void dn_brk_release(dn_brk_t *b);
 void dn_brk_cut(dn_brk_t *b);                       /* a quick fade whatever DECAY says (stop) */
+void dn_brk_choke(dn_brk_t *b);                     /* stop now (another voice in its choke group hit): declicked */
 void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n);   /* adds, stereo, Q15 scale */

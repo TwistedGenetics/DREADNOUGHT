@@ -33,6 +33,7 @@ void dn_brk_init(dn_brk_t *b)
     for (i = 0; i < sizeof *b; i++)
         p[i] = 0;
     b->decay = 127;
+    b->level = 100;
 }
 
 uint8_t dn_brk_bars_of(uint32_t n, uint32_t rate)
@@ -113,7 +114,7 @@ void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse)
         return;
     slice %= b->nslices;
     start = slice * (b->loop.n / b->nslices);
-    b->dc = b->on ? b->last : 0;                    /* the cut: what was sounding fades in ~1 ms, not a click */
+    b->dc = b->on ? b->last : b->dc;                /* the cut: what was sounding fades in ~1 ms, not a click */
     b->slice = (uint8_t)slice;
     b->rev = (uint8_t)(reverse != 0);
     b->rel = b->fast = 0;
@@ -135,6 +136,14 @@ void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse)
         b->frac = 0;
     }
     b->on = 1;
+}
+
+void dn_brk_choke(dn_brk_t *b)
+{
+    if (b->on) {
+        b->dc = b->last;                            /* the declick carries what was sounding down to zero */
+        b->on = 0;
+    }
 }
 
 void dn_brk_cut(dn_brk_t *b)
@@ -197,6 +206,7 @@ void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
             b->dc = o;                              /* stopped mid-wave: it fades from there, no click */
         b->last = o;
         o = (o * 21000) >> 15;                      /* the mix level: under REESE's, a full break stays clear */
+        o = (o * (int32_t)b->level) / 100;
         lr[2u * i] += o;
         lr[2u * i + 1u] += o;
     }
