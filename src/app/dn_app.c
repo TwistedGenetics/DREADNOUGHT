@@ -2242,22 +2242,44 @@ static void dn_draw_drum(void)
     cv_text(8, 125, &FONT_XS, line, DN_C_LABEL);
 }
 
+/* the tab row's pages: the sound pages (SELECT cycles them), the sequencer's (SEQ), the breaks' (ARP) */
+#define DN_MAXTABS 8u
+static uint32_t dn_tabs(uint8_t *ids, const char **nms)
+{
+    static const uint8_t SEQ_T[3] = {DN_PG_SEQ, DN_PG_ROLL, DN_PG_DRUM};
+    static const char *const SEQ_N[3] = {"OVERVIEW", "ROLL", "DRUM"};
+    static const uint8_t BRK_T[3] = {DN_PG_BRK, DN_PG_BRK2, DN_PG_SLICE};
+    static const char *const BRK_N[3] = {"BRK", "BRK2", "SLICE"};
+    uint32_t k, n = 0;
+    if (DN_IS_SEQPG(dn.page))
+        for (k = 0; k < 3u; k++)
+            ids[n] = SEQ_T[k], nms[n++] = SEQ_N[k];
+    else if (DN_IS_BRKPG(dn.page))
+        for (k = 0; k < 3u; k++)
+            ids[n] = BRK_T[k], nms[n++] = BRK_N[k];
+    else
+        for (k = 0; k < DN_NPAGES; k++)
+            ids[n] = (uint8_t)k, nms[n++] = DN_PAGE_NAME[k];
+    return n;
+}
+
 static void dn_draw_bottom(void)
 {
     uint32_t k;
     int32_t x;
     char t[24];
     cv_begin(240, 144, DN_C_BG);
-    /* the page tabs */
-    for (k = 0, x = 0; k < DN_NTABS; k++) {
-        int32_t w = k == DN_NTABS - 1u ? 240 - x : 34;
-        int on = k == dn.page || (k == DN_PG_SEQ && DN_IS_SEQPG(dn.page)) || (k == DN_PG_BRK && DN_IS_BRKPG(dn.page));
-        const char *nm = k == DN_PG_SEQ && dn.page == DN_PG_ROLL ? "ROLL" : k == DN_PG_SEQ && dn.page == DN_PG_DRUM
-                         ? "DRUM" : k == DN_PG_BRK && dn.page == DN_PG_BRK2 ? "BRK2"
-                         : k == DN_PG_BRK && dn.page == DN_PG_SLICE ? "SLICE" : DN_PAGE_NAME[k];
-        cv_rect(x, 0, w - 1, 17, on ? DN_C_BLUE : DN_C_PANEL);
-        cv_text(x + (w - 1 - text_w(&FONT_T, nm)) / 2, 3, &FONT_T, nm, on ? DN_C_BAR : DN_C_LABEL);
-        x += w;
+    {   /* the page tabs: the pages of this group only (the ones its button / SELECT cycle through) */
+        uint8_t ids[DN_MAXTABS];
+        const char *nms[DN_MAXTABS];
+        uint32_t n = dn_tabs(ids, nms), w;
+        for (k = 0, x = 0; k < n; k++) {
+            int on = ids[k] == dn.page;
+            w = k == n - 1u ? 240u - (uint32_t)x : 240u / n;
+            cv_rect(x, 0, (int32_t)w - 1, 17, on ? DN_C_BLUE : DN_C_PANEL);
+            cv_text(x + ((int32_t)w - 1 - text_w(&FONT_T, nms[k])) / 2, 3, &FONT_T, nms[k], on ? DN_C_BAR : DN_C_LABEL);
+            x += (int32_t)w;
+        }
     }
     if (DN_IS_SEQPG(dn.page)) {
         if (dn.page == DN_PG_SEQ)
