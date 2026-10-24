@@ -36,6 +36,7 @@
  *   SELECT encoder, KNOB 1   the track;  KNOB 2 its length (1..64);  KNOB 3 swing;  KNOB 4 the steps in view
  */
 #include "dn_app.h"
+#include <stddef.h>
 
 #define DN_SAVE_MAGIC 0x31524E44u                   /* "DNR1" */
 #define DN_NPAGES 5u                                /* REESE's pages; then SEQ, then BRK */
@@ -48,6 +49,8 @@
 #define DN_PG_BRK2 (DN_NPAGES + 4u)                 /* BRK's second page (ARP again): its tab is BRK's */
 #define DN_PG_SLICE (DN_NPAGES + 5u)                /* BRK's third page: the slice editor */
 #define DN_IS_BRKPG(p) ((p) == DN_PG_BRK || (p) == DN_PG_BRK2 || (p) == DN_PG_SLICE)
+#define DN_PG_SET (DN_NPAGES + 6u)                  /* OUT's second page (GLO again): click, count-in, octave */
+#define DN_IS_SNDPG(p) ((p) < DN_NPAGES || (p) == DN_PG_SET)
 #define DN_ROLL_ROWS 12                             /* the piano roll's pitches in view (an octave) */
 #define DN_DRUM_ROWS 8                              /* the drum grid's slices in view */
 #define DN_NBRK 2u                                  /* BREAKS A and B: tracks 2 and 3 */
@@ -56,6 +59,9 @@
 #define DN_PX_BPM 100                               /* the OUT page's two non-engine dials */
 #define DN_PX_OCT 101
 #define DN_PX_OVL 102                               /* OUT: REESE's OVERLAP (SLIDE / CUT) */
+#define DN_PX_CLICK 103                             /* SETUP: the click (OFF / REC / ON), its level, the count-in */
+#define DN_PX_CLKLVL 104
+#define DN_PX_CIN 105
 #define DN_PX_BSRC 110                              /* the BRK page: the loop, pitch, decay, crush of BREAKS A / B */
 #define DN_PX_BPITCH 111
 #define DN_PX_BDECAY 112
@@ -81,6 +87,10 @@ static const uint8_t DN_PAGE[DN_NPAGES][4] = {
     {RP_LEVEL, RP_TRANS, DN_PX_BPM, DN_PX_OVL},
 };
 static const uint8_t DN_PAGE_BTN[DN_NPAGES] = {B_SEL, B_EDIT, B_ENV, B_LFO, B_GLO};
+static const uint8_t DN_SET_PAGE[4] = {DN_PX_CLICK, DN_PX_CLKLVL, DN_PX_CIN, DN_PX_OCT};
+#define DN_NSND 6u                                  /* the sound pages, in SELECT's order (the tab row's too) */
+static const uint8_t DN_SND[DN_NSND] = {0, 1, 2, 3, 4, DN_PG_SET};
+static const char *const DN_SND_NAME[DN_NSND] = {"OSC", "FILTER", "AMP", "MOD", "OUT", "SETUP"};
 
 typedef struct {
     uint32_t magic;
@@ -91,9 +101,11 @@ typedef struct {
     int16_t p[RP_COUNT];
     struct { uint8_t src; int8_t pitch; uint8_t decay, crush; } brk[DN_NBRK];   /* (from 0.5: older saves lack it) */
     struct { uint8_t choke, smode, stretch, level; } brk2[DN_NBRK];             /* (from 0.6) */
+    struct { uint8_t click, clk_lvl, cin, pad; } set;                           /* (from 0.9) */
 } dn_save_t;
-#define DN_SAVE_V05 (sizeof(dn_save_t) - DN_NBRK * 4u)
-#define DN_SAVE_V04 (sizeof(dn_save_t) - DN_NBRK * 8u)
+#define DN_SAVE_V08 (offsetof(dn_save_t, set))
+#define DN_SAVE_V05 (DN_SAVE_V08 - DN_NBRK * 4u)
+#define DN_SAVE_V04 (DN_SAVE_V08 - DN_NBRK * 8u)
 
 static reese_t dn_rs;
 static dn_seq_t dn_sq;
@@ -120,6 +132,12 @@ static struct {
     uint32_t sl_cur, sl_view;                       /* SLICE: the cursor and the view's left edge, samples */
     uint32_t chop_t;                                /* chops changed at (ms): written to flash a moment later */
     uint32_t home_t0;                               /* HOME down (SLICE: a tap deletes a chop, held 1 s clears) */
+    uint8_t click, clk_lvl, cin;                    /* SETUP: click OFF / REC / ON, its level, count-in bars */
+    volatile uint32_t cin_left, cin_next;           /* the count-in (audio): samples left, to the next beat */
+    volatile uint32_t cin_beat;                     /* (its beats so far) */
+    uint32_t clk_n, clk_ph, clk_last;               /* the click voice (audio): samples left, phase; the step seen */
+    uint8_t clk_acc;
+    uint32_t clk_count;                             /* (clicks so far: the tests count them) */
     const char *msg;                                /* a word on the status line (a refusal, what happened) ... */
     uint32_t msg_t;                                 /* ... shown until this time (ms) */
     uint8_t home_done;
@@ -179,6 +197,29 @@ static void dn_sq_off(uint32_t t, uint8_t note)
 static void dn_sq_clock(uint8_t st) { plat_midi_out(0x0Fu | (uint32_t)st << 8); }
 static const dn_seq_cb_t DN_SQ_CB = {dn_sq_on, dn_sq_off, dn_sq_clock};
 
+/* the click: a short square burst, higher on the bar, fading in ~25 ms */
+#define DN_CLK_LEN 1100u
+static void dn_click_start(int acc)
+{
+    dn.clk_n = DN_CLK_LEN;
+    dn.clk_ph = 0;
+    dn.clk_acc = (uint8_t)acc;
+    dn.clk_count++;
+}
+static void dn_click_render(int32_t *lr, uint32_t n)
+{
+    uint32_t i, inc = dn.clk_acc ? 2500u * 65536u / 44100u : 1500u * 65536u / 44100u;
+    for (i = 0; i < n && dn.clk_n; i++) {
+        int32_t a = (int32_t)(dn.clk_n * (uint32_t)dn.clk_lvl / DN_CLK_LEN) * (dn.clk_acc ? 90 : 60);
+        int32_t v = (dn.clk_ph & 0x8000u) ? a : -a;
+        lr[2u * i] += v;
+        lr[2u * i + 1u] += v;
+        dn.clk_ph += inc;
+        dn.clk_n--;
+    }
+}
+static uint32_t dn_beat_samples(void) { return 2646000u / (dn_sq.bpm ? dn_sq.bpm : 120u); }   /* 44100 * 60 / BPM */
+
 void dn_app_render(int32_t *lr, uint32_t n)
 {
     uint32_t i, w = dn_scope_w, off = 0;
@@ -188,12 +229,34 @@ void dn_app_render(int32_t *lr, uint32_t n)
         return;
     while (off < n) {                               /* cut at the sequencer's events: sample-accurate notes */
         uint32_t k = dn_seq_next(&dn_sq);
+        if (dn.cin_left) {                          /* the count-in: a click a beat, then the sequencer starts */
+            if (!dn.cin_next) {
+                dn_click_start(dn.cin_beat % 4u == 0u);
+                dn.cin_beat++;
+                dn.cin_next = dn_beat_samples();
+            }
+            k = dn.cin_next < dn.cin_left ? dn.cin_next : dn.cin_left;
+        }
         if (k > n - off)
             k = n - off;
         reese_render(&dn_rs, lr + 2u * off, k);
         dn_brk_render(&dn_bk[0], lr + 2u * off, k);
         dn_brk_render(&dn_bk[1], lr + 2u * off, k);
-        dn_seq_run(&dn_sq, k, &DN_SQ_CB);
+        dn_click_render(lr + 2u * off, k);
+        if (dn.cin_left) {
+            dn.cin_next -= k;
+            dn.cin_left -= k;
+            if (!dn.cin_left)
+                dn_seq_start(&dn_sq, &DN_SQ_CB);   /* (its first step on the next sample: bar 1, beat 1) */
+        } else {
+            dn_seq_run(&dn_sq, k, &DN_SQ_CB);
+        }
+        if (dn_sq.playing && dn_sq.pos != dn.clk_last) {   /* a step began just now: on a beat, the click */
+            uint32_t st = dn_sq.pos - 1u;
+            dn.clk_last = dn_sq.pos;
+            if (st % 4u == 0u && (dn.click == 2u || (dn.click == 1u && dn.rec)))
+                dn_click_start(st % 16u == 0u);
+        }
         off += k;
     }
     for (i = 0; i < 2u * n; i++)                    /* the master: a soft knee at the top, nothing ever wraps */
@@ -431,6 +494,13 @@ void dn_app_slots_changed(int done)
 }
 static uint32_t dn_bsel(void) { return dn.trk == 2u ? 1u : 0u; }   /* the BRK page shows B with track 3 selected */
 
+/* the dial under KNOB k on this page */
+static uint32_t dn_dial(uint32_t k)
+{
+    return dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : dn.page == DN_PG_BRK2 ? DN_BRK2_PAGE[k]
+         : dn.page == DN_PG_SLICE ? DN_SLICE_PAGE[k] : dn.page == DN_PG_SET ? DN_SET_PAGE[k] : DN_PAGE[dn.page % DN_NPAGES][k];
+}
+
 /* ------------------------------------------------------------------------------------------------ values --- */
 static int32_t dn_get(uint32_t id)
 {
@@ -440,6 +510,12 @@ static int32_t dn_get(uint32_t id)
         return dn.oct;
     if (id == DN_PX_OVL)
         return DN_PAT_CUT(&dn_sq.pat) & 1u;
+    if (id == DN_PX_CLICK)
+        return dn.click;
+    if (id == DN_PX_CLKLVL)
+        return dn.clk_lvl;
+    if (id == DN_PX_CIN)
+        return dn.cin;
     if (id == DN_PX_BSRC)
         return dn_bk_src[dn_bsel()];
     if (id == DN_PX_BPITCH)
@@ -468,7 +544,7 @@ static int32_t dn_min(uint32_t id)
 {
     if (id >= DN_PX_SLSEL)
         return 0;
-    return id == DN_PX_BPM ? 60 : id == DN_PX_OVL ? 0 : id == DN_PX_OCT ? -3 : id == DN_PX_BPITCH ? -24 : id >= DN_PX_BSRC ? 0
+    return id == DN_PX_BPM ? 60 : id == DN_PX_OVL || (id >= DN_PX_CLICK && id <= DN_PX_CIN) ? 0 : id == DN_PX_OCT ? -3 : id == DN_PX_BPITCH ? -24 : id >= DN_PX_BSRC ? 0
          : reese_param_min(id);
 }
 static int32_t dn_max(uint32_t id)
@@ -476,7 +552,8 @@ static int32_t dn_max(uint32_t id)
     if (id >= DN_PX_SLSEL)
         return id == DN_PX_SLSEL ? (int32_t)dn_bk[dn_bsel()].nslices - 1 : id == DN_PX_SLADD ? 6
              : (int32_t)dn_bk[dn_bsel()].loop.n;
-    return id == DN_PX_BPM ? 200 : id == DN_PX_OVL ? 1 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (int32_t)dn_src_count() - 1
+    return id == DN_PX_BPM ? 200 : id == DN_PX_OVL ? 1 : id == DN_PX_CLICK || id == DN_PX_CIN ? 2
+         : id == DN_PX_CLKLVL ? 127 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (int32_t)dn_src_count() - 1
          : id == DN_PX_BPITCH ? 24 : id == DN_PX_BCHOKE ? 4 : id == DN_PX_BSMODE || id == DN_PX_BSTRETCH ? 2
          : id >= DN_PX_BDECAY ? 127 : reese_param_max(id);
 }
@@ -486,7 +563,8 @@ static const char *dn_name(uint32_t id)
     static const char *const SN[4] = {"CHOP", "CURSOR", "FINE", "ZOOM"};
     if (id >= DN_PX_SLSEL)
         return SN[id - DN_PX_SLSEL];
-    return id == DN_PX_BPM ? "BPM" : id == DN_PX_OVL ? "OVERLAP" : id == DN_PX_OCT ? "OCT" : id >= DN_PX_BSRC ? BN[id - DN_PX_BSRC]
+    return id == DN_PX_BPM ? "BPM" : id == DN_PX_OVL ? "OVERLAP" : id == DN_PX_CLICK ? "CLICK"
+         : id == DN_PX_CLKLVL ? "CLK LVL" : id == DN_PX_CIN ? "COUNT-IN" : id == DN_PX_OCT ? "OCT" : id >= DN_PX_BSRC ? BN[id - DN_PX_BSRC]
          : reese_param_name(id);
 }
 static void dn_text(uint32_t id, int32_t v, char out[8])
@@ -542,6 +620,15 @@ static void dn_text(uint32_t id, int32_t v, char out[8])
     }
     if (id == DN_PX_BDECAY && v >= 127) {
         out[0] = 'H', out[1] = 'O', out[2] = 'L', out[3] = 'D', out[4] = 0;
+        return;
+    }
+    if (id == DN_PX_CLICK || id == DN_PX_CIN) {
+        static const char *const C[2][3] = {{"OFF", "REC", "ON"}, {"OFF", "1 BAR", "2 BARS"}};
+        const char *w = C[id == DN_PX_CIN][dn_clamp(v, 0, 2)];
+        uint32_t i;
+        for (i = 0; w[i]; i++)
+            out[i] = w[i];
+        out[i] = 0;
         return;
     }
     if (id == DN_PX_OVL) {
@@ -610,6 +697,12 @@ static void dn_set(uint32_t id, int32_t v)
         dn.oct = (int8_t)v;
     else if (id == DN_PX_OVL)
         DN_PAT_CUT(&dn_sq.pat) = (uint8_t)((DN_PAT_CUT(&dn_sq.pat) & ~1u) | (v ? 1u : 0u));
+    else if (id == DN_PX_CLICK)
+        dn.click = (uint8_t)v;
+    else if (id == DN_PX_CLKLVL)
+        dn.clk_lvl = (uint8_t)v;
+    else if (id == DN_PX_CIN)
+        dn.cin = (uint8_t)v;
     else
         dn_rs.p[id] = (int16_t)v;
     dn_unlock();
@@ -653,6 +746,10 @@ static void dn_save_fill(dn_save_t *sp)
         s.brk2[k].stretch = dn_bk[k].stretch;
         s.brk2[k].level = dn_bk[k].level;
     }
+    s.set.click = dn.click;
+    s.set.clk_lvl = dn.clk_lvl;
+    s.set.cin = dn.cin;
+    s.set.pad = 0;
 #undef s
 }
 
@@ -684,6 +781,9 @@ void dn_app_init(void)
     dn.sounding = dn.midi_note = 0xFF;
     dn.step_held = -1;
     dn.entry_len = DN_LEN_STEP;
+    dn.click = 1;                                   /* the click while recording; one bar's count-in */
+    dn.clk_lvl = 70;
+    dn.cin = 1;
     for (k = 0; k < NKEYS; k++)
         dn.rec_step[k] = 0xFF;
     if (plat_store_load(OBJ_PAT0, &dn_sq.pat, sizeof dn_sq.pat) != (int)sizeof dn_sq.pat || !dn_pattern_valid(&dn_sq.pat))
@@ -693,7 +793,8 @@ void dn_app_init(void)
         dn_man.count > DN_MAN_N)
         dn_man.magic = dn_man.count = 0;            /* (no manual slices yet) */
     got = plat_store_load(OBJ_SOUND, &s, sizeof s);
-    if ((got == (int)sizeof s || got == (int)DN_SAVE_V05 || got == (int)DN_SAVE_V04) && s.magic == DN_SAVE_MAGIC) {
+    if ((got == (int)sizeof s || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 || got == (int)DN_SAVE_V04) &&
+        s.magic == DN_SAVE_MAGIC) {
         dn.preset = (uint8_t)(s.preset % reese_preset_count());
         dn.page = (uint8_t)(s.page % DN_NPAGES);
         dn.oct = (int8_t)dn_clamp(s.oct, -3, 3);
@@ -701,7 +802,12 @@ void dn_app_init(void)
         dn_sq.bpm = dn_rs.bpm;
         for (k = 0; k < RP_COUNT; k++)
             dn_rs.p[k] = (int16_t)dn_clamp(s.p[k], reese_param_min(k), reese_param_max(k));
-        for (k = 0; got == (int)sizeof s && k < DN_NBRK; k++) {
+        if (got == (int)sizeof s) {
+            dn.click = (uint8_t)dn_clamp(s.set.click, 0, 2);
+            dn.clk_lvl = (uint8_t)dn_clamp(s.set.clk_lvl, 0, 127);
+            dn.cin = (uint8_t)dn_clamp(s.set.cin, 0, 2);
+        }
+        for (k = 0; got >= (int)DN_SAVE_V08 && k < DN_NBRK; k++) {
             dn_bk[k].choke = (uint8_t)dn_clamp(s.brk2[k].choke, 0, 4);
             dn_bk[k].smode = (uint8_t)dn_clamp(s.brk2[k].smode, 0, 2);
             dn_bk[k].stretch = (uint8_t)dn_clamp(s.brk2[k].stretch, 0, 2);
@@ -859,7 +965,7 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
                 dn.redraw |= DN_RD_ALL;
             }
             dn.rec_step[k] = 0xFF;
-            if (dn.rec) {
+            if (dn.rec && !dn.cin_left) {           /* (during the count-in the keys only play) */
                 uint32_t at = dn_rec_note(dn_key_note(k), legato);
                 if (dn_sq.playing) {                /* (its length: when the key comes up) */
                     dn.rec_step[k] = (uint8_t)at;
@@ -1553,7 +1659,7 @@ void dn_app_input(void)
         dn_set(DN_PX_OCT, dn.oct + 1);
     for (k = 0; k < DN_NPAGES; k++)
         if (press & (1u << DN_PAGE_BTN[k]))
-            dn_goto(k);
+            dn_goto(k == 4u && dn.page == 4u ? DN_PG_SET : k);   /* GLO again: OUT's second page, SETUP */
     if (press & (1u << B_SEQ))                      /* SEQ: the overview, then ROLL, then DRUM, then round again */
         dn_goto(dn.page == DN_PG_SEQ ? DN_PG_ROLL : dn.page == DN_PG_ROLL ? DN_PG_DRUM : DN_PG_SEQ);
     if ((press & (1u << B_FX)) && dn.page == DN_PG_ROLL) {
@@ -1570,12 +1676,21 @@ void dn_app_input(void)
     }
     if (press & (1u << B_PLAY)) {                   /* the transport */
         dn_lock();
-        if (dn_sq.playing) {
+        if (dn.cin_left) {
+            dn.cin_left = 0;                        /* PLAY during the count-in: called off */
+        } else if (!dn_sq.playing && dn.rec && dn.cin) {
+            dn.cin_beat = 0;                        /* REC armed: a count-in first (bars of 4 beats) */
+            dn.cin_next = 0;
+            dn.clk_last = 0;
+            dn.cin_left = 4u * dn.cin * dn_beat_samples();
+        } else if (dn_sq.playing) {
             dn_seq_stop(&dn_sq, &DN_SQ_CB);
             for (k = 0; k < DN_NBRK; k++)
                 dn_brk_cut(&dn_bk[k]);              /* (a HOLD break would play on to the end of its loop) */
-        } else
+        } else {
+            dn.clk_last = 0;
             dn_seq_start(&dn_sq, &DN_SQ_CB);
+        }
         dn_unlock();
         dn.redraw |= DN_RD_ALL;
     }
@@ -1618,8 +1733,14 @@ void dn_app_input(void)
             dn.trk = dn.trk == 1u ? 2u : 1u;        /* BREAKS A <-> B */
             dn_sl_fix();
             dn.redraw |= DN_RD_ALL;
-        } else
-            dn_goto((uint32_t)(((int32_t)dn.page + d % (int32_t)DN_NPAGES + (int32_t)DN_NPAGES) % (int32_t)DN_NPAGES));
+        } else {                                    /* the sound pages, round */
+            int32_t at = 0;
+            for (k = 0; k < DN_NSND; k++)
+                if (DN_SND[k] == dn.page)
+                    at = (int32_t)k;
+            at = ((at + d) % (int32_t)DN_NSND + (int32_t)DN_NSND) % (int32_t)DN_NSND;
+            dn_goto(DN_SND[at]);
+        }
     }
     if ((d = plat_enc(EN_PRESET)) != 0 && (DN_IS_BRKPG(dn.page) || dn.page == DN_PG_DRUM)) {
         dn_set(DN_PX_BSRC, dn_get(DN_PX_BSRC) + (d > 0 ? 1 : -1));   /* on BRK: the loop */
@@ -1636,8 +1757,7 @@ void dn_app_input(void)
             } else if (dn.page == DN_PG_SLICE) {
                 dn_slice_knob(k, d);
             } else {
-                uint32_t id = dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : dn.page == DN_PG_BRK2 ? DN_BRK2_PAGE[k]
-                              : DN_PAGE[dn.page][k];
+                uint32_t id = dn_dial(k);
                 dn_set(id, dn_get(id) + (id == DN_PX_BSRC ? (d > 0 ? 1 : -1) : dn_accel(dn_max(id) - dn_min(id), d)));
             }
         }
@@ -1821,6 +1941,23 @@ static void dn_len_text(char *o, uint32_t ticks)
     dn_cat(o, FR[fr]);
 }
 
+/* the pattern's length for the progress bar: the longest track that plays (16 steps if none) */
+static uint32_t dn_pat_len(void)
+{
+    uint32_t t, i, L = 0;
+    for (t = 0; t < DN_SEQ_TRACKS; t++) {
+        const dn_track_t *tr = &dn_sq.pat.tr[t];
+        if (tr->mute || tr->len <= L)
+            continue;
+        for (i = 0; i < tr->len; i++)
+            if (tr->st[i].flags & DN_ST_ON) {
+                L = tr->len;
+                break;
+            }
+    }
+    return L ? L : 16u;
+}
+
 static void dn_draw_top(void)
 {
     char t[16];
@@ -1890,11 +2027,51 @@ static void dn_draw_top(void)
         cv_blit(0, 0);
         return;
     }
+    /* the progress bar: where the pattern is, to play against (the longest track playing; bars, beats; the beat
+     * flashes, the bar's first brighter); the count-in counts down on it */
+    {
+        uint32_t L = dn_pat_len(), bars = (L + 15u) / 16u, st = dn_sq.pos ? (dn_sq.pos - 1u) % L : 0u, b, bx, cin;
+        int32_t bw = 196 / (int32_t)(bars ? bars : 1u), x0 = 4, flash = 0;
+        char pos[12];
+        cin = dn.cin_left ? dn.cin_beat : 0u;
+        cv_rect(4, 48, 232, 13, DN_C_WELL);
+        for (b = 0; b < bars; b++) {
+            bx = (uint32_t)(x0 + (int32_t)b * bw);
+            cv_rect((int32_t)bx + 1, 50, bw - 2, 9, DN_C_GRID);
+            for (i = 1; i < 4; i++)                 /* the beats */
+                cv_rect((int32_t)bx + i * bw / 4, 50, 1, 9, DN_C_BG);
+        }
+        if (dn_sq.playing) {
+            int32_t px = x0 + (int32_t)((st * (uint32_t)bw * bars) / (bars * 16u));
+            cv_rect(x0 + 1, 52, px - x0, 5, DN_C_BLUE_D);
+            cv_rect(px, 50, 2, 9, C_WHITE);
+            flash = st % 4u == 0u ? (st % 16u == 0u ? 2 : 1) : 0;
+            dn_num(pos, (int32_t)(st / 16u + 1u));
+            i = (int32_t)str_len_dn(pos);
+            pos[i++] = '.';
+            pos[i++] = (char)('1' + st / 4u % 4u);
+            pos[i] = 0;
+        } else if (dn.cin_left) {                   /* counting in: 1 2 3 4 (the beats so far, the bar's red) */
+            flash = cin % 4u == 1u ? 2 : 1;
+            dn_num(pos, (int32_t)((cin ? cin - 1u : 0u) % 4u + 1u));
+            for (b = 0; b < cin && b < 4u * dn.cin; b++)
+                cv_rect(x0 + 2 + (int32_t)(b % 4u) * bw / 4, 52, bw / 4 - 4, 5, DN_C_RED);
+        } else {                                    /* stopped: how long, where PLAY starts */
+            dn_num(pos, (int32_t)bars);
+            dn_cat(pos, bars == 1u ? " BAR" : " BARS");
+        }
+        if (flash)
+            cv_rect(202, 47, 34, 15, flash == 2 ? C_WHITE : DN_C_BLUE);
+        if (dn_sq.playing || dn.cin_left)
+            cv_text(219 - text_w(&FONT_S, pos) / 2, 47, &FONT_S, pos, flash ? DN_C_BAR : C_WHITE);
+        else
+            cv_text(219 - text_w(&FONT_T, pos) / 2, 50, &FONT_T, pos, DN_C_LABEL);
+    }
     /* the scope: the last ~42 ms, from a rising zero crossing so it stands still */
-    cv_rect(4, 50, 232, 42, DN_C_WELL);
+    cv_rect(4, 63, 232, 29, DN_C_WELL);
     for (i = 1; i < 4; i++)
-        cv_rect(4 + i * 58, 50, 1, 42, DN_C_GRID);
-    cv_rect(4, 71, 232, 1, DN_C_GRID);
+        cv_rect(4 + i * 58, 63, 1, 29, DN_C_GRID);
+    cv_rect(4, 77, 232, 1, DN_C_GRID);
     start = w - 230;
     for (i = 0; i < 200; i++) {
         int32_t a = dn_scope[(uint32_t)(start - i - 1) & (DN_SCOPE - 1u)], b = dn_scope[(uint32_t)(start - i) & (DN_SCOPE - 1u)];
@@ -1905,8 +2082,8 @@ static void dn_draw_top(void)
     }
     for (x = 0; x < 230; x++) {
         int32_t s = dn_scope[(uint32_t)(start + x) & (DN_SCOPE - 1u)];
-        y = 71 - (s * 20) / 14000;
-        y = dn_clamp(y, 51, 91);
+        y = 77 - (s * 13) / 14000;
+        y = dn_clamp(y, 64, 91);
         if (x)
             cv_line(4 + x, py, 5 + x, y, DN_C_BLUE);
         py = y;
@@ -2258,8 +2435,8 @@ static uint32_t dn_tabs(uint8_t *ids, const char **nms)
         for (k = 0; k < 3u; k++)
             ids[n] = BRK_T[k], nms[n++] = BRK_N[k];
     else
-        for (k = 0; k < DN_NPAGES; k++)
-            ids[n] = (uint8_t)k, nms[n++] = DN_PAGE_NAME[k];
+        for (k = 0; k < DN_NSND; k++)
+            ids[n] = DN_SND[k], nms[n++] = DN_SND_NAME[k];
     return n;
 }
 
@@ -2295,8 +2472,7 @@ static void dn_draw_bottom(void)
     cv_rect(0, 17, 240, 104, DN_C_PANEL);
     cv_rect(0, 17, 240, 1, DN_C_EDGE);
     for (k = 0; k < 4u; k++)
-        dn_knob(30 + 60 * (int32_t)k, 67, dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : dn.page == DN_PG_BRK2 ? DN_BRK2_PAGE[k]
-                : dn.page == DN_PG_SLICE ? DN_SLICE_PAGE[k] : DN_PAGE[dn.page][k], 1);
+        dn_knob(30 + 60 * (int32_t)k, 67, dn_dial(k), 1);
     /* the status line */
     cv_rect(0, 121, 240, 23, DN_C_BAR);
     t[0] = 'O'; t[1] = 'C'; t[2] = 'T'; t[3] = ' ';
@@ -2367,13 +2543,14 @@ void dn_app_draw(int force)
     if (dn.redraw & DN_RD_BOTTOM)
         dn_draw_bottom();
     dn.redraw = 0;
-    lit |= 1u << (DN_IS_SEQPG(dn.page) ? B_SEQ : DN_IS_BRKPG(dn.page) ? B_ARP : DN_PAGE_BTN[dn.page]);
+    lit |= 1u << (DN_IS_SEQPG(dn.page) ? B_SEQ : DN_IS_BRKPG(dn.page) ? B_ARP : dn.page == DN_PG_SET ? B_GLO
+                  : DN_PAGE_BTN[dn.page]);
     if (dn.page == DN_PG_ROLL && dn.roll_keys)
         lit |= 1u << B_FX;
     if (dn.dirty)
         lit |= 1u << B_SAVE;
-    if (dn_sq.playing)
-        lit |= 1u << B_PLAY;
+    if (dn_sq.playing || (dn.cin_left && (plat_ms() / 125u) % 2u == 0u))
+        lit |= 1u << B_PLAY;                        /* (counting in: it blinks) */
     if (dn.rec)
         lit |= 1u << B_REC;
     if (dn.play)

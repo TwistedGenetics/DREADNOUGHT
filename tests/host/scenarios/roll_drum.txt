@@ -58,6 +58,8 @@ shot roll-04-pasted.png
 tap SEL
 tap REC
 tap PLAY
+# (0.9: a bar's count-in first)
+wait 1395
 wait 150
 key 12 down
 wait 349

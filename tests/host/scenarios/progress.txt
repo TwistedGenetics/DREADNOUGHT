@@ -1,0 +1,81 @@
+# DREADNOUGHT host scenario (0.9): the progress bar on the sound pages, the count-in and the click.
+# 172 BPM: a beat 349 ms (15383 samples), a bar 1395 ms.
+expect page 0
+shot progress-01-stopped.png
+tap PLAY
+expect playing 1
+wait 50
+shot progress-02-bar1-beat1.png
+wait 800
+shot progress-03-bar1-beat3.png
+tap PLAY
+# no click unless recording (CLICK REC, the default)
+expect clk 0
+# REC armed, PLAY: a bar's count-in (the sequencer waits), keys only play
+tap REC
+expect rec 1
+tap PLAY
+expect playing 0
+expect cin 1
+expect clk 1
+wait 400
+shot progress-04-countin.png
+expect on.1 7
+tapkey 12 60
+expect on.1 7
+expect playing 0
+wait 1000
+expect cin 0
+expect playing 1
+# 4 count-in clicks, then bar 1 beat 1 (recording: CLICK REC)
+expect clk 5
+# recording now: a key goes in
+wait 200
+tapkey 12 60
+expect on.1 8
+tap PLAY
+tap REC
+# SETUP (GLO twice): click ON, count-in off
+tap GLO
+tap GLO
+expect page 11
+turn K1 1
+turn K3 -1
+shot progress-05-setup.png
+wav click-on.wav
+tap PLAY
+expect playing 1
+wait 1500
+# ON: clicks without REC, no count-in (6 so far: beat 2 came before the stop; then 5 more)
+expect clk 11
+tap PLAY
+wavstop
+# a 3-bar track: the bar reads 3 bars stopped, bar 3 later
+tap SEQ
+tap SEQ
+expect page 7
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+expect len.1 48
+tap SEL
+expect page 0
+shot progress-06-3bars-stopped.png
+tap PLAY
+wait 3000
+expect pos >34
+shot progress-07-bar3.png
+tap PLAY
