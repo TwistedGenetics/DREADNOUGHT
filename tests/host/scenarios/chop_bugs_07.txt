@@ -1,0 +1,19 @@
+# DREADNOUGHT host scenario: the 0.7 chopping faults the user hit, kept as regressions (0.8).
+# (1) the selection out of range: GRID (32) with chop 31 selected, then AUTO (21): editing must still work
+tap ARP
+tap ARP
+tap ARP
+expect page 10
+turn K1 30
+tap ARP
+tap ARP
+turn K2 1
+expect ns.1 21
+tap ARP
+expect page 10
+expect slsel <21
+# (2) a chop can be put anywhere: the cursor far into the loop in a few turns, CHOP there
+turn K2 40
+expect cursor >30000
+tap REC
+expect ns.1 22

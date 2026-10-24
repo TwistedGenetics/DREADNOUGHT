@@ -464,7 +464,11 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "reclen")) got = dn_sq.pat.tr[dn.trk].st[dn.rec_last].len;
             else if (!strcmp(b, "rollkeys")) got = dn.roll_keys;
             else if (!strcmp(b, "row")) got = dn.drum_row;
+            else if (!strcmp(b, "slsel")) got = dn.sl_sel;
+            else if (!strcmp(b, "cursor")) got = (long)dn.sl_cur;
             else if (!strncmp(b, "bon.", 4)) got = dn_bk[atoi(b + 4) - 1].on;   /* BREAKS A (1) / B (2) sounding */
+            else if (!strncmp(b, "pos.", 4)) got = (long)dn_brk_pos(&dn_bk[atoi(b + 4) - 1]);  /* where K plays */
+            else if (!strncmp(b, "aud.", 4)) got = dn_bk[atoi(b + 4) - 1].aud;
             else if (!strncmp(b, "ns.", 3)) got = dn_bk[atoi(b + 3) - 1].nslices;
             else if (!strncmp(b, "smode.", 6)) got = dn_bk[atoi(b + 6) - 1].smode;
             else if (!strncmp(b, "sl.", 3)) {       /* sl.K.I: where slice I (1-based) of BREAKS K starts */

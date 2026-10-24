@@ -1,0 +1,106 @@
+# DREADNOUGHT host scenario: chop mode (0.8). The SLICE page: start empty, a cursor (K2 coarse, K3 fine, K4 zoom),
+# REC chops at the cursor (or where the loop plays, PLAY on this page), FX moves the selected chop to the cursor,
+# HOME deletes it (held 1 s: all). The keys pick a chop. Chops keep the pattern's audio and save themselves.
+# --- pattern steps on BREAKS A first (DRUM page): slices 2, 3, 5 on steps 1, 3, 5
+tap SEQ
+tap SEQ
+tap SEQ
+expect page 8
+expect trk 2
+turn K1 1
+tapkey 0 60
+turn K1 1
+tapkey 4 60
+turn K1 2
+tapkey 7 60
+expect nt.2.1 1
+expect nt.2.3 2
+expect nt.2.5 4
+# --- AUTO (BRK2), then the SLICE page: a chop inside slice 2 moves the later steps up, and back on delete
+tap ARP
+tap ARP
+expect page 9
+turn K2 1
+expect smode.1 1
+expect ns.1 21
+tap ARP
+expect page 10
+turn K1 1
+expect slsel 1
+turn K4 3
+turn K2 1
+expect cursor >5000
+expect cursor <7000
+tap REC
+expect ns.1 22
+expect smode.1 2
+expect slsel 2
+expect sl.1.3 >5000
+expect sl.1.3 <7000
+expect nt.2.1 1
+expect nt.2.3 3
+expect nt.2.5 5
+shot chop-01-inserted.png
+tap HOME
+expect ns.1 21
+expect nt.2.3 2
+expect nt.2.5 4
+# --- HOME held: empty, one slice the whole loop; then 3 chops by cursor (2x zoom: K2 a sixteenth of the loop)
+press HOME
+wait 1200
+release HOME
+expect ns.1 1
+expect smode.1 2
+turn K1 -30
+expect cursor 0
+shot chop-02-empty.png
+turn K4 -6
+turn K4 1
+turn K2 1
+tap REC
+turn K2 1
+tap REC
+turn K2 1
+tap REC
+expect ns.1 4
+expect sl.1.2 >4800
+expect sl.1.2 <4950
+expect sl.1.3 >9650
+expect sl.1.3 <9800
+expect sl.1.4 >14500
+expect sl.1.4 <14650
+# --- FX: the selected chop (3) moves to the cursor, fine knob back 40 samples x 4
+turn K1 -1
+expect slsel 2
+turn K3 -4
+tap FX
+expect sl.1.3 <9700
+shot chop-03-cursor.png
+# --- tap-to-chop: PLAY runs the loop from the cursor, REC chops where it plays (12 ms early: the reaction)
+turn K1 1
+expect slsel 3
+tap PLAY
+expect aud.1 1
+wait 500
+expect pos.1 >27700
+expect pos.1 <28000
+tap REC
+expect ns.1 5
+expect sl.1.5 >27400
+expect sl.1.5 <27750
+shot chop-04-playing.png
+tap PLAY
+expect aud.1 0
+# --- a key picks its chop (BREAKS: key 0 = chop 1)
+key 2 down
+expect slsel 2
+key 2 up
+wait 50
+# the keys: chop 3 (key 2) selected and lit (the other four dim)
+expect leds-keys 4
+# --- saved by themselves: no SAVE, 3 s, a restart
+wait 3500
+reboot
+expect smode.1 2
+expect ns.1 5
+expect sl.1.5 >27400

@@ -54,6 +54,8 @@ typedef struct {
     uint32_t pinc;                                  /* STRETCH: the grains' own speed (the pitch's rate), Q16 */
     /* the voice */
     uint8_t on, rev, rel, fast;                     /* fast: the release is a quick fade (the transport stopped) */
+    uint8_t aud;                                    /* the whole loop playing round (the chop page's preview) */
+    uint8_t stopend;                                /* this hit stops at its slice's end (auditioning a chop) */
     uint8_t slice;                                  /* the slice playing (the screen's playhead) */
     uint32_t p;                                     /* forward: the next sample to decode */
     int32_t pred, idx;
@@ -94,4 +96,7 @@ void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse);
 void dn_brk_release(dn_brk_t *b);
 void dn_brk_cut(dn_brk_t *b);                       /* a quick fade whatever DECAY says (stop) */
 void dn_brk_choke(dn_brk_t *b);                     /* stop now (another voice in its choke group hit): declicked */
+/* the whole loop from sample `at`, at its own speed, round and round until dn_brk_cut (chopping by ear) */
+void dn_brk_audition(dn_brk_t *b, uint32_t at);
+uint32_t dn_brk_pos(const dn_brk_t *b);              /* where it is playing now, samples into the loop */
 void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n);   /* adds, stereo, Q15 scale */

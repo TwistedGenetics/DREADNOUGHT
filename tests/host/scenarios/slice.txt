@@ -1,4 +1,4 @@
-# DREADNOUGHT host scenario: slicing (0.6). BRK2's SLICES: GRID / AUTO / MANUAL; the SLICE page edits by hand.
+# DREADNOUGHT host scenario: slicing (0.6, the SLICE page 0.8). BRK2's SLICES: GRID / AUTO / MANUAL; the SLICE page edits by hand.
 tap ARP
 tap ARP
 expect page 9
@@ -8,24 +8,28 @@ turn K2 1
 expect smode.1 1
 expect ns.1 21
 shot slice-01-auto.png
-# the SLICE editor (ARP again): slice 4, moved later (coarse), one more point, kept as MANUAL
+# the SLICE page (ARP again, 0.8 chop mode): chop 4 selected, the cursor later (K2), FX moves it there (MANUAL now),
+# REC a new chop at the cursor, HOME takes it away, REC again
 tap ARP
 expect page 10
 turn K1 3
+expect slsel 3
 shot slice-02-editor.png
 expect sl.1.4 12200
-turn K2 2
+turn K4 2
+turn K2 1
+tap FX
 expect smode.1 2
 expect sl.1.4 >12300
-turn K4 1
+turn K2 1
+tap REC
 expect ns.1 22
 shot slice-03-added.png
-# a point taken away
-turn K4 -1
+tap HOME
 expect ns.1 21
-turn K4 1
+tap REC
 expect ns.1 22
-# kept over a restart (SAVE), for this loop
+# kept over a restart (chops save themselves; SAVE for the rest)
 tap SAVE
 reboot
 expect smode.1 2

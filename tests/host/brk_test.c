@@ -264,6 +264,10 @@ int main(int argc, char **argv)
         B.smode = 2;
         B.n_man = 0;
         dn_brk_slices_apply(&B);
+        check("MANUAL the first time: empty, one slice the whole loop", B.nslices == 1u && B.start[0] == 0u, B.nslices, 1);
+        memcpy(B.man_start, B.auto_start, sizeof B.auto_start);   /* "copy AUTO" (an explicit action now) */
+        B.n_man = B.n_auto;
+        dn_brk_slices_apply(&B);
         B.man_start[3] += 500;
         dn_brk_slices_apply(&B);
         dn_brk_tempo(&B, 136);

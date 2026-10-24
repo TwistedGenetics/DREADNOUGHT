@@ -209,10 +209,9 @@ uint32_t dn_brk_grid_slices(const dn_brk_t *b) { return 16u * (b->loop.bars ? b-
 void dn_brk_slices_apply(dn_brk_t *b)
 {
     uint32_t i, ns;
-    if (b->smode == 2u && !b->n_man) {              /* the first time MANUAL: start from what AUTO found */
-        for (i = 0; i < b->n_auto; i++)
-            b->man_start[i] = b->auto_start[i];
-        b->n_man = b->n_auto;
+    if (b->smode == 2u && !b->n_man) {              /* the first time MANUAL: empty, one slice the whole loop */
+        b->man_start[0] = 0;
+        b->n_man = 1;
     }
     if (b->smode == 1u && b->n_auto) {
         ns = b->n_auto;
@@ -346,7 +345,7 @@ void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse)
     b->dc = b->on ? b->last : b->dc;                /* the cut: what was sounding fades in ~1 ms, not a click */
     b->slice = (uint8_t)slice;
     b->rev = (uint8_t)(reverse != 0);
-    b->rel = b->fast = 0;
+    b->rel = b->fast = b->aud = b->stopend = 0;
     b->env = 32767;
     b->gain = (int32_t)dn_clamp((int32_t)vel, 1, 127) * 258;
     b->played = 0;
@@ -390,6 +389,32 @@ void dn_brk_cut(dn_brk_t *b)
     b->rel = 1;
     b->fast = 1;
 }
+
+void dn_brk_audition(dn_brk_t *b, uint32_t at)
+{
+    uint32_t i;
+    if (!b->ok)
+        return;
+    b->dc = b->on ? b->last : b->dc;
+    for (i = 0; i + 1u < b->nslices && b->start[i + 1u] <= at; i++)
+        ;
+    b->slice = (uint8_t)i;
+    b->rev = 0;
+    b->rel = b->fast = 0;
+    b->aud = 1;
+    b->env = 32767;
+    b->gain = 127 * 258;
+    b->played = 0;
+    b->hold_n = 0;
+    b->endp = b->loop.n;
+    seek(b, at < b->loop.n ? at : 0u);
+    b->a = next(b);
+    b->b = next(b);
+    b->frac = 0;
+    b->on = 1;
+}
+
+uint32_t dn_brk_pos(const dn_brk_t *b) { return b->p > 2u ? b->p - 2u : 0u; }
 
 void dn_brk_release(dn_brk_t *b)
 {
@@ -462,7 +487,21 @@ void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
         uint8_t was = b->on;
         k = DN_ENV_K[b->fast ? 30 : dn_clamp(b->decay, 0, 126)] >> 5;   /* per sample (the table: per 32) */
         if (b->on) {
-            if (b->stretch == 2u) {
+            if (b->aud) {                           /* the loop round and round, at its own speed */
+                v = b->a + (((b->b - b->a) * (int32_t)(b->frac >> 1)) >> 15);
+                b->frac += b->pinc;
+                while (b->frac >= 65536u) {
+                    b->frac -= 65536u;
+                    b->a = b->b;
+                    if (b->p >= b->loop.n)
+                        seek(b, 0);
+                    b->b = next(b);
+                }
+                while (b->slice + 1u < b->nslices && b->p >= b->start[b->slice + 1u] + 2u)
+                    b->slice++;
+                if (b->p < 4u)
+                    b->slice = 0;
+            } else if (b->stretch == 2u) {
                 v = stretch_tick(b);
                 b->played += b->tinc >> 8;
             } else if (b->rev) {
@@ -482,7 +521,7 @@ void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
                 }
                 if (b->p >= b->loop.n + 2u)
                     b->on = 0;                      /* the end of the loop */
-                if (b->stretch == 1u && b->p >= b->endp && !b->rel)
+                if ((b->stretch == 1u || b->stopend) && b->p >= b->endp && !b->rel)
                     b->rel = b->fast = 1;           /* SLICE: the slice ends (a slower tempo leaves a gap): fade */
             }
             if (b->stretch != 2u)
