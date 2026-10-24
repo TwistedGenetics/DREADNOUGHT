@@ -58,6 +58,39 @@ So a rich wavetable voice costs about 5 % of the two-core budget.
 | Wavetables | A full Serum table (256 frames × 2048 samples × 16-bit) is **1 MB — the whole flash**. Carnac OS's working format: 512-sample frames stored with 7 band-limited mip levels (2 KB per frame), 8 morph frames per bank = **16 KB per bank**, read straight from flash. 15 banks = ~229 KB. |
 | Breaks | X0X fits about **nine one-bar loops** in the three user sample slots, and has a browser page and a CLI for uploading them. |
 
+## DREADNOUGHT measured (0.11, from CI's size report)
+
+CI prints these on every build (`tools/build_fm1.py`, `sizes()`; a notice on the run and `sizes.md` in the
+artifact), and fails if the app slot has less than 24 KB free.
+
+| | Used | Of | Free |
+|---|---|---|---|
+| App slot: code and constants (fixed in the package; the `.fwsc` is always 609,680 B) | 200,292 B | 581,564 B | **381,272 B** |
+| RAM `.data` + `.bss` | 49,540 B | 98,304 B | 48,764 B |
+| RAM pool | 152,896 B | 344,064 B | **191,168 B** |
+
+The biggest users: the screen's canvas (pool, 69 KB), the two built-in breaks (38 KB each in the image), the
+pattern bank (pool, 33 KB), the break voices (pool, 23 KB), the pattern buffer (pool, 15 KB), the fonts (26 KB).
+
+**Flash map** (X0X's layout; `x0x-firmware/tools/fm1pkg_make.py`, `firmware/src/storage.c`):
+
+| Range | What | Size |
+|---|---|---|
+| 0x00120 – 0x8E0DC | the app slot (rewritten by every update) | 568 KB |
+| 0x97000 – 0x9F000 | store objects: sound, patterns, song / manifest, settings | 32 KB |
+| 0xA0000 – 0xDC000 | the user sample slots | **240 KB** |
+| 0xDC000 – 0xE0000 | calibration, motion (the 4th pattern object) | 16 KB |
+| 0xE0000 – 0xFC000 | the update loader's staging area: never ours | 112 KB |
+| 0xFC000 – | settings | |
+
+What this means:
+- **Code is not the limit.** 381 KB is free in the app slot: room for every planned engine and factory content
+  (wavetables, factory samples, factory FM sounds) that ships with the firmware.
+- **Project media gets 240 KB** (the sample slots), unchanged by updates.
+- **RAM has room for the FX**: ~190 KB of pool free before any FX buffers.
+- **CPU**: one core renders today (in the audio interrupt); the second core is idle. The on-device load is on the BRK2
+  page; it has not been reported from hardware yet.
+
 ## Software bases
 
 There are two kinds of firmware for this box, and they build differently.
