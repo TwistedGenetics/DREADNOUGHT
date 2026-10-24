@@ -8,7 +8,8 @@
 
 export const HDR = [0x7D, 0x46, 0x4C];
 export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, PATS: 73, PAT_SEL: 74, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
-  TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77, SUB_PRESET: 78, PARAMS_HI: 79 };
+  TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77, SUB_PRESET: 78, PARAMS_HI: 79,
+  SMP_GET: 80, SMP_SET: 81, SMP_PLAY: 82 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
 export const digits = (v, n) => { const o = []; for (let i = 0; i < n; i++) { o.push(v & 127); v = Math.floor(v / 128); } return o; };
@@ -165,13 +166,13 @@ export function parseNames(r) {
 export const TRACKS = 8, STEPS = 64, LEN_STEP = 4, LEN_MAX = 255;
 export const ST_ON = 1, ST_SLIDE = 2, ST_ACC = 4;
 // what each track plays (0.12: the project says; before it, REESE / BREAKS A / B / MIDI x5)
-export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB"];
-export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4, SUB: 5 };
+export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER"];
+export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4, SUB: 5, SMP: 6 };
 let ENG = [1, 2, 3, 4, 4, 4, 4, 4];
 export function setEngines(e) { ENG = e.slice(0, 8); }
 export const engines = () => ENG.slice();
 export const KIND = (t) => (ENG[t] === E.REESE ? "REESE" : ENG[t] === E.BRKA || ENG[t] === E.BRKB ? "BREAKS" : ENG[t] === E.MIDI ? "MIDI"
-  : ENG[t] === E.SUB ? "SUB" : "OFF");
+  : ENG[t] === E.SUB ? "SUB" : ENG[t] === E.SMP ? "SAMPLER" : "OFF");
 export const brkOf = (t) => (ENG[t] === E.BRKB ? 1 : 0);   // a break track's voice: 0 A, 1 B
 export const midiNo = (t) => ENG.slice(0, t).filter((e) => e === E.MIDI).length + 1;   // "MIDI n"
 export const ST_RTRG = 8;
@@ -388,6 +389,9 @@ export class Link {
   async pats() { return parsePats(await this.req(CMD.PATS)); }
   async patSel(t, n) { return (await this.req(CMD.PAT_SEL, [t, n]))[0]; }
   async save() { return (await this.req(CMD.SAVE, [], 8000))[0]; }
+  async smpGet(kind, i) { return parseSmp(await this.req(CMD.SMP_GET, [kind, i])); }
+  async smpSet(kind, i, k, v) { return (await this.req(CMD.SMP_SET, [kind, i, k, ...digits(v + 8192, 2)]))[0]; }
+  async smpPlay(note, on) { return (await this.req(CMD.SMP_PLAY, [note & 127, on ? 1 : 0]))[0]; }
   async subPreset(i) { return (await this.req(CMD.SUB_PRESET, [i]))[0]; }
   async preset(i) { return (await this.req(CMD.PRESET, [i]))[0]; }
   async proj() { return parseProj(await this.req(CMD.PROJ)); }
@@ -430,4 +434,53 @@ export async function connect(midi, log = () => {}, prefer = "", tap = null) {
   const names = ins.map((i) => i.name).join(", ");
   throw new Error(`No FM-1 running DREADNOUGHT 0.7 or later answered. MIDI ports seen: ${names || "none"}. ` +
     "Connect it by USB, close other apps that use its MIDI port (Ableton, the breaks page or the flasher in another tab), and try again.");
+}
+
+// ---- SAMPLER (0.23): 16 one-shot pads, or a key map of 8 zones (src/dsp/dn_smp.h PD_* / ZN_* / KY_*) ---------------
+// SMP_GET kind i: kind 0 pad i, 1 zone i, 2 the keys' values, 3 the mode (0 ONE-SHOT, 1 KEYS). A SAMPLE is a loop's
+// place in NAMES kind 1 (the loops BREAKS plays: built-in first), -1 none.
+const pct = (v) => `${(v / 10).toFixed(1)}%`;
+const NN = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+export const smpNote = (v) => `${NN[v % 12]}${Math.floor(v / 12) - 2}`;   // (C3 = 60, as the FM-1 names it)
+const open = (v) => (v >= 127 ? "OPEN" : `${v}`);
+export const SMP_PAD = [
+  R("SAMPLE", -1, 126, "PAD"), R("START", 0, 1000, "PAD", pct), R("END", 0, 1000, "PAD", pct), R("REVERSE", 0, 1, "PAD", (v) => (v ? "ON" : "OFF")),
+  R("PITCH", -24, 24, "PITCH", sgn), R("FINE", -50, 50, "PITCH", (v) => `${sgn(v)}c`), R("LEVEL", 0, 127, "OUT"),
+  R("PAN", -64, 63, "OUT", (v) => (v ? `${v < 0 ? "L" : "R"}${Math.abs(v)}` : "C")),
+  R("ATTACK", 0, 127, "AMP"), R("HOLD", 0, 127, "AMP", (v) => (v >= 127 ? "END" : `${v}`)), R("DECAY", 0, 127, "AMP"),
+  R("CHOKE", 0, 4, "OUT", (v) => (v ? `${v}` : "OFF")),
+  R("CUT", 0, 127, "FILTER", open), R("RES", 0, 127, "FILTER"), R("DRIVE", 0, 127, "FILTER"), R("CRUSH", 0, 127, "FILTER"),
+];
+export const SMP_ZONE = [
+  R("SAMPLE", -1, 126, "ZONE"), R("ROOT", 0, 127, "ZONE", smpNote), R("LOW", 0, 127, "ZONE", smpNote), R("HIGH", 0, 127, "ZONE", smpNote),
+  R("TUNE", -50, 50, "ZONE", (v) => `${sgn(v)}c`), R("LEVEL", 0, 127, "ZONE"), R("START", 0, 1000, "ZONE", pct),
+  R("LOOP", 0, 2, "LOOP", (v) => ["OFF", "LOOP", "SUST"][v]), R("L.START", 0, 1000, "LOOP", pct), R("L.END", 0, 1000, "LOOP", pct),
+];
+export const SMP_KEYS = [
+  R("ATTACK", 0, 127, "AMP"), R("DECAY", 0, 127, "AMP"), R("SUSTAIN", 0, 127, "AMP"), R("RELEASE", 0, 127, "AMP"),
+  R("CUT", 0, 127, "FILTER", open), R("RES", 0, 127, "FILTER"), R("DRIVE", 0, 127, "FILTER"), R("CRUSH", 0, 127, "FILTER"),
+  R("VOICES", 1, 4, "AMP", (v) => (v === 1 ? "MONO" : `${v}`)),
+];
+export const SMP_NPADS = 16, SMP_NZONES = 8;
+export function parseSmp(r) {
+  const n = r[2], vals = [];
+  for (let k = 0; k < n; k++) vals.push(num(r, 3 + 2 * k, 2) - 8192);
+  return { kind: r[0], idx: r[1], vals };
+}
+// the whole SAMPLER: { mode, pads: 16 x 16, zones: 8 x 10, keys: 9 }; null from firmware before 0.23
+export async function readSampler(link) {
+  let mode;
+  try { mode = (await link.smpGet(3, 0)).vals[0]; } catch (_) { return null; }
+  const pads = [], zones = [];
+  for (let i = 0; i < SMP_NPADS; i++) pads.push((await link.smpGet(0, i)).vals);
+  for (let j = 0; j < SMP_NZONES; j++) zones.push((await link.smpGet(1, j)).vals);
+  return { mode, pads, zones, keys: (await link.smpGet(2, 0)).vals };
+}
+// a sampler object -> the FM-1 (each value; the mode last, so its voices start clean)
+export async function writeSampler(link, o) {
+  if (!o) return;
+  for (let i = 0; i < SMP_NPADS && o.pads && o.pads[i]; i++) for (let k = 0; k < o.pads[i].length; k++) await link.smpSet(0, i, k, o.pads[i][k]);
+  for (let j = 0; j < SMP_NZONES && o.zones && o.zones[j]; j++) for (let k = 0; k < o.zones[j].length; k++) await link.smpSet(1, j, k, o.zones[j][k]);
+  for (let k = 0; o.keys && k < o.keys.length; k++) await link.smpSet(2, 0, k, o.keys[k]);
+  await link.smpSet(3, 0, 0, o.mode || 0);
 }

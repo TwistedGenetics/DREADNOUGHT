@@ -1,0 +1,91 @@
+# DREADNOUGHT host scenario (0.23): SAMPLER on a track. ONE-SHOT: the keys hit pads (the first 16), PRESETS picks
+# the pad its pages show, a CHOKE group cuts, SEQ opens DRUM. KEYS: a key map, polyphonic, released keys let go.
+# The settings come back after a reboot (the SONG object, layout 2).
+# White keys (tracks 1..8): 0 2 4 6 7 9 11 12.
+sysex 76 5 6 0
+expect eng.6 6
+press SEQ
+tapkey 9 40
+release SEQ
+expect trk 6
+expect page 0
+expect smmode 0
+shot smp-01-pad.png
+# pad 1 plays the first sample (the built-in loops come first)
+set 220 0
+expect smp.1.0 0
+expect smsrc 1
+tapkey 0 30
+expect smv 1
+expect smpad 1
+expect peak >500
+# pad 2: the same sample from halfway, both in CHOKE group 1: a hit on 2 cuts 1
+turn PRESET 1
+expect smpad 2
+set 220 0
+set 221 500
+set 231 1
+turn PRESET -1
+expect smpad 1
+set 231 1
+wait 300
+tapkey 0 10
+expect smv 1
+tapkey 1 10
+expect smv 1
+expect smpad 2
+shot smp-02-choke.png
+# the tabs: no LFO page for SAMPLER (SELECT goes PAD, FILTER, AMP, MOD, OUT, SETUP)
+turn SELECT 3
+expect page 3
+turn SELECT 1
+expect page 4
+# SEQ: its pads on DRUM
+tap SEQ
+expect page 8
+shot smp-03-drum.png
+tap SEQ
+expect page 4
+# KEYS: zone 1 plays the first sample, every key; two keys down, two voices
+set 164 1
+expect smmode 1
+set 236 0
+wait 300
+key 0 down
+wait 20
+key 4 down
+wait 20
+expect smgate 2
+key 0 up
+wait 20
+expect smgate 1
+key 4 up
+wait 20
+expect smgate 0
+shot smp-04-keys.png
+# the editor's frames (0.23): SMP_SET pad 5's SAMPLE to the first loop, SMP_GET it back, an audition on the map
+sysex 81 0 4 0 0 64
+expect reply.0 0
+expect smp.5.0 0
+sysex 80 0 4
+expect reply.0 0
+expect reply.1 4
+expect reply.2 16
+expect reply.3 0
+expect reply.4 64
+expect smpad 2
+sysex 81 0 99 0 0 64
+expect replylen 0
+sysex 82 60 1
+wait 20
+expect smgate 1
+sysex 82 60 0
+wait 20
+expect smgate 0
+# the settings kept: SAVE, reboot
+tap SAVE
+wait 300
+reboot
+expect smmode 1
+expect smp.2.1 500
+expect smp.2.11 1

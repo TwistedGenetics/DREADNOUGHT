@@ -16,6 +16,11 @@ test("a project goes from one FM-1 to another, all of it", async () => {
   await la.projSet(PF.fx(0, 2), 99);
   await la.projName("DUB SESH");
   await la.setParam(4, 33);
+  await la.projSet(PF.eng(6), 6);                     // SAMPLER on track 7 (0.23): pad 3 plays loop 2, reversed
+  await la.smpSet(0, 2, 0, 1);
+  await la.smpSet(0, 2, 3, 1);
+  await la.smpSet(1, 4, 1, 48);                       // zone 5's root C2; KEYS
+  await la.smpSet(3, 0, 0, 1);
   await la.patSel(5, 6);                              // a note in track 6's pattern 7
   const p = await la.readPattern(4136);
   Object.assign(p.tracks[5].steps[9], { flags: ST_ON, note: 70, len: 4, vel: 90 });
@@ -26,14 +31,17 @@ test("a project goes from one FM-1 to another, all of it", async () => {
   await writeSlots(la, imagesOf([part]), await readSlots(la));
   await la.req(51, [...key7(sliceKey(part.adpcm, part.n)), 3, ...[0, 1000, 2500].flatMap(pos7)]);
   const proj = JSON.parse(JSON.stringify(await readProject(la, { media: [{ name: "hit", set: { rate: 16000, fold: "left" } }] })));
-  assert.deepEqual(checkProject(proj).proj.eng, [4, 2, 3, 1, 4, 4, 4, 4]);
+  assert.deepEqual(checkProject(proj).proj.eng, [4, 2, 3, 1, 4, 4, 6, 4]);
   assert.equal(proj.name, "DUB SESH");
   assert.deepEqual((await la.pats()).tracks.map((t) => t.cur), [0, 0, 0, 0, 0, 0, 0, 0], "the patterns playing are as they were");
 
   const b = new MockFM1(), lb = await connect(b.access);
   await writeProject(lb, proj);
   const pj = await lb.proj();
-  assert.deepEqual(pj.eng, [4, 2, 3, 1, 4, 4, 4, 4]);
+  assert.deepEqual(pj.eng, [4, 2, 3, 1, 4, 4, 6, 4]);
+  assert.deepEqual(b.smp.pads[2].slice(0, 4), [1, 0, 1000, 1], "SAMPLER's pads came across");
+  assert.equal(b.smp.zones[4][1], 48, "and its zones");
+  assert.equal(b.smp.mode, 1, "and its mode");
   assert.equal(pj.send[0][3], 77);
   assert.equal(pj.fx[0].p[1], 99);
   assert.equal(pj.name, "DUB SESH");

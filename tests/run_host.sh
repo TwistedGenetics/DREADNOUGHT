@@ -38,10 +38,13 @@ build/host/fx2_test build/host tests/host/fx_golden.txt
 $CC $W -D_DEFAULT_SOURCE tests/host/sub_test.c src/dsp/dn_sub.c -o build/host/sub_test -lm
 build/host/sub_test build/host
 # shellcheck disable=SC2086
+$CC $W -D_DEFAULT_SOURCE tests/host/smp_test.c src/dsp/dn_smp.c -o build/host/smp_test -lm
+build/host/smp_test
+# shellcheck disable=SC2086
 $CC $W tests/host/slices_xcheck.c src/dsp/dn_breaks.c -o build/host/slices_xcheck
 build/host/slices_xcheck | node tests/host/slices_xcheck.mjs
 # shellcheck disable=SC2086
-$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_sub.c -o build/host/dn_host
+$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_sub.c src/dsp/dn_smp.c -o build/host/dn_host
 for s in tests/host/scenarios/*.txt; do
     build/host/dn_host "$s" build/host
 done

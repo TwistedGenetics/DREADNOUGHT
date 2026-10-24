@@ -29,6 +29,7 @@
   <button role="tab" data-tab="pattern" aria-selected="true">Pattern</button>
   <button role="tab" data-tab="sound">REESE</button>
   <button role="tab" data-tab="subtab" id="subTabBtn" hidden>SUB</button>
+  <button role="tab" data-tab="smptab" id="smpTabBtn" hidden>SAMPLER</button>
   <button role="tab" data-tab="lfos">LFOs</button>
   <button role="tab" data-tab="breaks">Breaks</button>
   <button role="tab" data-tab="files">Project</button>
@@ -81,6 +82,26 @@
       <span class="small">SUB: an SH-101-style bass. The DIRT drives it after the amp; SPLIT keeps the low end clean
         under it. Put it on a track on the Project tab.</span></div>
     <div id="sub" class="groups"></div>
+  </section>
+
+  <section id="smptab" class="tab">
+    <div class="row"><label>Mode <select id="smpmode"><option value="0">One-shot: 16 pads</option><option value="1">Keys: a key map</option></select></label>
+      <span class="small" id="smpwhere"></span></div>
+    <div id="smpone">
+      <p class="small">Each pad plays a sample (yours from the Project tab, or the built-in loops) from START to END. On the FM-1 the
+        pads are DRUM's rows and the first 16 keys. Click a pad to pick it and hear it. Pads in the same CHOKE group cut each other.</p>
+      <div class="pads" id="pads"></div>
+      <div id="padEd" class="groups"></div>
+    </div>
+    <div id="smpkeys" hidden>
+      <p class="small">Up to 8 zones, each a sample over a range of keys, played at its ROOT's pitch. Overlapping ranges: the
+        first zone that covers a key plays it. LOOP goes round while the note sounds; SUST while the key is held, then plays on to the end.
+        Click a zone's row to pick it; click the keyboard to hear a note.</p>
+      <canvas id="zmap" class="cv"></canvas>
+      <div id="zoneEd" class="groups"></div>
+      <h3 class="small">ALL KEYS</h3>
+      <div id="keysEd" class="groups"></div>
+    </div>
   </section>
 
   <section id="lfos" class="tab">

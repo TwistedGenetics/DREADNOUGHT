@@ -464,6 +464,29 @@ int main(int argc, char **argv)
                 ed(79, 0, 0);
                 for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
                 fprintf(g, "],\"rfe\":[%d,%d,%d,%d", dn_rs.fe[0], dn_rs.fe[1], dn_rs.fe[2], dn_rs.fe[3]);
+                fprintf(g, "],\"smpget\":[");    /* 0.23: SAMPLER: pad 1's values, and every value's name, range, texts */
+                {
+                    uint8_t q[2] = {0, 0};
+                    ed(80, q, 2);
+                }
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                fprintf(g, "],\"smpdefs\":[");
+                for (uint32_t kind = 0, first = 1; kind < 3u; kind++) {
+                    uint32_t nk = kind == 0u ? PD_N : kind == 1u ? ZN_N : KY_N;
+                    for (uint32_t k = 0; k < nk; k++) {
+                        int32_t lo = kind == 0u ? dn_smp_pd_min(k) : kind == 1u ? dn_smp_zn_min(k) : dn_smp_ky_min(k);
+                        int32_t hi = kind == 0u ? dn_smp_pd_max(k) : kind == 1u ? dn_smp_zn_max(k) : dn_smp_ky_max(k);
+                        const char *nm = kind == 0u ? dn_smp_pd_name(k) : kind == 1u ? dn_smp_zn_name(k) : dn_smp_ky_name(k);
+                        fprintf(g, "%s[%u,%u,\"%s\",%d,%d,[", first ? "" : ",", kind, k, nm, lo, hi);
+                        first = 0;
+                        for (int32_t v = lo, j = 0; v <= hi; v += (hi - lo) > 200 ? 37 : 1, j++) {
+                            char tx[8];
+                            dn_smp_text(kind, k, v, tx);
+                            fprintf(g, "%s[%d,\"%s\"]", j ? "," : "", v, tx);
+                        }
+                        fprintf(g, "]]");
+                    }
+                }
                 fprintf(g, "],\"fxp\":[");
                 for (uint32_t t = 1; t < DN_FX_N; t++)
                     for (uint32_t i = 0; i < DN_FX_NP; i++) {
@@ -484,6 +507,9 @@ int main(int argc, char **argv)
             FILE *f = fopen(b, "rb");
             if (!f || fread(store_len, sizeof store_len, 1, f) != 1 || fread(store, sizeof store, 1, f) != 1) { printf("  FAIL storeload\n"); return 1; }
             fclose(f);
+        } else if (!strcmp(a, "set") && n >= 3) {   /* set ID V: a value as the knobs set it (0.23) */
+            dn_set((uint32_t)atoi(b), atoi(c));
+            run(5);
         } else if (!strcmp(a, "reboot")) {
             memset(&dn, 0, sizeof dn);
             held_btn = held_keys = 0;
@@ -590,6 +616,19 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "dly")) {           /* the delay's output now, both sides */
                 got = labs((long)dn_fxs[0].u.d.o_l) + labs((long)dn_fxs[0].u.d.o_r);
             } else if (!strcmp(b, "legato")) got = dn_sq.legato;
+            else if (!strcmp(b, "smv")) {           /* SAMPLER (0.23): voices sounding */
+                got = 0;
+                for (uint32_t k = 0; k < DN_SMP_VOICES; k++)
+                    got += dn_sm.v[k].on != 0;
+            } else if (!strcmp(b, "smgate")) {      /* voices with the key still down */
+                got = 0;
+                for (uint32_t k = 0; k < DN_SMP_VOICES; k++)
+                    got += dn_sm.v[k].on && dn_sm.v[k].gate;
+            } else if (!strcmp(b, "smpad")) got = dn.smp_pad + 1;
+            else if (!strcmp(b, "smzone")) got = dn.smp_zone + 1;
+            else if (!strcmp(b, "smmode")) got = dn_sm.p.mode;
+            else if (!strncmp(b, "smp.", 4)) got = dn_sm.p.pad[(atoi(b + 4) - 1) & 15][atoi(strchr(b + 4, '.') + 1)];
+            else if (!strcmp(b, "smsrc")) got = dn_sm.src[dn.smp_pad % DN_SMP_PADS].adpcm != 0;
             else if (!strcmp(b, "sbgate")) got = dn_sb.gate;       /* SUB (0.13) */
             else if (!strcmp(b, "sbpreset")) got = dn.sb_preset;
             else if (!strcmp(b, "smodcut")) got = dn_sb.mod[SP_CUT] != 0;

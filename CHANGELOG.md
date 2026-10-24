@@ -439,3 +439,26 @@ Saves made on 0.19 and 0.20 were never affected. A project lost to an earlier up
 
 Tested: host scenario `names.txt` (picking tracks and their pages, naming and cancelling, a stored sound's name, all
 over a reboot); `patches.txt` and `fenv.txt` updated for the editor that opens after storing.
+
+## 0.23 — SAMPLER: 16 one-shot pads, or a key map with loops (2026-10-24)
+
+- **SAMPLER**, a new instrument (PROJECT: put it on a track, one at most). It plays the same samples BREAKS does: the
+  built-in loops and yours from the editor's Project tab.
+- **ONE-SHOT** (MODE on OUT): 16 pads, DRUM's rows and the first 16 keys. Each pad: SAMPLE, START, END, REVERSE (PAD) ·
+  CUT, RES, DRIVE, CRUSH (FILTER) · ATTACK, HOLD (127: to the end), DECAY, LEVEL (AMP) · PITCH ±24, FINE ±50 cents,
+  PAN, CHOKE group 1–4 (MOD). A hit cuts the pad's last hit and its choke group, fading out in about a millisecond, so
+  nothing clicks. PRESETS picks the pad the pages show; playing one picks it too. SEQ: its pads on DRUM.
+- **KEYS**: a key map of 8 zones (ZONE page): SAMPLE, ROOT, LOW, HIGH; LOOP page: LOOP OFF / LOOP (round while it
+  sounds) / SUST (round while the key's held, then on to the end), L.START, L.END (snapped to rising zero crossings: no
+  click where it goes round), TUNE; START and LEVEL. One ADSR, filter, drive and crush for the keys; up to 4 voices
+  (VOICES 1: mono). PRESETS picks the zone; SEQ: its piano roll. No LFO page (yet).
+- **Editor:** a SAMPLER tab: the 16 pads (click one to pick it and hear it), its values; in KEYS the zones drawn over
+  a keyboard (click a row to pick a zone, the keyboard to hear a note). Projects saved from the editor carry SAMPLER.
+- SAMPLER's settings are kept with the manual slices and the names (that object now holds 20 loops' slices, the
+  newest; was 24). Saves from 0.22 and earlier load as they were.
+
+Tested: `smp_test` (pitch across the map and at zone edges, TUNE, START / END, reverse, choke, voice stealing, mono,
+no step where a loop goes round, SUST, release); host scenario `sampler.txt` (pads, choke, pages, DRUM, keys, the
+editor's frames, kept over a reboot); `upgrade.txt` (a 0.22 save: names and slices come up, SAMPLER at its defaults);
+the editor's value names, ranges and texts checked against the firmware's; the editor end to end in Chromium (pads,
+zones, mode) and a project carrying SAMPLER from one FM-1 to another.

@@ -2,7 +2,7 @@
 // The web editor's decoders (web/editor/protocol.js) on the firmware's own replies (dn_host `golden`): state,
 // parameters, the pattern, names.
 import { readFileSync } from "node:fs";
-import { parseState, parseParams, parsePattern, parseNames, serializePattern, REESE, NPARAM_15, parseLfoPts, parseLfoNow, COND_NAMES,
+import { parseSmp, SMP_PAD, SMP_ZONE, SMP_KEYS, parseState, parseParams, parsePattern, parseNames, serializePattern, REESE, NPARAM_15, parseLfoPts, parseLfoNow, COND_NAMES,
   parseProj, fxParams, FX_DEFAULTS, FX_NAMES } from "../../web/editor/protocol.js";
 
 const g = JSON.parse(readFileSync(process.argv[2], "utf8"));
@@ -39,5 +39,17 @@ check("every effect's values: names, tops and texts as the FM-1's", !bad.length,
 const hi = parseParams(g.hi);
 check("PARAMS_HI: 8 values, REESE's filter envelope first", hi.length === 8 && hi.slice(0, 4).join() === g.rfe.join(),
   hi.slice(0, 4).join(), g.rfe.join());
+// 0.23: SAMPLER: pad 1 as the firmware sends it; every value named, ranged and read as the FM-1 does
+const sg = parseSmp(g.smpget);
+check("SMP_GET: pad 1, 16 values, the defaults", sg.kind === 0 && sg.idx === 0 && sg.vals.join() === "-1,0,1000,0,0,0,100,0,0,127,64,0,127,0,0,0",
+  sg.vals.join(), "-1,0,1000,0,0,0,100,0,0,127,64,0,127,0,0,0");
+bad = [];
+for (const [kind, k, name, min, max, texts] of g.smpdefs) {
+  const x = [SMP_PAD, SMP_ZONE, SMP_KEYS][kind][k];
+  if (!x || x.name !== name || x.min !== min || x.max !== max) { bad.push(`${kind}.${k}: ${x && x.name} ${x && x.min}..${x && x.max} vs ${name} ${min}..${max}`); continue; }
+  if (name === "SAMPLE") continue;                   // (the page names the loop)
+  for (const [v, t] of texts) if ((x.text ? x.text(v) : `${v}`) !== t) { bad.push(`${name} ${v}: ${x.text ? x.text(v) : v} vs ${t}`); break; }
+}
+check("SAMPLER's values: names, ranges and texts as the FM-1's", !bad.length, bad.slice(0, 3).join("; ") || "all", "all");
 console.log(fails ? `EDITOR (page): ${fails} FAILED` : "EDITOR (page): the page reads the firmware's replies");
 process.exit(fails ? 1 : 0);

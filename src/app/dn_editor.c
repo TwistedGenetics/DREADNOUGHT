@@ -38,6 +38,12 @@
  *   79 PARAMS_HI               -> n, n x value (2, +8192)           the values past PARAMS' 7-bit index (0.19):
  *      PARAMS_HI i v(2)        -> rc (0 set)                         0-3 REESE's filter envelope ATK DEC SUS REL,
  *                                                                    4-7 SUB's
+ *   80 SMP_GET kind i          -> kind, i, n, n x value (2, +8192)   SAMPLER (0.23): kind 0 pad i's values (dn_smp.h
+ *                                                                    PD_*, 16), 1 zone i's (ZN_*, 10), 2 the keys'
+ *                                                                    (KY_*, 9), 3 the mode (0 ONE-SHOT, 1 KEYS)
+ *   81 SMP_SET kind i k v(2)   -> rc (0 set)                         one of those (a SAMPLE: the loops' order, -1 OFF)
+ *   82 SMP_PLAY note on        -> rc                                 a hit (ONE-SHOT: note is the pad) or a key of the
+ *                                                                    map, on / off: the editor's audition
  * From 0.13 PARAMS ends with SUB's values (dn_sub.h SP_*, 27 of them).
  * From 0.11 a step in the pattern is 8 bytes {note, flags, len, vel, cond, rtim, rlen, rvel}: dn_seq.h.
  * From 0.9 PARAMS also has the LFOs, 8 each after BREAKS B: SHAPE SYNC RATE DEST DEPTH PHASE MODE SMOOTH (SYNC
@@ -45,7 +51,7 @@
  */
 enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT_COMMIT, ED_TRANSPORT, ED_SAVE,
        ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL, ED_PROJ, ED_PROJ_SET,
-       ED_PROJ_NAME, ED_SUB_PRESET, ED_PARAMS_HI };
+       ED_PROJ_NAME, ED_SUB_PRESET, ED_PARAMS_HI, ED_SMP_GET, ED_SMP_SET, ED_SMP_PLAY };
 #define DN_ED_NHI 8u
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
@@ -57,7 +63,13 @@ static const uint8_t DN_ED_LFO[8] = {DN_PX_LSHAPE, DN_PX_LSYNC, DN_PX_LRATE, DN_
 #define DN_ED_NPARAM_13 (DN_ED_NPARAM_09 + SP_COUNT) /* (0.13: SUB's after the LFOs) */
 #define DN_ED_NPARAM (DN_ED_NPARAM_13 + DN_NLFO * 8u) /* (0.15: SUB's own LFOs; those before are REESE's) */
 /* the editor frames the device glue must take whole (not into its 64-byte copy) */
-static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 79u; }
+static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 82u; }
+/* SAMPLER's values by kind (0 pad, 1 zone, 2 keys, 3 mode): the app's id for value k, and how many */
+static uint32_t dn_ed_smp_n(uint32_t kind) { return kind == 0u ? PD_N : kind == 1u ? ZN_N : kind == 2u ? KY_N : 1u; }
+static uint32_t dn_ed_smp_id(uint32_t kind, uint32_t k)
+{
+    return kind == 0u ? DN_PX_PD0 + k : kind == 1u ? DN_PX_ZN0 + k : kind == 2u ? DN_PX_KY0 + k : DN_PX_SMODE;
+}
 static dn_pattern_t dn_ed_pat X0X_POOL;             /* PAT_WRITE's copy, until PAT_COMMIT */
 
 /* editor parameter i: the app's id, and which BREAKS (0 / 1; -1 none) */
@@ -348,6 +360,51 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
             return 0;
         dn_set(DN_PX_RFE + a[0], (int32_t)(a[1] | a[2] << 7) - 8192);
         dn_rev++;
+        put(0);
+        return 1;
+    case ED_SMP_GET:
+    case ED_SMP_SET: {
+        uint32_t kind, idx, n, k;
+        uint8_t pad = dn.smp_pad, zone = dn.smp_zone;
+        if (na < 2u || a[0] > 3u || (a[0] == 0u && a[1] >= DN_SMP_PADS) || (a[0] == 1u && a[1] >= DN_SMP_ZONES))
+            return 0;
+        kind = a[0];
+        idx = a[1];
+        n = dn_ed_smp_n(kind);
+        if (kind == 0u)
+            dn.smp_pad = (uint8_t)idx;              /* (the values read / set are the pad's / zone's shown) */
+        else if (kind == 1u)
+            dn.smp_zone = (uint8_t)idx;
+        if (cmd == ED_SMP_GET) {
+            put(kind);
+            put(idx);
+            put(n);
+            for (k = 0; k < n; k++)
+                dn_ed_num(put, (uint32_t)(dn_get(dn_ed_smp_id(kind, k)) + 8192), 2);
+        } else if (na < 5u || a[2] >= n) {
+            put(1);
+        } else {
+            dn_set(dn_ed_smp_id(kind, a[2]), (int32_t)(a[3] | a[4] << 7) - 8192);
+            dn_rev++;
+            put(0);
+        }
+        dn.smp_pad = pad;
+        dn.smp_zone = zone;
+        return 1;
+    }
+    case ED_SMP_PLAY:
+        if (na < 2u)
+            return 0;
+        dn_lock();
+        if (dn_sm.p.mode == DN_SMP_ONESHOT) {
+            if (a[1])
+                dn_smp_pad(&dn_sm, a[0] % DN_SMP_PADS, 100);
+        } else if (a[1]) {
+            dn_smp_note_on(&dn_sm, a[0], 100);
+        } else {
+            dn_smp_note_off(&dn_sm, a[0]);
+        }
+        dn_unlock();
         put(0);
         return 1;
     case ED_SUB_PRESET:

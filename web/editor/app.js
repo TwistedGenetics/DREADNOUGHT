@@ -5,6 +5,7 @@ import {
   noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
   lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
   PF, FX_NAMES, fxParams, E, SUB, subIndex, NPARAM_13, nLfos, FENV, NPARAM_19, feIndex,
+  SMP_PAD, SMP_ZONE, SMP_KEYS, SMP_NPADS, SMP_NZONES, readSampler, smpNote,
 } from "./protocol.js";
 import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
@@ -18,6 +19,7 @@ const S = {
   writing: 0, lastRev: -1, poll: null, dirtyPat: false, drag: null, selNote: -1, zoom: 0, x0: 0,
   lfo: null, lfoNow: null, lfoDraw: null, pats: null,
   proj: null, media: [], dev: null, mediaRead: false, dir: null,
+  smp: null, pad: 0, zone: 0,
 };
 const ROWS = 36, ROW_H = 14, GUT = 46;
 
@@ -47,12 +49,20 @@ async function start(link, label) {
   buildBreaks();
   buildLfos();
   buildSub();
+  S.smp = null;
+  buildSampler();
   buildProject();
   ["play", "bpm", "save"].forEach((id) => { $(id).disabled = false; });
   say(label, "ok");
   render();
   clearInterval(S.poll);
   S.poll = setInterval(poll, 250);
+  readSampler(link).then((m) => {                    // (0.23: SAMPLER, once the page is up; null before. The
+    if (S.link !== link) return;                     //  link queues its frames: the polls wait their turn)
+    S.smp = m;
+    buildSampler();
+    if (m) render();
+  }).catch(() => {});
 }
 
 // the Diagnostics panel: the ports seen, which one, every frame (hex) and timeout; the picked port remembered
@@ -137,6 +147,11 @@ async function poll() {
     if (S.proj) { S.proj = await S.link.proj().catch(() => S.proj); setEngines(S.proj.eng); }
     refreshValues();
     refreshProject();
+    if (S.smp && $("smptab").classList.contains("on") && !S.smpBusy &&
+        !(document.activeElement && document.activeElement.closest && document.activeElement.closest("#smptab"))) {
+      S.smp = (await readSampler(S.link)) || S.smp;     // (changed on the FM-1: the tab follows)
+      buildSampler();
+    }
   } else if (S.proj && $("files").classList.contains("on")) {
     S.proj = await S.link.proj().catch(() => S.proj);   // (the CPU and the memory, live)
     refreshMeters();
@@ -193,7 +208,8 @@ document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
 // ---- the pattern: tracks ----------------------------------------------------------------------------------------
 function trackLabel(t) {
   const k = KIND(t);
-  return k === "REESE" ? ["REESE", "bass"] : k === "SUB" ? ["SUB", "bass"] : k === "BREAKS" ? [brkOf(t) ? "BREAKS B" : "BREAKS A", "slices"]
+  return k === "REESE" ? ["REESE", "bass"] : k === "SUB" ? ["SUB", "bass"]
+    : k === "SAMPLER" ? ["SAMPLER", S.smp && S.smp.mode === 1 ? "keys" : "pads"] : k === "BREAKS" ? [brkOf(t) ? "BREAKS B" : "BREAKS A", "slices"]
     : k === "MIDI" ? [`MIDI ${midiNo(t)}`, `channel ${S.pat.tracks[t].chan + 1}`] : ["OFF", "plays nothing"];
 }
 function renderTracks() {
@@ -219,8 +235,8 @@ $("right").onclick = () => { S.x0 += 16; render(); };
 $("up").onclick = () => { S.lo = Math.min(S.lo + 6, isBrk() ? 0 : 127 - ROWS + 1); render(); };
 $("down").onclick = () => { S.lo = Math.max(S.lo - 6, 0); render(); };
 
-const isBrk = () => KIND(S.sel) === "BREAKS";
-const slices = () => (S.st ? S.st.slices[brkOf(S.sel)] || 32 : 32);
+const isBrk = () => KIND(S.sel) === "BREAKS" || (KIND(S.sel) === "SAMPLER" && !!S.smp && S.smp.mode === 0);   // (SAMPLER's pads: rows too)
+const slices = () => (KIND(S.sel) === "SAMPLER" ? SMP_NPADS : S.st ? S.st.slices[brkOf(S.sel)] || 32 : 32);
 const trans = () => (KIND(S.sel) === "REESE" ? S.params[17] || 0 : KIND(S.sel) === "SUB" ? S.params[subIndex(25)] || 0 : 0);   // (REESE's TRANS: the roll names the notes it plays)
 
 // the rows in view: pitches for a synth track (high at the top), slices for a break track (slice 1 at the top)
@@ -577,6 +593,146 @@ function buildBreaks() {
     brkParams(S.loops).forEach((p, i) => slider(g, brkIndex(k, i), p));
   });
 }
+// ---- SAMPLER (0.23): 16 pads, or a key map of 8 zones -------------------------------------------------------------
+const loopName = (v) => (v < 0 ? "—" : S.loops[v] || `sample ${v + 1}`);
+function smpSet(kind, i, k, v) {
+  const o = kind === 0 ? S.smp.pads[i] : kind === 1 ? S.smp.zones[i] : S.smp.keys;
+  o[k] = v;
+  S.smpBusy = (S.smpBusy || 0) + 1;
+  return guard(async () => { await S.link.smpSet(kind, i, k, v); }).finally(() => { S.smpBusy--; });
+}
+function smpSlider(box, kind, i, k, p) {
+  const el = document.createElement("div"), vals = () => (kind === 0 ? S.smp.pads[i] : kind === 1 ? S.smp.zones[i] : S.smp.keys);
+  el.className = "prm";
+  if (p.name === "SAMPLE") {
+    el.innerHTML = `<span class="nm">SAMPLE</span><select></select>`;
+    const sel = el.querySelector("select");
+    [["-1", "OFF"], ...S.loops.map((n, j) => [`${j}`, n])].forEach(([v, n]) => {
+      const o = document.createElement("option"); o.value = v; o.textContent = n; sel.appendChild(o);
+    });
+    sel.value = vals()[k];
+    sel.onchange = async () => { await smpSet(kind, i, k, +sel.value); renderSampler(); };
+  } else {
+    el.innerHTML = `<span class="nm">${p.name}</span><input type="range" min="${p.min}" max="${p.max}" step="1"><span class="v"></span>`;
+    const r = el.querySelector("input"), v = el.querySelector(".v");
+    const show = () => { v.textContent = p.text ? p.text(+r.value) : r.value; };
+    r.value = vals()[k];
+    show();
+    let t = 0;
+    r.oninput = () => {                              // (a drag: the last value goes, at most every 40 ms)
+      show();
+      vals()[k] = +r.value;
+      clearTimeout(t);
+      t = setTimeout(() => { smpSet(kind, i, k, +r.value).then(() => { if (kind === 1) drawZoneMap(); }); }, 40);
+    };
+  }
+  box.appendChild(el);
+}
+function smpGroups(box, kind, i, defs, title) {
+  const groups = {};
+  box.textContent = "";
+  defs.forEach((p, k) => {
+    if (!groups[p.group]) {
+      const g = document.createElement("div");
+      g.className = "grp";
+      g.innerHTML = `<h3>${title ? `${title} · ` : ""}${p.group}</h3>`;
+      box.appendChild(g);
+      groups[p.group] = g;
+    }
+    smpSlider(groups[p.group], kind, i, k, p);
+  });
+}
+function buildSampler() {
+  $("smpTabBtn").hidden = !S.smp;
+  if (!S.smp) return;
+  $("smpmode").value = S.smp.mode;
+  const t = S.proj ? S.proj.eng.indexOf(E.SMP) : -1;
+  $("smpwhere").textContent = t >= 0 ? `On track ${t + 1}.` : "On no track yet: put it on one on the Project tab.";
+  $("smpone").hidden = S.smp.mode !== 0;
+  $("smpkeys").hidden = S.smp.mode !== 1;
+  smpGroups($("padEd"), 0, S.pad, SMP_PAD, `PAD ${S.pad + 1}`);
+  smpGroups($("zoneEd"), 1, S.zone, SMP_ZONE, `ZONE ${S.zone + 1}`);
+  smpGroups($("keysEd"), 2, 0, SMP_KEYS, "");
+  renderSampler();
+}
+function renderSampler() {
+  if (!S.smp) return;
+  const box = $("pads");
+  box.textContent = "";
+  for (let i = 0; i < SMP_NPADS; i++) {
+    const v = S.smp.pads[i][0], b = document.createElement("button");
+    b.className = `pad${i === S.pad ? " sel" : ""}${v < 0 ? " empty" : ""}`;
+    b.innerHTML = `<b>${i + 1}</b><span>${v < 0 ? "empty" : loopName(v)}</span>`;
+    b.title = "Pick this pad (and hear it)";
+    b.onclick = () => {
+      S.pad = i;
+      smpGroups($("padEd"), 0, S.pad, SMP_PAD, `PAD ${S.pad + 1}`);
+      renderSampler();
+      guard(() => S.link.smpPlay(i, true));
+    };
+    box.appendChild(b);
+  }
+  drawZoneMap();
+}
+// the key map: a row a zone (its range, its root), the keyboard under them
+const ZM = { top: 6, row: 18, kb: 30 };
+function drawZoneMap() {
+  const cv = $("zmap");
+  if (!S.smp || cv.offsetParent === null) return;
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = ZM.top + SMP_NZONES * ZM.row + ZM.kb + 4;
+  cv.style.height = `${H}px`;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const g = cv.getContext("2d"), css = getComputedStyle(document.documentElement), col = (n) => css.getPropertyValue(n).trim();
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = col("--panel"); g.fillRect(0, 0, W, H);
+  const L = 70, kw = (W - L - 6) / 128, x = (n) => L + n * kw;
+  g.font = "12px -apple-system, Segoe UI, sans-serif"; g.textBaseline = "middle";
+  for (let j = 0; j < SMP_NZONES; j++) {
+    const z = S.smp.zones[j], y = ZM.top + j * ZM.row;
+    if (j === S.zone) { g.fillStyle = col("--blue-l"); g.fillRect(0, y, W, ZM.row); }
+    g.fillStyle = col("--dim"); g.fillText(`ZONE ${j + 1}`, 6, y + ZM.row / 2);
+    if (z[0] < 0) continue;
+    const lo = Math.min(z[2], z[3]), hi = Math.max(z[2], z[3]);
+    g.fillStyle = j === S.zone ? col("--blue") : col("--blue-d");
+    g.fillRect(x(lo), y + 3, (hi - lo + 1) * kw, ZM.row - 6);
+    g.fillStyle = col("--red"); g.fillRect(x(z[1]), y + 1, Math.max(2, kw), ZM.row - 2);
+    g.fillStyle = "#fff";
+    const name = `${loopName(z[0])} · ${smpNote(lo)}–${smpNote(hi)} · root ${smpNote(z[1])}`;
+    if ((hi - lo + 1) * kw > g.measureText(name).width + 10) g.fillText(name, x(lo) + 5, y + ZM.row / 2);
+  }
+  const ky = ZM.top + SMP_NZONES * ZM.row + 2;          // the keyboard: C3 = 60
+  for (let n = 0; n < 128; n++) {
+    const black = [1, 3, 6, 8, 10].includes(n % 12);
+    g.fillStyle = black ? col("--fg") : col("--key-w"); g.fillRect(x(n), ky, Math.max(1, kw - 0.5), ZM.kb - (black ? 10 : 0));
+  }
+  g.fillStyle = col("--dim");                        // (the octaves named over the keys)
+  for (let n = 0; n < 128; n += 12) { g.fillRect(x(n), ky, 1, ZM.kb); if (kw * 12 > 30) g.fillText(smpNote(n), x(n) + 3, ky + ZM.kb - 6); }
+  g.strokeStyle = col("--line"); g.strokeRect(L, ky, 128 * kw, ZM.kb);
+}
+$("zmap").onpointerdown = (ev) => {
+  if (!S.smp) return;
+  const cv = $("zmap"), r = cv.getBoundingClientRect(), W = cv.clientWidth, L = 70, kw = (W - L - 6) / 128;
+  const y = ev.clientY - r.top, n = Math.max(0, Math.min(127, Math.floor((ev.clientX - r.left - L) / kw)));
+  const row = Math.floor((y - ZM.top) / ZM.row);
+  if (row >= 0 && row < SMP_NZONES) {
+    S.zone = row;
+    smpGroups($("zoneEd"), 1, S.zone, SMP_ZONE, `ZONE ${S.zone + 1}`);
+    drawZoneMap();
+  } else if (row >= SMP_NZONES && ev.clientX - r.left >= L) {   // the keyboard: a note while held
+    guard(() => S.link.smpPlay(n, true));
+    const up = () => { guard(() => S.link.smpPlay(n, false)); window.removeEventListener("pointerup", up); };
+    window.addEventListener("pointerup", up);
+  }
+};
+$("smpmode").onchange = async () => {
+  S.smp.mode = +$("smpmode").value;
+  S.smpBusy = (S.smpBusy || 0) + 1;
+  await guard(() => S.link.smpSet(3, 0, 0, S.smp.mode));
+  S.smpBusy--;
+  buildSampler();
+  render();
+};
+
 // ---- patterns (0.11): 8 an instrument; a click queues one (stopped: at once) -------------------------------------
 function renderPats() {
   const box = $("pats");
@@ -1169,11 +1325,12 @@ function render() {
     : "Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent. Double-click: slide. A note that reaches past the next one slides into it (Overlap: Slide). Right-click or Alt-click: delete. Arrow keys move the selected note (up / down, along the steps). Below: the selected note's velocity, condition and retrig; shift-drag the velocity lane for a ramp. Scroll for higher or lower notes; drag past an edge and the roll follows.";
   if ($("pattern").classList.contains("on")) { drawRoll(); drawVel(); }
   if ($("lfos").classList.contains("on")) drawLfos();
+  if ($("smptab").classList.contains("on")) drawZoneMap();
   renderPats();
   renderInsp();
   if (S.selNote >= 0 && tr.steps[S.selNote] && (tr.steps[S.selNote].flags & ST_ON)) {
     const st = tr.steps[S.selNote];
-    $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `slice ${st.note + 1}` : noteName(st.note + trans())}, `
+    $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `${KIND(S.sel) === "SAMPLER" ? "pad" : "slice"} ${st.note + 1}` : noteName(st.note + trans())}, `
       + `${lenText(st.len)} step${st.len === 4 ? "" : "s"}, velocity ${st.flags & ST_ACC ? "accent" : st.vel}`
       + `${st.flags & ST_SLIDE ? (isBrk() ? ", reversed" : ", slides in") : !isBrk() && overlapSlide(S.pat, S.sel, S.selNote) ? ", slides in (the note before overlaps it)" : ""}.`;
   }

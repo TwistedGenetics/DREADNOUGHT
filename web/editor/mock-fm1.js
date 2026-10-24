@@ -2,7 +2,7 @@
 // A simulated FM-1 running DREADNOUGHT, for the editor's demo mode and its tests: a Web MIDI access object with one
 // port that answers the editor's commands (src/app/dn_editor.c) the way the firmware does. Copyright (C) 2026 Jamie
 // (TwistedGenetics).
-import { HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
+import { SMP_PAD, SMP_ZONE, SMP_KEYS, HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
 
 const PRESETS = ["CLASSIC RS", "OG REESE", "HOLLOW RS", "TECHSTEP", "NEURO RS", "SYNC RS", "DARK RS", "SUB REESE", "HOOVER RS", "INIT"];
 const USERS = Array.from({ length: 8 }, (_, i) => `USER ${i + 1} -`);   // (0.15: the user sounds, empty)
@@ -50,6 +50,9 @@ export class MockFM1 {
     // the project (0.12): each track's instrument, sends, returns, the two FX slots; the sample slots (X0X's layout)
     this.proj = { name: "PROJECT 1", eng: [1, 2, 3, 4, 4, 4, 4, 4], send: [Array(8).fill(0), Array(8).fill(0)], ret: [100, 100],
       fx: [[1, 7, 60, 70, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0]] };
+    // SAMPLER (0.23): its defaults, as dn_smp.c sets them
+    this.smp = { mode: 0, pads: Array.from({ length: 16 }, () => [-1, 0, 1000, 0, 0, 0, 100, 0, 0, 127, 64, 0, 127, 0, 0, 0]),
+      zones: Array.from({ length: 8 }, () => [-1, 60, 0, 127, 0, 100, 0, 0, 0, 1000]), keys: [0, 64, 127, 30, 127, 0, 0, 0, 4] };
     this.slots = [0, 1, 2].map(() => ({ buf: new Uint8Array(0x14000).fill(0xFF), ok: false }));
     this.log = [];
     const self = this;
@@ -164,20 +167,39 @@ export class MockFM1 {
         this.hi[a[0]] = Math.max(0, Math.min(127, (a[1] | a[2] << 7) - 8192)); this.rev++; this.dirty = 1;
         return [0];
       }
+      case CMD.SMP_GET: case CMD.SMP_SET: {
+        const kind = a[0], i = a[1], m = this.smp;
+        if (kind > 3 || (kind === 0 && i >= 16) || (kind === 1 && i >= 8)) return null;
+        const vals = kind === 0 ? m.pads[i] : kind === 1 ? m.zones[i] : kind === 2 ? m.keys : null;
+        const defs = kind === 0 ? SMP_PAD : kind === 1 ? SMP_ZONE : SMP_KEYS;
+        if (cmd === CMD.SMP_GET) {
+          const out = kind === 3 ? [m.mode] : vals;
+          return [kind, i, out.length, ...out.flatMap((v) => digits(v + 8192, 2))];
+        }
+        const v = (a[3] | a[4] << 7) - 8192;
+        if (kind === 3) { m.mode = v ? 1 : 0; } else {
+          if (a[2] >= vals.length) return [1];
+          const d = defs[a[2]];
+          vals[a[2]] = Math.max(d.min, Math.min(d.name === "SAMPLE" ? LOOPS.length - 1 : d.max, v));
+        }
+        this.rev++; this.dirty = 1;
+        return [0];
+      }
+      case CMD.SMP_PLAY: this.smpPlayed = (this.smpPlayed || 0) + (a[1] ? 1 : 0); return [0];
       case CMD.SUB_PRESET: this.subPreset = a[0]; this.rev++; return [0];
       case CMD.PROJ: {
         const P = this.proj, nm = P.name.padEnd(12, "\0").slice(0, 12).split("").map((c) => c.charCodeAt(0) & 127);
         const used = this.slots.reduce((acc, sl) => acc + (sl.ok ? 512 + new DataView(sl.buf.buffer).getUint32(16, true) : 0), 0);
         const fxk = fxMem(P.fx[0][0], P.fx[1][0]);
         return [...nm, ...P.eng, ...P.send[0], ...P.send[1], ...P.ret, ...P.fx[0].slice(0, 4), ...P.fx[1].slice(0, 4), ...digits(used, 3),
-          ...digits(3 * (0x14000 - 512), 3), ...digits(fxk, 2), ...digits(FX_ARENA_KB, 2), 12, 6, FX_NAMES.length,
+          ...digits(3 * (0x14000 - 512), 3), ...digits(fxk, 2), ...digits(FX_ARENA_KB, 2), 12, 7, FX_NAMES.length,
           ...P.fx[0].slice(4, 8), ...P.fx[1].slice(4, 8)];
       }
       case CMD.PROJ_SET: {
         const f = a[0], v = a[1] | a[2] << 7, P = this.proj;
         this.rev++; this.dirty = 1;
         if (f < 8) {
-          if (v > 5) return [1];
+          if (v > 6) return [1];
           if (v !== 0 && v !== 4) { const u = P.eng.indexOf(v); if (u >= 0 && u !== f) P.eng[u] = P.eng[f]; }
           P.eng[f] = v;
           return [0];
@@ -238,7 +260,7 @@ export class MockFM1 {
         return [...a.slice(0, 5), 0];
       }
       case CMD.NAMES: {
-        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB"], FX_NAMES,
+        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER"], FX_NAMES,
           ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], [...SUB_PRESETS, ...USERS]][a[0]] || [];
         const out = [list.length, a[1]];
         for (let i = a[1]; i < list.length; i++) out.push(...list[i].split("").map((c) => c.charCodeAt(0)), 0);
