@@ -170,3 +170,30 @@ keep the pattern's audio, keys select chops, chops survive a restart without SAV
 CUT), `follow.txt`; overlap cases in `seq_test`; GLIDE timing and its text; the web editor end to end. Not yet tested
 on a real FM-1.
 
+## 0.9 — LFOs you can draw, a progress bar, moving notes, chop mode fixed (2026-10-24)
+
+- **Chop mode never stuck** (the user: "the chop knob won't move off chop 1, so I can't set new chops"): an empty
+  loop is one chop with the cursor on it, KNOB 1 had nowhere to go and REC on a chop silently did nothing. Now REC on
+  a chop splits its slice in half, KNOB 1 moves the cursor while there's one chop, every refusal says why on the
+  status line, and the status line shows the chop and the cursor's time.
+- **The editor connects more surely:** it tries the likely port names, then every port, asks three times, and names
+  the ports it saw; a **Diagnostics** panel (the ports, a port picker, every frame in hex, copy all); the breaks page
+  finds the port by "FM-1" too. The device takes every editor frame whole by one rule shared with the tests.
+- **Tabs:** each page group shows its own pages (sound pages, OVERVIEW / ROLL / DRUM, BRK / BRK2 / SLICE).
+- **Progress bar** on the sound pages; a **count-in** (REC armed + PLAY: 1 or 2 bars, the keys only play meanwhile,
+  PLAY blinks) and a **click** (OFF / REC / ON, level) on a new **SETUP** page (GLO again), with the OCT dial.
+- **Moving notes:** hold a step and press another (another bar: black keys 10 / 11): moved; onto a note: swapped;
+  SAVE held: copied; OCT− / OCT+ move a held note an octave; a word on the status line says which.
+- **LFOs:** four, synced (an exact phase counter: within a sample of the sequencer over 64 bars) or free; eight
+  shapes with a drawable one (16 / 32 points, SMOOTH); FREE / RETRIG / 1-SHOT; to REESE (cutoff, res, drive, notch,
+  detune, pitch, sub, level, filter env), the breaks (pitch, decay, crush, level) or another LFO's depth. The LFO page
+  (shape, where it is, its value), DRAW on the keys, the reach on modulated knobs; saved with the sound; the web
+  editor's LFOs tab draws them with the mouse. A 0.8 sound's filter LFO becomes LFO 1 and sounds exactly the same
+  (tested to the sample); MOD's KNOB 3 / 4 are LFO 1's rate and depth.
+- Fixed: a 1 s hold (black key 9, HOME on SLICE) could fire at once (0.8's last-minute fix; tested).
+
+Tested on the host: `lfo_test` (shapes, DRAW, sync against the sequencer, 1-SHOT, the 0.8 LFO, every destination
+moving), scenarios `chop_stuck`, `progress` (click timing to the sample, count-in), `move`, `lfo`, `lfo_wav`, the
+editor's LFO commands and golden replies, the web editor end to end (drawing, presets, Diagnostics). Not yet tested
+on a real FM-1.
+

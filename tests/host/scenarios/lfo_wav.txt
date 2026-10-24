@@ -1,0 +1,63 @@
+# DREADNOUGHT host scenario (0.9): the LFOs heard. A break on track 2, REESE's line; LFO 1 a drawn 1/8 wobble on the
+# cutoff; then LFO 2 a 1/4T sine on the pitch; then the count-in and click.
+tap SEQ
+tap SEQ
+tap SEQ
+expect page 8
+tapkey 0 60
+turn K1 2
+tapkey 4 60
+turn K1 2
+tapkey 7 60
+turn K1 2
+tapkey 11 60
+turn K1 -6
+tapkey 12 60
+turn K1 4
+tapkey 16 60
+turn K1 2
+tapkey 19 60
+tapkey 23 60
+expect on.2 8
+# the filter down (FILTER: KNOB 1), LFO 1: DRAW (the sine's points), 1/8, CUTOFF, depth +40
+tap EDIT
+turn K1 -10
+tap LFO
+tap LFO
+expect page 12
+turn K1 7
+turn K2 3
+turn K3 1
+turn K4 20
+turn K4 20
+expect ldest 1
+tap FX
+turn K4 30
+tap FX
+tap FX
+wav lfo-wobble-1-8.wav
+tap PLAY
+wait 2800
+tap PLAY
+wavstop
+# LFO 1 off; LFO 2: a 1/4T sine on REESE's pitch, depth +12 (about 2 semitones each way)
+turn K3 -1
+tap LFO
+expect lsel 2
+turn K2 1
+turn K3 6
+expect ldest 6
+turn K4 12
+wav lfo-pitch-1-4T.wav
+tap PLAY
+wait 2800
+tap PLAY
+wavstop
+# the count-in and the click (CLICK REC): REC, PLAY, a bar of clicks, then the pattern with them
+tap REC
+wav countin-click.wav
+tap PLAY
+wait 3000
+tap PLAY
+wavstop
+tap REC
