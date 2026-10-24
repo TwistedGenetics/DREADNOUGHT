@@ -3307,9 +3307,19 @@ static void dn_arc(int32_t cx, int32_t cy, int32_t r0, int32_t r1, int32_t a0, i
 #define DN_KA 384                                   /* the dial's sweep: +-135 degrees */
 static void dn_knob(int32_t cx, int32_t cy, uint32_t id, int focus)
 {
-    int32_t lo = dn_min(id), hi = dn_max(id), v = dn_get(id), span = hi - lo > 0 ? hi - lo : 1;
-    int32_t av = -DN_KA + (2 * DN_KA * (v - lo)) / span, a0 = lo < 0 ? 0 : -DN_KA, px, py, qx, qy;
+    int32_t lo = dn_min(id), hi = dn_max(id), v = dn_get(id), span = hi - lo > 0 ? hi - lo : 1, pos = v;
+    int32_t av, a0 = lo < 0 ? 0 : -DN_KA, px, py, qx, qy;
     char t[8];
+    if (id == DN_PX_LDEST) {                        /* DEST: the pointer at its place in this synth's list (the order
+                                                     * the knob goes through), not at its number */
+        uint32_t l[DN_LD_N], n = dn_ld_list(DN_IS_SUB(dn.trk), l), i;
+        pos = 0;
+        for (i = 0; i < n; i++)
+            if (l[i] == (uint32_t)v)
+                pos = (int32_t)i;
+        lo = 0, span = n > 1u ? (int32_t)n - 1 : 1;
+    }
+    av = -DN_KA + (2 * DN_KA * (pos - lo)) / span;
     dn_arc(cx, cy, 19, 22, -DN_KA, DN_KA, DN_C_TRACK);
     dn_arc(cx, cy, 19, 22, a0, av, focus ? DN_C_BLUE : DN_C_BLUE_D);
     if (id < RP_COUNT || DN_IS_SPX(id)) {           /* an LFO on it: its reach, red outside the ring (as Massive) */

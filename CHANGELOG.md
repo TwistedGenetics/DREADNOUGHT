@@ -296,7 +296,7 @@ a real FM-1.
   CUTOFF, LEVEL... to SUB as well, so an LFO set up for REESE made a held SUB note pulse; fixed the same evening.
   On SUB's pages the LFO page's DEST goes through SUB's own destinations — S CUT, S RES, S DRIVE, S PITCH, S LEVEL,
   S PW, S ENV, S SUB, S CRUSH, S TONE, S PULSE, S NOISE — then the breaks', then the LFO depths (on REESE's pages,
-  REESE's); each is tested to change the sound. Fixed on the way: SUB's ENV (and REESE's FENV, since 0.3) moved the
+  REESE's), the knob's pointer moving along that list from start to end; each is tested to change the sound. Fixed on the way: SUB's ENV (and REESE's FENV, since 0.3) moved the
   cutoff ~64 times less than meant (63 now sweeps 63 steps, ~4.5 octaves); SUB's factory sounds re-voiced for it;
   TONE now sweeps 120 Hz .. open; NOISE louder.
   Its notes start without a click: the attack is never quicker than ~3 ms and the saw starts at its zero crossing

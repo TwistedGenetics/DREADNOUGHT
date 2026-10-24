@@ -95,8 +95,13 @@ tap LFO
 expect page 12
 turn K3 1
 expect ldest 22
+shot sub-10-dest-scut.png
 turn K3 11
 expect ldest 33
+turn K3 12
+expect ldest 21
+shot sub-11-dest-end.png
+turn K3 -12
 turn K3 -11
 turn K4 20
 key 0 down
