@@ -1,0 +1,140 @@
+# DREADNOUGHT host scenario (0.12): the project. Each track's instrument (PROJECT: GLO x5), REESE and the breaks
+# swapping; SEQ held + a white key picks a track; the FX rack: a track's send to FX A (the delay), a second delay
+# refused for memory; all of it kept by SAVE.
+# White keys (steps / tracks 1..8): 0 2 4 6 7 9 11 12.
+expect eng.1 1
+expect eng.2 2
+expect eng.3 3
+expect eng.4 4
+expect legato 249
+# FX (GLO twice: OUT, FX): nothing sent yet, the delay silent
+tap GLO
+tap GLO
+expect page 14
+expect fxa 1
+key 0 down
+wait 100
+key 0 up
+wait 400
+expect dly 0
+# REESE's track sends to FX A: a repeat after the note
+turn K1 20
+expect senda.1 60
+key 0 down
+wait 100
+key 0 up
+wait 250
+expect dly >100
+shot project-01-fx-mix.png
+# FX: FX A's page (DELAY: TIME FEEDBACK TONE); FX again: FX B; a second delay: no memory for it
+tap FX
+expect fxview 1
+turn K2 -1
+shot project-02-fx-a.png
+tap FX
+expect fxview 2
+turn K1 1
+expect fxb 0
+expect msg 1
+shot project-03-fx-b-refused.png
+tap FX
+expect fxview 0
+# PROJECT (GLO: SETUP, MIDI, PROJECT)
+tap GLO
+tap GLO
+tap GLO
+expect page 15
+shot project-04-project.png
+# track 4 (the MIDI page on the way selected MIDI 1, track 4) to REESE: chosen (red, FX blinking), then FX: it swaps
+# with track 1, which plays MIDI now
+expect trk 4
+turn K2 -3
+expect peng 1
+expect eng.4 4
+shot project-05-chosen.png
+tap FX
+expect eng.4 1
+expect eng.1 4
+expect peng -1
+# BREAKS A to track 8 (track 2 gets track 8's MIDI); overlaps no longer slide on track 8, they do on track 2
+turn K1 4
+expect trk 8
+turn K2 -2
+tap FX
+expect eng.8 2
+expect eng.2 4
+expect legato 123
+shot project-06-moved.png
+# SEQ held + white key 1: track 1, a MIDI track now: the MIDI page
+press SEQ
+tapkey 0 40
+release SEQ
+expect trk 1
+expect page 13
+# SEQ held + white key 4: track 4, REESE: its sound page; SEQ alone: its roll
+press SEQ
+tapkey 6 40
+release SEQ
+expect trk 4
+expect page 0
+tap SEQ
+expect page 7
+expect trk 4
+# a note on track 4's step 1: REESE plays it
+tapkey 0 40
+expect on.4 1
+press PLAY
+wait 20
+expect gate 1
+release PLAY
+tap PLAY
+wait 300
+# SEQ held + white key 8 on a sequencer page: track 8's (BREAKS A's) grid
+press SEQ
+tapkey 12 40
+release SEQ
+expect trk 8
+expect page 8
+# kept: SAVE, power off and on
+tap SEQ
+tap SAVE
+reboot
+expect eng.1 4
+expect eng.4 1
+expect eng.8 2
+expect senda.1 60
+expect fxa 1
+expect fxb 0
+expect legato 123
+# the web editor's project commands (0.12): PROJ reads it all; PROJ_SET a field; PROJ_NAME
+sysex 75
+expect replylen 59
+expect reply.0 80
+expect reply.12 4
+expect reply.15 1
+expect reply.19 2
+expect reply.20 60
+expect reply.36 100
+expect reply.38 1
+expect reply.42 0
+# send B of track 3 to 90 (field 18); track 3 to OFF (field 2); FX B to DELAY: refused (no memory)
+sysex 76 18 90 0
+expect reply.0 0
+sysex 76 2 0 0
+expect reply.0 0
+expect eng.3 0
+sysex 76 30 1 0
+expect reply.0 1
+expect fxb 0
+sysex 77 68 85 66 32 83 69 83 72
+expect reply.0 0
+sysex 75
+expect reply.0 68
+expect reply.8 0
+expect reply.14 0
+expect reply.30 90
+# the names the editor shows: kind 2 the instruments (5), 3 the effects (2)
+sysex 69 2 0
+expect reply.0 5
+sysex 69 3 0
+expect reply.0 2

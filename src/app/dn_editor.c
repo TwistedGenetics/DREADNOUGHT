@@ -24,12 +24,21 @@
  *   73 PATS                    -> per track: playing, queued (127 none), used (2: a bit a pattern); then notes (2), room (2)
  *   74 PAT_SEL t n             -> rc (0)                             track t to pattern n (stopped: now; playing: when
  *                                                                    its pattern ends) (0.11; 8 patterns a track)
+ *   75 PROJ                    -> name (12 chars, 0-padded), eng x8, send A x8, send B x8, return A, B, FX A {type,
+ *                                 p0, p1, p2}, FX B {...}, samples used (3), samples room (3), FX memory used KB (2),
+ *                                 FX memory KB (2), cpu %, kinds of instrument, kinds of FX   (0.12)
+ *   76 PROJ_SET field v(2)     -> rc (0 set; 1 refused: no memory for that FX, or a bad field)
+ *                                 fields: 0-7 track n's instrument (REESE / BRK A / BRK B swap), 8-15 send A,
+ *                                 16-23 send B, 24-25 returns, 26-29 FX A type p0 p1 p2, 30-33 FX B's
+ *   77 PROJ_NAME chars...      -> rc (0)                             up to 11 characters, 32-126
+ * NAMES kinds from 0.12: 2 the instruments, 3 the effects, 4 the delay's times.
  * From 0.11 a step in the pattern is 8 bytes {note, flags, len, vel, cond, rtim, rlen, rvel}: dn_seq.h.
  * From 0.9 PARAMS also has the LFOs, 8 each after BREAKS B: SHAPE SYNC RATE DEST DEPTH PHASE MODE SMOOTH (SYNC
  * before RATE: setting SYNC resets RATE).
  */
 enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT_COMMIT, ED_TRANSPORT, ED_SAVE,
-       ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL };
+       ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL, ED_PROJ, ED_PROJ_SET,
+       ED_PROJ_NAME };
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
                                      DN_PX_BCHOKE, DN_PX_BSMODE, DN_PX_BSTRETCH, DN_PX_BLEVEL};
@@ -62,13 +71,13 @@ static int32_t dn_ed_get(uint32_t i)
 {
     int32_t brk, v;
     uint32_t id = dn_ed_id(i, &brk);
-    uint8_t trk = dn.trk, ls = dn.lfo_sel;
+    uint8_t ls = dn.lfo_sel;
     if (brk >= 10)
         dn.lfo_sel = (uint8_t)(brk - 10);           /* (the LFO values read the selected LFO) */
     else if (brk >= 0)
-        dn.trk = (uint8_t)(brk + 1);                /* (the BRK values read the selected track's BREAKS) */
+        dn.bk_force = (uint8_t)(brk + 1);           /* (the BRK values read BREAKS A / B, whichever track it's on) */
     v = dn_get(id);
-    dn.trk = trk;
+    dn.bk_force = 0;
     dn.lfo_sel = ls;
     return v;
 }
@@ -76,16 +85,16 @@ static int dn_ed_set(uint32_t i, int32_t v)
 {
     int32_t brk;
     uint32_t id;
-    uint8_t trk = dn.trk, ls = dn.lfo_sel;
+    uint8_t ls = dn.lfo_sel;
     if (i >= DN_ED_NPARAM)
         return 1;
     id = dn_ed_id(i, &brk);
     if (brk >= 10)
         dn.lfo_sel = (uint8_t)(brk - 10);
     else if (brk >= 0)
-        dn.trk = (uint8_t)(brk + 1);
+        dn.bk_force = (uint8_t)(brk + 1);
     dn_set(id, v);
-    dn.trk = trk;
+    dn.bk_force = 0;
     dn.lfo_sel = ls;
     return 0;
 }
@@ -249,6 +258,69 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
             dn_ed_num(put, (uint32_t)((dn_ls[i].out >> 2) + 8192), 2);
         }
         return 1;
+    case ED_PROJ: {
+        uint32_t k;
+        for (i = 0; i < 12u; i++)
+            put(i < sizeof dn_pname ? (uint8_t)dn_pname[i] & 0x7Fu : 0u);
+        for (i = 0; i < DN_SEQ_TRACKS; i++)
+            put(dn_eng[i]);
+        for (k = 0; k < 2u; k++)
+            for (i = 0; i < DN_SEQ_TRACKS; i++)
+                put(dn_send[k][i]);
+        put(dn_ret[0]);
+        put(dn_ret[1]);
+        for (k = 0; k < 2u; k++) {
+            put(dn_fxp[k].type);
+            for (i = 0; i < 3u; i++)
+                put(dn_fxp[k].p[i] & 0x7Fu);
+        }
+        dn_ed_num(put, dn_smp_used(), 3);
+        dn_ed_num(put, dn_smp_cap(), 3);
+        dn_ed_num(put, (dn_fx_ram(dn_fxp[0].type) + dn_fx_ram(dn_fxp[1].type)) / 1024u, 2);
+        dn_ed_num(put, DN_FX_ARENA / 1024u, 2);
+        put(plat_cpu_pct() > 127u ? 127u : plat_cpu_pct());
+        put(DN_E_N);
+        put(DN_FX_N);
+        return 1;
+    }
+    case ED_PROJ_SET: {
+        uint32_t f, t;
+        int32_t v;
+        uint8_t trk = dn.trk;
+        if (na < 3u)
+            return 0;
+        f = a[0];
+        v = (int32_t)(a[1] | a[2] << 7);
+        if (f < 8u) {
+            dn_eng_set(f, (uint32_t)v);
+            put(dn_eng[f] == (uint32_t)v ? 0u : 1u);
+            return 1;
+        }
+        if (f >= 34u) {
+            put(1);
+            return 1;
+        }
+        t = f < 24u ? (f - 8u) % 8u : 0u;
+        dn.trk = (uint8_t)t;                        /* (the sends are the selected track's) */
+        {
+            uint32_t id = f < 16u ? DN_PX_SENDA : f < 24u ? DN_PX_SENDB : f < 26u ? DN_PX_RETA + (f - 24u)
+                        : DN_PX_FXA + (f - 26u);
+            dn_set(id, v);
+            put(dn_get(id) == dn_clamp(v, dn_min(id), dn_max(id)) ? 0u : 1u);
+        }
+        dn.trk = trk;
+        dn.redraw |= DN_RD_ALL;
+        return 1;
+    }
+    case ED_PROJ_NAME:
+        for (i = 0; i + 1u < sizeof dn_pname; i++)
+            dn_pname[i] = i < na && a[i] >= 32u && a[i] < 127u ? (char)a[i] : 0;
+        dn_pname[sizeof dn_pname - 1u] = 0;
+        if (!dn_pname[0])
+            dn_pname[0] = 'P', dn_pname[1] = '1', dn_pname[2] = 0;
+        dn_mark();
+        put(0);
+        return 1;
     case ED_SAVE:
         dn_save();
         put(dn.dirty);
@@ -266,13 +338,16 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
             return 0;
         kind = a[0];
         from = a[1];
-        count = kind ? dn_src_count() : reese_preset_count();
+        count = kind == 1u ? dn_src_count() : kind == 2u ? DN_E_N : kind == 3u ? DN_FX_N : kind == 4u ? DN_FX_NDIV
+              : reese_preset_count();
         put(count);
         put(from);
         for (i = from; i < count && used < 180u; i++) {
             char nm[10];
             const char *s;
-            if (kind) {
+            if (kind >= 2u) {
+                s = kind == 2u ? DN_E_NAME[i] : kind == 3u ? DN_FX_NAME[i] : DN_FX_DIV_NAME[i];
+            } else if (kind) {
                 dn_loop_t L;
                 nm[0] = 0;
                 if (dn_src_get(i, &L))

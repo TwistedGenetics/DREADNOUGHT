@@ -35,7 +35,8 @@ tapkey 12 60
 expect on.1 8
 tap PLAY
 tap REC
-# SETUP (GLO twice): click ON, count-in off
+# SETUP (GLO three times: OUT, FX, SETUP): click ON, count-in off
+tap GLO
 tap GLO
 tap GLO
 expect page 11

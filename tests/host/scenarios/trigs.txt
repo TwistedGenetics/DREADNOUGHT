@@ -92,8 +92,9 @@ reboot
 expect pat.1 3
 expect on.1 7
 expect notes 15
-# the MIDI page (GLO: OUT, SETUP, MIDI): MIDI 1's channel
+# the MIDI page (GLO: OUT, FX, SETUP, MIDI): MIDI 1's channel
 tap SEL
+tap GLO
 tap GLO
 tap GLO
 tap GLO

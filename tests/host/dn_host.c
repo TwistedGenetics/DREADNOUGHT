@@ -539,6 +539,16 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "lst")) got = dn_sq.lst;
             else if (!strcmp(b, "notes")) got = (long)dn_pat_notes();
             else if (!strcmp(b, "chan4")) got = dn_sq.pat.tr[3].chan + 1;
+            else if (!strncmp(b, "eng.", 4)) got = dn_eng[(atoi(b + 4) - 1) & 7];   /* track n's instrument (DN_E_*) */
+            else if (!strcmp(b, "peng")) got = dn.peng == 0xFF ? -1 : dn.peng;
+            else if (!strcmp(b, "fxview")) got = dn.fx_view;
+            else if (!strcmp(b, "fxa")) got = dn_fxp[0].type;
+            else if (!strcmp(b, "fxb")) got = dn_fxp[1].type;
+            else if (!strncmp(b, "senda.", 6)) got = dn_send[0][(atoi(b + 6) - 1) & 7];
+            else if (!strcmp(b, "dly")) {           /* the delay's output now, both sides */
+                got = labs((long)dn_fxs[0].o_l) + labs((long)dn_fxs[0].o_r);
+            } else if (!strcmp(b, "legato")) got = dn_sq.legato;
+            else if (!strcmp(b, "msg")) got = dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0;
             else if (!strncmp(b, "p.", 2)) {
                 got = -9999;
                 for (uint32_t k = 0; k < RP_COUNT; k++)

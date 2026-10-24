@@ -25,10 +25,13 @@ build/host/brk_test build/host
 $CC $W -D_DEFAULT_SOURCE tests/host/lfo_test.c src/dsp/dn_lfo.c src/dsp/dn_seq.c src/dsp/reese.c src/dsp/dn_breaks.c -o build/host/lfo_test -lm
 build/host/lfo_test
 # shellcheck disable=SC2086
+$CC $W -D_DEFAULT_SOURCE tests/host/fx_test.c src/dsp/dn_fx.c src/dsp/dn_voice.c -o build/host/fx_test -lm
+build/host/fx_test
+# shellcheck disable=SC2086
 $CC $W tests/host/slices_xcheck.c src/dsp/dn_breaks.c -o build/host/slices_xcheck
 build/host/slices_xcheck | node tests/host/slices_xcheck.mjs
 # shellcheck disable=SC2086
-$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c -o build/host/dn_host
+$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c -o build/host/dn_host
 for s in tests/host/scenarios/*.txt; do
     build/host/dn_host "$s" build/host
 done

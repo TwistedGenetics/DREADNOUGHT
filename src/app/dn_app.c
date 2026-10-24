@@ -53,10 +53,21 @@
 #define DN_PG_LFO (DN_NPAGES + 7u)                  /* the LFOs (LFO again from MOD: 1, 2, 3, 4, back to MOD) */
 #define DN_IS_SNDPG(p) ((p) < DN_NPAGES || (p) == DN_PG_SET || (p) == DN_PG_LFO)
 #define DN_PG_MIDI (DN_NPAGES + 8u)                 /* the MIDI instruments' page (GLO: OUT, SETUP, MIDI) */
+#define DN_PG_FX (DN_NPAGES + 9u)                   /* the FX rack: MIX (the track's sends), FX A, FX B (FX: the next) */
+#define DN_PG_PROJ (DN_NPAGES + 10u)                /* the project: each track's instrument, memory, CPU (0.12) */
+#define DN_IS_GLOPG(p) ((p) == 4u || (p) == DN_PG_FX || (p) == DN_PG_SET || (p) == DN_PG_MIDI || (p) == DN_PG_PROJ)
 #define DN_ROLL_ROWS 12                             /* the piano roll's pitches in view (an octave) */
 #define DN_DRUM_ROWS 8                              /* the drum grid's slices in view */
-#define DN_NBRK 2u                                  /* BREAKS A and B: tracks 2 and 3 */
-#define DN_IS_BRK(t) ((t) == 1u || (t) == 2u)
+#define DN_NBRK 2u                                  /* BREAKS A and B (tracks 2 and 3 unless the project moves them) */
+/* ---- the project's instruments: which one each track plays (0.12). REESE and BREAKS A / B are one each: put on a
+ * track that another holds, they swap (dn_eng_set). MIDI on any number of tracks; OFF plays nothing. */
+enum { DN_E_OFF, DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_N };
+static const char *const DN_E_NAME[DN_E_N] = {"OFF", "REESE", "BRK A", "BRK B", "MIDI"};
+static uint8_t dn_eng[8] = {DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI};
+#define DN_IS_BRK(t) (dn_eng[t] == DN_E_BRKA || dn_eng[t] == DN_E_BRKB)
+#define DN_BK(t) ((uint32_t)dn_eng[t] - DN_E_BRKA)  /* a break track's voice: 0 A, 1 B */
+#define DN_IS_RS(t) (dn_eng[t] == DN_E_REESE)
+#define DN_IS_MIDI(t) (dn_eng[t] == DN_E_MIDI)
 #define DN_KEY0 53                                  /* key 0 is F3 */
 #define DN_PX_BPM 100                               /* the OUT page's two non-engine dials */
 #define DN_PX_OCT 101
@@ -68,6 +79,15 @@
 #define DN_PX_MSEL 107                              /* MIDI: which MIDI instrument (tracks 4-8), its channel, OVERLAP */
 #define DN_PX_MCHAN 108
 #define DN_PX_MOVL 109
+#define DN_PX_PTRK 150                              /* PROJECT: the track, its instrument (FX: change to it) */
+#define DN_PX_PENG 151
+#define DN_PX_SENDA 152                             /* FX, MIX: the selected track's sends, the two returns */
+#define DN_PX_SENDB 153
+#define DN_PX_RETA 154
+#define DN_PX_RETB 155
+#define DN_PX_FXA 156                               /* FX A: its type, then its three values (156..159) */
+#define DN_PX_FXB 160                               /* FX B: the same (160..163) */
+#define DN_IS_PPX(id) ((id) >= DN_PX_PTRK && (id) <= DN_PX_FXB + 3u)
 #define DN_PX_NONE 0xFFu                            /* (a knob with nothing on it) */
 #define DN_PX_LSHAPE 130                            /* the LFO page (the selected LFO): shape, rate, dest, depth ... */
 #define DN_PX_LRATE 131
@@ -107,6 +127,10 @@ static const uint8_t DN_PAGE[DN_NPAGES][4] = {
 static const uint8_t DN_PAGE_BTN[DN_NPAGES] = {B_SEL, B_EDIT, B_ENV, B_LFO, B_GLO};
 static const uint8_t DN_SET_PAGE[4] = {DN_PX_CLICK, DN_PX_CLKLVL, DN_PX_CIN, DN_PX_VSENS};
 static const uint8_t DN_MIDI_PAGE[4] = {DN_PX_MSEL, DN_PX_MCHAN, DN_PX_MOVL, DN_PX_NONE};
+static const uint8_t DN_PROJ_PAGE[4] = {DN_PX_PTRK, DN_PX_PENG, DN_PX_NONE, DN_PX_NONE};
+static const uint8_t DN_FX_PAGE[3][4] = {{DN_PX_SENDA, DN_PX_SENDB, DN_PX_RETA, DN_PX_RETB},
+                                         {DN_PX_FXA, DN_PX_FXA + 1u, DN_PX_FXA + 2u, DN_PX_FXA + 3u},
+                                         {DN_PX_FXB, DN_PX_FXB + 1u, DN_PX_FXB + 2u, DN_PX_FXB + 3u}};
 #define DN_NSND 7u                                  /* the sound pages, in SELECT's order (the tab row's too) */
 static const uint8_t DN_SND[DN_NSND] = {0, 1, 2, 3, DN_PG_LFO, 4, DN_PG_SET};
 static const char *const DN_SND_NAME[DN_NSND] = {"OSC", "FILTER", "AMP", "MOD", "LFO", "OUT", "SETUP"};
@@ -132,7 +156,15 @@ typedef struct {
     struct { uint8_t choke, smode, stretch, level; } brk2[DN_NBRK];             /* (from 0.6) */
     struct { uint8_t click, clk_lvl, cin, pad; } set;                           /* (from 0.9) */
     dn_lfo_p_t lfo[DN_NLFO];                                                    /* (from 0.9) */
+    struct {                                                                    /* the project (from 0.12) */
+        char name[12];
+        uint8_t eng[8];                             /* each track's instrument (DN_E_*) */
+        uint8_t send[2][8];                         /* each track's sends to FX A, B */
+        uint8_t ret[2], pad[2];
+        dn_fx_p_t fx[2];
+    } proj;
 } dn_save_t;
+#define DN_SAVE_V011 (offsetof(dn_save_t, proj))
 #define DN_SAVE_V08 (offsetof(dn_save_t, set))
 #define DN_SAVE_V05 (DN_SAVE_V08 - DN_NBRK * 4u)
 #define DN_SAVE_V04 (DN_SAVE_V08 - DN_NBRK * 8u)
@@ -143,6 +175,14 @@ static uint32_t dn_rev;                             /* moves on whenever the sou
 static dn_brk_t dn_bk[DN_NBRK] X0X_POOL;
 static dn_lfo_p_t dn_lp[DN_NLFO];                   /* the LFOs: their settings (part of the sound) ... */
 static dn_lfo_s_t dn_ls[DN_NLFO];                   /* ... and where each one is (audio) */
+/* ---- the project (0.12): its name, each track's sends, the FX rack (two send slots in one memory arena) ---- */
+#define DN_FX_ARENA (144u * 1024u)
+static uint32_t dn_fx_mem[DN_FX_ARENA / 4u] X0X_POOL;
+static dn_fx_p_t dn_fxp[2];                         /* FX A, B: their settings (the project's) ... */
+static dn_fx_s_t dn_fxs[2];                         /* ... and their state (audio) */
+static uint8_t dn_send[2][8];                       /* track t's send to FX A / B, 0..127 */
+static uint8_t dn_ret[2] = {100, 100};              /* FX A / B's return, 100 = unity */
+static char dn_pname[12] = "PROJECT 1";
 static uint8_t dn_bk_src[DN_NBRK];                  /* each one's loop: an index into the sources (dn_src) */
 static struct {
     uint8_t preset, page, dirty, play, ready, rec;
@@ -171,7 +211,14 @@ static struct {
     uint8_t clk_acc;
     uint32_t clk_count;                             /* (clicks so far: the tests count them) */
     uint8_t lfo_sel, lfo_view;                      /* the LFO page: which LFO; MAIN / MORE / DRAW (FX) */
-    uint8_t midi_sel;                               /* the MIDI page: MIDI 1..5 (tracks 4-8) */
+    uint8_t midi_sel;                               /* the MIDI page: MIDI 1..n (the tracks that play MIDI, in order) */
+    uint8_t bk_last;                                /* the break the BRK pages showed last (0 A, 1 B) */
+    uint8_t bk_force;                               /* the editor: the BRK values read B (2) / A (1) whatever is shown */
+    uint8_t fx_view;                                /* the FX page: MIX, FX A, FX B */
+    uint8_t peng;                                   /* PROJECT: the instrument chosen for the track, not yet in (0xFF) */
+    uint8_t seq_held, seq_chord;                    /* SEQ down; a key went with it (a track chosen): no SEQ */
+    uint32_t keys_ign;                              /* keys pressed with SEQ: ignored until they come up */
+    uint32_t keys_raw;                              /* the keys down, as the panel says (keys_prev: as the app takes them) */
     uint8_t back_page;                              /* SEQ again goes back here (the instrument's page it came from) */
     uint8_t step_pg;                                /* a step held: which four of its values the knobs edit (FX) */
     int8_t ramp_a, ramp_b;                          /* a velocity ramp over steps a..b (b < 0: none) ... */
@@ -201,6 +248,45 @@ static struct {
     uint32_t redraw;                                /* DN_RD_* */
 } dn;
 enum { DN_RD_TOP = 1u, DN_RD_BOTTOM = 2u, DN_RD_ALL = 3u };
+
+static uint32_t dn_trk_of(uint32_t e)              /* the track that plays instrument e (0xFF: none) */
+{
+    uint32_t t;
+    for (t = 0; t < DN_SEQ_TRACKS; t++)
+        if (dn_eng[t] == e)
+            return t;
+    return 0xFFu;
+}
+static uint32_t dn_midi_n(void)                     /* how many tracks play MIDI */
+{
+    uint32_t t, n = 0;
+    for (t = 0; t < DN_SEQ_TRACKS; t++)
+        n += DN_IS_MIDI(t);
+    return n;
+}
+static uint32_t dn_midi_trk(uint32_t k)             /* "MIDI k+1": the (k+1)th MIDI track (0xFF: none) */
+{
+    uint32_t t, n = dn_midi_n();
+    if (!n)
+        return 0xFFu;
+    k %= n;
+    for (t = 0; t < DN_SEQ_TRACKS; t++)
+        if (DN_IS_MIDI(t) && !k--)
+            return t;
+    return 0xFFu;
+}
+static uint32_t dn_rs_trk(void)                     /* REESE's track (0 if it's on none: its settings still edit) */
+{
+    uint32_t t = dn_trk_of(DN_E_REESE);
+    return t < DN_SEQ_TRACKS ? t : 0u;
+}
+static uint32_t dn_midi_idx(uint32_t t)             /* track t is "MIDI n+1" */
+{
+    uint32_t u, n = 0;
+    for (u = 0; u < t && u < DN_SEQ_TRACKS; u++)
+        n += DN_IS_MIDI(u);
+    return n;
+}
 
 /* the output, every 8th sample, for the screen's scope (written in the audio interrupt, read by the drawing) */
 #define DN_SCOPE 512u
@@ -306,20 +392,20 @@ static void dn_lfo_tick(uint32_t n)
  * the others MIDI out on their channel (USB-MIDI event packets) */
 static void dn_sq_on(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t flags)
 {
-    if (t == 0u)
+    if (DN_IS_RS(t))
         dn_rs_on(note, vel, slide);
     else if (DN_IS_BRK(t))
-        dn_brk_hit(t - 1u, note, vel, (flags & DN_ST_SLIDE) != 0);
-    else
+        dn_brk_hit(DN_BK(t), note, vel, (flags & DN_ST_SLIDE) != 0);
+    else if (DN_IS_MIDI(t))
         plat_midi_out(0x09u | (0x90u | dn_sq.pat.tr[t].chan) << 8 | (uint32_t)note << 16 | (uint32_t)vel << 24);
 }
 static void dn_sq_off(uint32_t t, uint8_t note)
 {
     if (DN_IS_BRK(t))
-        dn_brk_release(&dn_bk[t - 1u]);
-    else if (t != 0u)
+        dn_brk_release(&dn_bk[DN_BK(t)]);
+    else if (DN_IS_MIDI(t))
         plat_midi_out(0x08u | (0x80u | dn_sq.pat.tr[t].chan) << 8 | (uint32_t)note << 16);
-    else if (dn_rs.note == note && dn.sounding == 0xFF && dn.midi_note == 0xFF)
+    else if (DN_IS_RS(t) && dn_rs.note == note && dn.sounding == 0xFF && dn.midi_note == 0xFF)
         reese_note_off(&dn_rs);                     /* (not a note the keys or MIDI in play now) */
 }
 static void dn_sq_clock(uint8_t st) { plat_midi_out(0x0Fu | (uint32_t)st << 8); }
@@ -376,6 +462,42 @@ static void dn_click_render(int32_t *lr, uint32_t n)
 }
 static uint32_t dn_beat_samples(void) { return 2646000u / (dn_sq.bpm ? dn_sq.bpm : 120u); }   /* 44100 * 60 / BPM */
 
+/* the instruments, each into its own buffer, then into the mix and, at its track's sends, into FX A / B; the FX
+ * after (k <= 32 frames: the LFOs' tick cuts every render there) */
+#define DN_MIXN 32u
+static void dn_mix_render(int32_t *lr, uint32_t k)
+{
+    static int32_t ib[2u * DN_MIXN], sa[2u * DN_MIXN], sb[2u * DN_MIXN];
+    uint32_t e, i, t, na = 0, nb = 0;
+    if (k > DN_MIXN)
+        k = DN_MIXN;
+    for (i = 0; i < 2u * k; i++)
+        sa[i] = sb[i] = 0;
+    for (e = DN_E_REESE; e <= DN_E_BRKB; e++) {
+        uint32_t a, b;
+        for (i = 0; i < 2u * k; i++)
+            ib[i] = 0;
+        if (e == DN_E_REESE)
+            reese_render(&dn_rs, ib, k);
+        else
+            dn_brk_render(&dn_bk[e - DN_E_BRKA], ib, k);   /* (a break on no track: only chop mode's loop) */
+        t = dn_trk_of(e);
+        a = t < 8u ? dn_send[0][t] : 0u;
+        b = t < 8u ? dn_send[1][t] : 0u;
+        for (i = 0; i < 2u * k; i++)
+            lr[i] += ib[i];
+        if (a)
+            for (i = 0, na = 1; i < 2u * k; i++)
+                sa[i] += (ib[i] * (int32_t)a) >> 7;
+        if (b)
+            for (i = 0, nb = 1; i < 2u * k; i++)
+                sb[i] += (ib[i] * (int32_t)b) >> 7;
+    }
+    (void)na, (void)nb;                             /* (the effects run on: their tails ring out) */
+    dn_fx_run(&dn_fxs[0], &dn_fxp[0], sa, lr, k, dn_sq.bpm, dn_ret[0]);
+    dn_fx_run(&dn_fxs[1], &dn_fxp[1], sb, lr, k, dn_sq.bpm, dn_ret[1]);
+}
+
 void dn_app_render(int32_t *lr, uint32_t n)
 {
     uint32_t i, w = dn_scope_w, off = 0;
@@ -401,9 +523,7 @@ void dn_app_render(int32_t *lr, uint32_t n)
             k = dn.lfo_left;
         if (k > n - off)
             k = n - off;
-        reese_render(&dn_rs, lr + 2u * off, k);
-        dn_brk_render(&dn_bk[0], lr + 2u * off, k);
-        dn_brk_render(&dn_bk[1], lr + 2u * off, k);
+        dn_mix_render(lr + 2u * off, k);
         dn_click_render(lr + 2u * off, k);
         if (dn.cin_left) {
             dn.cin_next -= k;
@@ -453,6 +573,23 @@ void dn_app_midi(uint8_t st, uint8_t d1, uint8_t d2)
 
 /* ----------------------------------------------------------------------------------------------- breaks --- */
 /* the loops BREAKS can play: the built-in ones, then every loop uploaded to the three sample slots, in order */
+/* the sample slots: bytes used (4-bit ADPCM: half a byte a sample, plus each slot's header), and in all */
+#define DN_SLOT_BYTES 0x14000u
+static uint32_t dn_smp_cap(void) { return PLAT_NSLOTS * DN_SLOT_BYTES; }
+static uint32_t dn_smp_used(void)
+{
+    uint32_t used = 0, n, r;
+    int k, z;
+    char nm[9];
+    for (k = 0; k < PLAT_NSLOTS; k++) {
+        if (plat_slot_zones(k) > 0)
+            used += 512u;
+        for (z = 0; z < plat_slot_zones(k); z++)
+            if (plat_slot(k, z, &n, &r, nm))
+                used += (n + 1u) / 2u;
+    }
+    return used;
+}
 static uint32_t dn_src_count(void)
 {
     uint32_t n = DN_BRK_BUILTIN;
@@ -665,7 +802,13 @@ void dn_app_slots_changed(int done)
         }
     dn.redraw |= DN_RD_ALL;
 }
-static uint32_t dn_bsel(void) { return dn.trk == 2u ? 1u : 0u; }   /* the BRK page shows B with track 3 selected */
+/* the break the BRK pages show: the selected track's, or the last one shown */
+static uint32_t dn_bsel(void)
+{
+    if (dn.bk_force)
+        return dn.bk_force - 1u;
+    return DN_IS_BRK(dn.trk) ? (dn.bk_last = (uint8_t)DN_BK(dn.trk)) : dn.bk_last;
+}
 
 /* the dial under KNOB k on this page */
 static uint32_t dn_dial(uint32_t k)
@@ -673,6 +816,9 @@ static uint32_t dn_dial(uint32_t k)
     return dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : dn.page == DN_PG_BRK2 ? DN_BRK2_PAGE[k]
          : dn.page == DN_PG_SLICE ? DN_SLICE_PAGE[k] : dn.page == DN_PG_SET ? DN_SET_PAGE[k]
          : dn.page == DN_PG_LFO ? DN_LFO_PAGE[dn.lfo_view & 1u][k] : dn.page == DN_PG_MIDI ? DN_MIDI_PAGE[k]
+         : dn.page == DN_PG_PROJ ? DN_PROJ_PAGE[k]
+         : dn.page == DN_PG_FX ? (dn.fx_view && k && dn_fxp[dn.fx_view == 2u].type == DN_FX_OFF ? DN_PX_NONE
+                                                                                         : DN_FX_PAGE[dn.fx_view % 3u][k])
          : DN_PAGE[dn.page % DN_NPAGES][k];
 }
 
@@ -789,8 +935,140 @@ static void dn_lfo_text(uint32_t id, int32_t v, char out[8])
     out[i] = 0;
 }
 
+/* ---- the project's values: PROJECT (the track, its instrument) and FX (the sends, returns, the two slots) ---- */
+static int dn_fx_fits(uint32_t a, uint32_t b) { return dn_fx_ram(a) + dn_fx_ram(b) <= DN_FX_ARENA; }
+static void dn_fx_layout(void)                      /* (inside the lock) the arena: FX A's memory, then FX B's */
+{
+    uint8_t *m = (uint8_t *)dn_fx_mem;
+    uint32_t a = (dn_fx_ram(dn_fxp[0].type) + 3u) & ~3u;
+    dn_fx_init(&dn_fxs[0], dn_fxp[0].type, a ? m : 0);
+    dn_fx_init(&dn_fxs[1], dn_fxp[1].type, dn_fx_ram(dn_fxp[1].type) ? m + a : 0);
+}
+static void dn_eng_set(uint32_t t, uint32_t e);
+static void dn_legato_fix(void);
+static void dn_goto(uint32_t page);
+static const char *dn_inst_name(uint32_t t);
+static int32_t dn_pj_get(uint32_t id)
+{
+    uint32_t t = dn.trk % DN_SEQ_TRACKS;
+    if (id == DN_PX_PTRK)
+        return (int32_t)t;
+    if (id == DN_PX_PENG)
+        return dn.peng != 0xFFu ? dn.peng : dn_eng[t];
+    if (id == DN_PX_SENDA || id == DN_PX_SENDB)
+        return dn_send[id - DN_PX_SENDA][t];
+    if (id == DN_PX_RETA || id == DN_PX_RETB)
+        return dn_ret[id - DN_PX_RETA];
+    {
+        const dn_fx_p_t *f = &dn_fxp[id >= DN_PX_FXB];
+        uint32_t i = (id - DN_PX_FXA) % 4u;
+        return i ? f->p[i - 1u] : f->type;
+    }
+}
+static int32_t dn_pj_lim(uint32_t id, int hi)
+{
+    if (!hi)
+        return 0;
+    if (id == DN_PX_PTRK)
+        return DN_SEQ_TRACKS - 1;
+    if (id == DN_PX_PENG)
+        return DN_E_N - 1;
+    if (id < DN_PX_FXA)
+        return 127;
+    {
+        const dn_fx_p_t *f = &dn_fxp[id >= DN_PX_FXB];
+        uint32_t i = (id - DN_PX_FXA) % 4u;
+        if (!i)
+            return DN_FX_N - 1;
+        if (f->type == DN_FX_DELAY)
+            return i == 1u ? (int32_t)DN_FX_NDIV - 1 : 127;
+        return 0;
+    }
+}
+static const char *dn_pj_name(uint32_t id)
+{
+    static const char *const N[6] = {"TRACK", "INSTR", "SEND A", "SEND B", "RETURN A", "RETURN B"};
+    static const char *const DLY[3] = {"TIME", "FEEDBACK", "TONE"};
+    uint32_t i;
+    if (id < DN_PX_FXA)
+        return N[id - DN_PX_PTRK];
+    i = (id - DN_PX_FXA) % 4u;
+    if (!i)
+        return id >= DN_PX_FXB ? "FX B" : "FX A";
+    return dn_fxp[id >= DN_PX_FXB].type == DN_FX_DELAY ? DLY[i - 1u] : "-";
+}
+static void dn_pj_text(uint32_t id, int32_t v, char out[8])
+{
+    const char *w = 0;
+    uint32_t i;
+    if (id == DN_PX_PTRK) {
+        dn_num(out, v + 1);
+        return;
+    }
+    if (id == DN_PX_PENG)
+        w = DN_E_NAME[dn_clamp(v, 0, DN_E_N - 1)];
+    else if (id >= DN_PX_FXA) {
+        uint32_t k = (id - DN_PX_FXA) % 4u;
+        if (!k)
+            w = DN_FX_NAME[dn_clamp(v, 0, DN_FX_N - 1)];
+        else if (dn_fxp[id >= DN_PX_FXB].type == DN_FX_OFF)
+            w = "-";
+        else if (k == 1u)
+            w = DN_FX_DIV_NAME[dn_clamp(v, 0, DN_FX_NDIV - 1)];
+    }
+    if (!w) {
+        dn_num(out, v);
+        return;
+    }
+    for (i = 0; w[i] && i < 7u; i++)
+        out[i] = w[i];
+    out[i] = 0;
+}
+static void dn_pj_set(uint32_t id, int32_t v)
+{
+    uint32_t t = dn.trk % DN_SEQ_TRACKS;
+    if (id == DN_PX_PTRK) {                         /* (choosing a track changes nothing kept) */
+        dn.trk = (uint8_t)v;
+        dn.peng = 0xFF;
+        dn.view = 0;
+        dn.redraw |= DN_RD_ALL;
+        return;
+    }
+    if (id == DN_PX_PENG) {                         /* chosen, not yet in: FX puts it on the track */
+        dn.peng = (uint8_t)v == dn_eng[t] ? 0xFFu : (uint8_t)v;
+        if (dn.peng != 0xFFu)
+            dn_say("FX: CHANGE IT");
+        dn.redraw |= DN_RD_ALL;
+        return;
+    }
+    if (id == DN_PX_SENDA || id == DN_PX_SENDB)
+        dn_send[id - DN_PX_SENDA][t] = (uint8_t)v;
+    else if (id == DN_PX_RETA || id == DN_PX_RETB)
+        dn_ret[id - DN_PX_RETA] = (uint8_t)v;
+    else {
+        uint32_t k = id >= DN_PX_FXB, i = (id - DN_PX_FXA) % 4u;
+        dn_fx_p_t *f = &dn_fxp[k];
+        if (!i) {                                   /* a new effect: its memory, or no */
+            if (!dn_fx_fits(k ? dn_fxp[0].type : (uint32_t)v, k ? (uint32_t)v : dn_fxp[1].type)) {
+                dn_say("NO MEMORY: FX OFF FIRST");
+                dn.redraw |= DN_RD_ALL;
+                return;
+            }
+            dn_lock();
+            dn_fx_default(f, (uint32_t)v);
+            dn_fx_layout();
+            dn_unlock();
+        } else {
+            f->p[i - 1u] = (uint8_t)v;
+        }
+    }
+    dn_mark();
+}
+
 static int32_t dn_get(uint32_t id)
 {
+    if (DN_IS_PPX(id))
+        return dn_pj_get(id);
     if (DN_IS_LPX(id))
         return dn_lfo_get(id);
     if (id == DN_PX_BPM)
@@ -798,7 +1076,7 @@ static int32_t dn_get(uint32_t id)
     if (id == DN_PX_OCT)
         return dn.oct;
     if (id == DN_PX_OVL)
-        return DN_PAT_CUT(&dn_sq.pat) & 1u;
+        return DN_PAT_CUT(&dn_sq.pat) >> dn_rs_trk() & 1u;
     if (id == DN_PX_CLICK)
         return dn.click;
     if (id == DN_PX_CLKLVL)
@@ -810,9 +1088,9 @@ static int32_t dn_get(uint32_t id)
     if (id == DN_PX_MSEL)
         return dn.midi_sel;
     if (id == DN_PX_MCHAN)
-        return dn_sq.pat.tr[3u + dn.midi_sel % 5u].chan;
+        return dn_midi_trk(dn.midi_sel) < 8u ? dn_sq.pat.tr[dn_midi_trk(dn.midi_sel)].chan : 0;
     if (id == DN_PX_MOVL)
-        return DN_PAT_CUT(&dn_sq.pat) >> (3u + dn.midi_sel % 5u) & 1u;
+        return dn_midi_trk(dn.midi_sel) < 8u ? DN_PAT_CUT(&dn_sq.pat) >> dn_midi_trk(dn.midi_sel) & 1u : 0;
     if (id == DN_PX_BSRC)
         return dn_bk_src[dn_bsel()];
     if (id == DN_PX_BPITCH)
@@ -839,6 +1117,8 @@ static int32_t dn_get(uint32_t id)
 }
 static int32_t dn_min(uint32_t id)
 {
+    if (DN_IS_PPX(id))
+        return dn_pj_lim(id, 0);
     if (DN_IS_LPX(id))
         return dn_lfo_lim(id, 0);
     if (id >= DN_PX_SLSEL)
@@ -848,13 +1128,15 @@ static int32_t dn_min(uint32_t id)
 }
 static int32_t dn_max(uint32_t id)
 {
+    if (DN_IS_PPX(id))
+        return dn_pj_lim(id, 1);
     if (DN_IS_LPX(id))
         return dn_lfo_lim(id, 1);
     if (id >= DN_PX_SLSEL)
         return id == DN_PX_SLSEL ? (int32_t)dn_bk[dn_bsel()].nslices - 1 : id == DN_PX_SLADD ? 6
              : (int32_t)dn_bk[dn_bsel()].loop.n;
     return id == DN_PX_BPM ? 200 : id == DN_PX_OVL || id == DN_PX_MOVL ? 1 : id == DN_PX_CLICK || id == DN_PX_CIN ? 2
-         : id == DN_PX_CLKLVL || id == DN_PX_VSENS ? 127 : id == DN_PX_MSEL ? 4 : id == DN_PX_MCHAN ? 15 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (int32_t)dn_src_count() - 1
+         : id == DN_PX_CLKLVL || id == DN_PX_VSENS ? 127 : id == DN_PX_MSEL ? (dn_midi_n() ? (int32_t)dn_midi_n() - 1 : 0) : id == DN_PX_MCHAN ? 15 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (int32_t)dn_src_count() - 1
          : id == DN_PX_BPITCH ? 24 : id == DN_PX_BCHOKE ? 4 : id == DN_PX_BSMODE || id == DN_PX_BSTRETCH ? 2
          : id >= DN_PX_BDECAY ? 127 : reese_param_max(id);
 }
@@ -863,6 +1145,8 @@ static const char *dn_name(uint32_t id)
     static const char *const BN[8] = {"LOOP", "PITCH", "DECAY", "CRUSH", "CHOKE", "SLICES", "STRETCH", "LEVEL"};
     static const char *const SN[4] = {"CHOP", "CURSOR", "FINE", "ZOOM"};
     static const char *const LN[8] = {"SHAPE", "RATE", "DEST", "DEPTH", "SYNC", "MODE", "PHASE", "SMOOTH"};
+    if (DN_IS_PPX(id))
+        return dn_pj_name(id);
     if (id == DN_PX_L1RATE || id == DN_PX_L1DEPTH)
         return id == DN_PX_L1RATE ? "L1 RATE" : "L1 DEPTH";
     if (DN_IS_LPX(id))
@@ -876,6 +1160,10 @@ static const char *dn_name(uint32_t id)
 }
 static void dn_text(uint32_t id, int32_t v, char out[8])
 {
+    if (DN_IS_PPX(id)) {
+        dn_pj_text(id, v, out);
+        return;
+    }
     if (DN_IS_LPX(id)) {
         dn_lfo_text(id, v, out);
         return;
@@ -981,6 +1269,10 @@ static void dn_set(uint32_t id, int32_t v)
     if (v == dn_get(id))
         return;
     dn_rev++;
+    if (DN_IS_PPX(id)) {
+        dn_pj_set(id, v);
+        return;
+    }
     if (id == DN_PX_BSRC) {                         /* (outside the lock: reading the loop takes a few ms) */
         dn_brk_select(k, (uint32_t)v);
         dn.dirty = 1;
@@ -1010,8 +1302,10 @@ static void dn_set(uint32_t id, int32_t v)
         dn_rs.bpm = dn_sq.bpm = (uint16_t)v;
     else if (id == DN_PX_OCT)
         dn.oct = (int8_t)v;
-    else if (id == DN_PX_OVL)
-        DN_PAT_CUT(&dn_sq.pat) = (uint8_t)((DN_PAT_CUT(&dn_sq.pat) & ~1u) | (v ? 1u : 0u));
+    else if (id == DN_PX_OVL) {
+        uint32_t b = 1u << dn_rs_trk();
+        DN_PAT_CUT(&dn_sq.pat) = (uint8_t)(v ? DN_PAT_CUT(&dn_sq.pat) | b : DN_PAT_CUT(&dn_sq.pat) & ~b);
+    }
     else if (id == DN_PX_CLICK)
         dn.click = (uint8_t)v;
     else if (id == DN_PX_CLKLVL)
@@ -1022,12 +1316,16 @@ static void dn_set(uint32_t id, int32_t v)
         dn_rs.vsens = (uint8_t)v;
     else if (id == DN_PX_MSEL) {
         dn.midi_sel = (uint8_t)v;
-        dn.trk = (uint8_t)(3u + dn.midi_sel);       /* (the keys play it) */
-    } else if (id == DN_PX_MCHAN)
-        dn_sq.pat.tr[3u + dn.midi_sel % 5u].chan = (uint8_t)v;
-    else if (id == DN_PX_MOVL) {
-        uint32_t b = 1u << (3u + dn.midi_sel % 5u);
-        DN_PAT_CUT(&dn_sq.pat) = (uint8_t)(v ? DN_PAT_CUT(&dn_sq.pat) | b : DN_PAT_CUT(&dn_sq.pat) & ~b);
+        if (dn_midi_trk(dn.midi_sel) < 8u)
+            dn.trk = (uint8_t)dn_midi_trk(dn.midi_sel);   /* (the keys play it) */
+    } else if (id == DN_PX_MCHAN) {
+        if (dn_midi_trk(dn.midi_sel) < 8u)
+            dn_sq.pat.tr[dn_midi_trk(dn.midi_sel)].chan = (uint8_t)v;
+    } else if (id == DN_PX_MOVL) {
+        if (dn_midi_trk(dn.midi_sel) < 8u) {
+            uint32_t b = 1u << dn_midi_trk(dn.midi_sel);
+            DN_PAT_CUT(&dn_sq.pat) = (uint8_t)(v ? DN_PAT_CUT(&dn_sq.pat) | b : DN_PAT_CUT(&dn_sq.pat) & ~b);
+        }
     }
     else if (DN_IS_LPX(id))
         dn_lfo_set(id, v);
@@ -1084,6 +1382,18 @@ static void dn_save_fill(dn_save_t *sp)
     s.set.pad = dn_rs.vsens;                        /* (0.11: VEL SENS) */
     for (k = 0; k < DN_NLFO; k++)
         s.lfo[k] = dn_lp[k];
+    for (k = 0; k < sizeof s.proj.name; k++)        /* (0.12: the project) */
+        s.proj.name[k] = dn_pname[k];
+    for (k = 0; k < DN_SEQ_TRACKS; k++) {
+        s.proj.eng[k] = dn_eng[k];
+        s.proj.send[0][k] = dn_send[0][k];
+        s.proj.send[1][k] = dn_send[1][k];
+    }
+    s.proj.ret[0] = dn_ret[0];
+    s.proj.ret[1] = dn_ret[1];
+    s.proj.pad[0] = s.proj.pad[1] = 0;
+    s.proj.fx[0] = dn_fxp[0];
+    s.proj.fx[1] = dn_fxp[1];
 #undef s
 }
 
@@ -1266,6 +1576,40 @@ static void dn_pat_select(uint32_t t, uint32_t n)
     dn.redraw |= DN_RD_ALL;
 }
 
+/* a saved project, checked: one REESE and one each of BREAKS A / B at most (else the factory layout) */
+static void dn_proj_restore(const dn_save_t *sp)
+{
+    uint32_t k, n[DN_E_N] = {0};
+    for (k = 0; k < DN_SEQ_TRACKS; k++)
+        n[sp->proj.eng[k] < DN_E_N ? sp->proj.eng[k] : 0u]++;
+    if (n[DN_E_REESE] <= 1u && n[DN_E_BRKA] <= 1u && n[DN_E_BRKB] <= 1u)
+        for (k = 0; k < DN_SEQ_TRACKS; k++)
+            dn_eng[k] = sp->proj.eng[k] < DN_E_N ? sp->proj.eng[k] : (uint8_t)DN_E_OFF;
+    for (k = 0; k < DN_SEQ_TRACKS; k++) {
+        dn_send[0][k] = sp->proj.send[0][k] & 127u;
+        dn_send[1][k] = sp->proj.send[1][k] & 127u;
+    }
+    dn_ret[0] = sp->proj.ret[0] & 127u;
+    dn_ret[1] = sp->proj.ret[1] & 127u;
+    for (k = 0; k < 2u; k++) {
+        dn_fxp[k] = sp->proj.fx[k];
+        if (dn_fxp[k].type >= DN_FX_N)
+            dn_fx_default(&dn_fxp[k], DN_FX_OFF);
+        dn_fxp[k].p[0] = (uint8_t)dn_clamp(dn_fxp[k].p[0], 0, DN_FX_NDIV - 1);
+        dn_fxp[k].p[1] &= 127u;
+        dn_fxp[k].p[2] &= 127u;
+    }
+    if (!dn_fx_fits(dn_fxp[0].type, dn_fxp[1].type))
+        dn_fx_default(&dn_fxp[1], DN_FX_OFF);
+    for (k = 0; k + 1u < sizeof dn_pname; k++) {
+        char c = sp->proj.name[k];
+        dn_pname[k] = c >= 32 && c < 127 ? c : 0;
+    }
+    dn_pname[sizeof dn_pname - 1u] = 0;
+    if (!dn_pname[0])
+        dn_pname[0] = 'P', dn_pname[1] = '1', dn_pname[2] = 0;
+}
+
 static void dn_save(void)
 {
     dn_save_t s;
@@ -1295,7 +1639,9 @@ void dn_app_init(void)
         dn_bk[k].choke = 1;                         /* A and B choke each other: one sampler voice, as a break is */
     }
     dn_seq_init(&dn_sq);
-    dn_sq.legato = 0xF9u;                           /* overlaps slide on REESE and MIDI, not on the breaks */
+    dn_fx_default(&dn_fxp[0], DN_FX_DELAY);         /* FX A: the delay, nothing sent to it yet; FX B: empty */
+    dn_fx_default(&dn_fxp[1], DN_FX_OFF);
+    dn.peng = 0xFF;
     dn.sounding = dn.midi_note = 0xFF;
     dn.step_held = -1;
     dn.ramp_b = -1;
@@ -1313,7 +1659,8 @@ void dn_app_init(void)
         dn_man.count > DN_MAN_N)
         dn_man.magic = dn_man.count = 0;            /* (no manual slices yet) */
     got = plat_store_load(OBJ_SOUND, &s, sizeof s);
-    if ((got == (int)sizeof s || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 || got == (int)DN_SAVE_V04) &&
+    if ((got == (int)sizeof s || got == (int)DN_SAVE_V011 || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 ||
+         got == (int)DN_SAVE_V04) &&
         s.magic == DN_SAVE_MAGIC) {
         dn.preset = (uint8_t)(s.preset % reese_preset_count());
         dn.page = (uint8_t)(DN_IS_SNDPG(s.page) ? s.page : 0u);
@@ -1323,7 +1670,9 @@ void dn_app_init(void)
         for (k = 0; k < RP_COUNT; k++)
             dn_rs.p[k] = (int16_t)dn_clamp(s.p[k], reese_param_min(k), reese_param_max(k));
         dn_lfo_init_all();                          /* (0.8 and older: their filter LFO as LFO 1) */
-        if (got == (int)sizeof s) {
+        if (got == (int)sizeof s)
+            dn_proj_restore(&s);                    /* 0.12: the project */
+        if (got >= (int)DN_SAVE_V011) {
             for (k = 0; k < DN_NLFO; k++) {         /* 0.9: the LFOs, checked */
                 dn_lp[k] = s.lfo[k];
                 dn_lp[k].shape = (uint8_t)dn_clamp(dn_lp[k].shape, 0, DN_LS_N - 1);
@@ -1355,15 +1704,17 @@ void dn_app_init(void)
         }
     }
     dn_sq.bpm = dn_rs.bpm;
+    dn_legato_fix();                                /* overlaps slide on REESE and MIDI, not on the breaks */
+    dn_fx_layout();
     for (k = 0; k < DN_NBRK; k++)
         dn_brk_select(k, dn_bk_src[k]);
     dn.btn_prev = plat_buttons();                   /* what is held at start-up is no press */
-    dn.keys_prev = plat_keys();
+    dn.keys_prev = dn.keys_raw = plat_keys();
     dn.ready = 1;
 }
 
 /* ------------------------------------------------------------------------------------------------- input --- */
-static uint32_t dn_slices(uint32_t t) { return DN_IS_BRK(t) && dn_bk[t - 1u].nslices ? dn_bk[t - 1u].nslices : 16u; }
+static uint32_t dn_slices(uint32_t t) { return DN_IS_BRK(t) && dn_bk[DN_BK(t)].nslices ? dn_bk[DN_BK(t)].nslices : 16u; }
 /* what key k plays: a note (MIDI number); on a BREAKS track a slice, the octave moving 16 slices (a bar) */
 static uint8_t dn_key_note(uint32_t k)
 {
@@ -1399,10 +1750,10 @@ static void dn_play(uint8_t note, int legato)
         return;                                     /* (a key past the last chop) */
     dn_lock();
     if (DN_IS_BRK(dn.trk)) {
-        dn_brk_hit(dn.trk - 1u, note, 100, 0);
-    } else if (dn.trk == 0u) {
+        dn_brk_hit(DN_BK(dn.trk), note, 100, 0);
+    } else if (DN_IS_RS(dn.trk)) {
         dn_rs_on(note, 100, legato);
-    } else {
+    } else if (DN_IS_MIDI(dn.trk)) {
         uint32_t ch = dn_sq.pat.tr[dn.trk].chan;
         if (dn.sounding != 0xFF)
             plat_midi_out(0x08u | (0x80u | ch) << 8 | (uint32_t)dn.sounding << 16);
@@ -1415,13 +1766,56 @@ static void dn_stop(void)
 {
     dn_lock();
     if (DN_IS_BRK(dn.trk))
-        dn_brk_release(&dn_bk[dn.trk - 1u]);
-    else if (dn.trk != 0u && dn.sounding != 0xFF)
+        dn_brk_release(&dn_bk[DN_BK(dn.trk)]);
+    else if (DN_IS_MIDI(dn.trk) && dn.sounding != 0xFF)
         plat_midi_out(0x08u | (0x80u | dn_sq.pat.tr[dn.trk].chan) << 8 | (uint32_t)dn.sounding << 16);
-    else if (dn.trk == 0u && dn.midi_note == 0xFF)
+    else if (DN_IS_RS(dn.trk) && dn.midi_note == 0xFF)
         reese_note_off(&dn_rs);
     dn_unlock();
     dn.sounding = 0xFF;
+}
+
+/* overlapping notes slide on the synths and MIDI, never on the breaks: the sequencer's legato bits follow the tracks */
+static void dn_legato_fix(void)
+{
+    uint32_t t, m = 0;
+    for (t = 0; t < DN_SEQ_TRACKS; t++)
+        if (!DN_IS_BRK(t))
+            m |= 1u << t;
+    dn_sq.legato = (uint8_t)m;
+}
+/* (inside the lock) what track t plays, silenced */
+static void dn_trk_silence(uint32_t t)
+{
+    dn_sq.gate[t] = 0;
+    if (DN_IS_RS(t))
+        reese_note_off(&dn_rs);
+    else if (DN_IS_BRK(t))
+        dn_brk_cut(&dn_bk[DN_BK(t)]);
+    else if (DN_IS_MIDI(t))
+        plat_midi_out(0x0Bu | (0xB0u | dn_sq.pat.tr[t].chan) << 8 | 123u << 16);   /* all notes off */
+}
+/* track t plays instrument e from now. REESE and BREAKS A / B are one each: the track holding it gets t's old one
+ * (they swap). The track's patterns stay as they are. */
+static void dn_eng_set(uint32_t t, uint32_t e)
+{
+    uint32_t u, old;
+    t %= DN_SEQ_TRACKS;
+    old = dn_eng[t];
+    if (e >= DN_E_N || e == old)
+        return;
+    dn_lock();
+    dn_trk_silence(t);
+    if (e != DN_E_MIDI && e != DN_E_OFF && (u = dn_trk_of(e)) < 8u) {
+        dn_trk_silence(u);
+        dn_eng[u] = (uint8_t)old;
+    }
+    dn_eng[t] = (uint8_t)e;
+    dn_legato_fix();
+    dn_unlock();
+    dn.sounding = 0xFF;
+    dn.peng = 0xFF;
+    dn_mark();
 }
 
 /* where the playhead is, in quarter steps since PLAY (under the lock: the audio moves it) */
@@ -1486,7 +1880,7 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
                 dn_rec_release(k);
         }
         if ((down & (1u << k)) && dn.page == DN_PG_SLICE && DN_IS_BRK(dn.trk) && dn.chop_rec && dn.oct >= 0) {
-            dn_brk_t *bk = &dn_bk[dn.trk - 1u];     /* REC lit: this key's chop where the loop is (or the cursor) */
+            dn_brk_t *bk = &dn_bk[DN_BK(dn.trk)];     /* REC lit: this key's chop where the loop is (or the cursor) */
             uint32_t c = k + 27u * (uint32_t)dn.oct, at = dn.sl_cur;
             if (bk->aud) {
                 uint32_t lat = (bk->loop.rate ? bk->loop.rate : 22050u) * DN_TAP_LATENCY_MS / 1000u, pos;
@@ -1510,7 +1904,7 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
             int legato = dn.nheld > 0u;             /* under a held key: a slide */
             dn_play(dn_key_note(k), legato || dn.play);
             if (dn.page == DN_PG_SLICE && DN_IS_BRK(dn.trk) && dn_key_note(k) != 0xFFu) {
-                dn_brk_t *bk = &dn_bk[dn.trk - 1u];  /* chop mode: the key selects its chop, heard to its end */
+                dn_brk_t *bk = &dn_bk[DN_BK(dn.trk)];  /* chop mode: the key selects its chop, heard to its end */
                 dn.sl_sel = dn_key_note(k);
                 dn.sl_cur = bk->start[dn.sl_sel];
                 dn_lock();
@@ -1587,7 +1981,7 @@ static void dn_keys_seq(uint32_t keys)
                     tr->st[i].flags |= DN_ST_ON;
                     tr->st[i].len = 3;              /* a fresh step: three quarters of a step (breaks: a whole one) */
                     if (DN_IS_BRK(dn.trk)) {         /* a break: the slice that belongs on this step (DRUM: the row's) */
-                        const dn_brk_t *bk = &dn_bk[dn.trk - 1u];
+                        const dn_brk_t *bk = &dn_bk[DN_BK(dn.trk)];
                         uint32_t gs = dn_brk_grid_slices(bk);     /* (AUTO / MANUAL: the hit nearest the step) */
                         tr->st[i].note = (uint8_t)(drum ? dn.drum_row : dn_brk_slice_at(bk, i % gs, gs));
                         tr->st[i].len = DN_LEN_STEP;
@@ -1748,8 +2142,49 @@ static void dn_lfo_draw_knob(uint32_t k, int32_t d)  /* DRAW: KNOB 1 the pen (or
     dn_mark();
 }
 
-static void dn_keys(uint32_t keys)
+/* SEQ held + white key 1-8: track 1-8, and its instrument's page (on a sequencer page: its sequencer page) */
+static void dn_trk_go(uint32_t t)
 {
+    int seq = DN_IS_SEQPG(dn.page);
+    t %= DN_SEQ_TRACKS;
+    dn.trk = (uint8_t)t;
+    dn.peng = 0xFF;
+    if (DN_IS_MIDI(t))
+        dn.midi_sel = (uint8_t)dn_midi_idx(t);
+    if (DN_IS_BRK(t))
+        dn.bk_last = (uint8_t)DN_BK(t);
+    if (seq)
+        dn_goto(DN_IS_BRK(t) ? DN_PG_DRUM : DN_PG_ROLL);
+    else if (DN_IS_RS(t))
+        dn_goto(DN_IS_SNDPG(dn.page) ? dn.page : 0u);
+    else if (DN_IS_BRK(t))
+        dn_goto(DN_IS_BRKPG(dn.page) ? dn.page : DN_PG_BRK);
+    else if (DN_IS_MIDI(t))
+        dn_goto(DN_PG_MIDI);
+    else
+        dn_goto(DN_PG_PROJ);
+    dn.trk = (uint8_t)t;                            /* (whatever the page chose) */
+    dn.view = (uint8_t)dn_clamp(dn.view, 0, (dn_sq.pat.tr[t].len + 15) / 16 - 1);
+    dn_say(dn_inst_name(t));
+    dn.redraw |= DN_RD_ALL;
+}
+
+static void dn_keys(uint32_t raw)
+{
+    uint32_t down = raw & ~dn.keys_raw, k, keys;
+    dn.keys_raw = raw;
+    if (down && (plat_buttons() & (1u << B_SEQ))) {   /* SEQ held: the white keys 1-8 are the tracks */
+        for (k = 0; k < NKEYS; k++)
+            if ((down >> k & 1u) && dn_is_white(k) && dn_key_ord(k) < 8) {
+                dn_trk_go((uint32_t)dn_key_ord(k));
+                dn.seq_chord = 1;
+            }
+        dn.keys_ign |= down;
+    }
+    dn.keys_ign &= raw;                             /* (a key pressed with SEQ: nothing until it comes up) */
+    keys = raw & ~dn.keys_ign;
+    if (keys == dn.keys_prev)
+        return;
     if (!dn.keys_prev) {                            /* the keys follow the page they were pressed on */
         dn.key_page = dn.page;
         dn.key_mode = dn.roll_keys;
@@ -2011,16 +2446,23 @@ static void dn_goto(uint32_t page)
     if (dn.page != page) {
         dn.page = (uint8_t)page;
         dn.step_held = -1;
-        if (DN_IS_SNDPG(page))
-            dn.trk = 0;                             /* REESE's pages: the keys play REESE */
-        else if (page == DN_PG_MIDI)
-            dn.trk = (uint8_t)(3u + dn.midi_sel % 5u);
-        if (page == DN_PG_ROLL) {                   /* ROLL edits a synth or MIDI track; DRUM a break track */
+        if (DN_IS_SNDPG(page) && dn_trk_of(DN_E_REESE) < 8u)
+            dn.trk = (uint8_t)dn_trk_of(DN_E_REESE);   /* REESE's pages: the keys play REESE */
+        else if (page == DN_PG_MIDI && dn_midi_trk(dn.midi_sel) < 8u)
+            dn.trk = (uint8_t)dn_midi_trk(dn.midi_sel);
+        if (page == DN_PG_DRUM && !DN_IS_BRK(dn.trk)) {   /* DRUM edits a break track (the last one shown) */
+            uint32_t t = dn_trk_of(DN_E_BRKA + dn.bk_last % 2u);
+            if (t >= 8u)
+                t = dn_trk_of(DN_E_BRKA + (dn.bk_last + 1u) % 2u);
+            if (t < 8u)
+                dn.trk = (uint8_t)t;
+            else
+                dn.page = (uint8_t)(page = DN_PG_ROLL);   /* (no break on any track: the roll) */
+        }
+        if (page == DN_PG_ROLL) {                   /* ROLL edits a synth or MIDI track */
             if (DN_IS_BRK(dn.trk))
-                dn.trk = 0;
+                dn.trk = (uint8_t)dn_rs_trk();
             dn_roll_fit();
-        } else if (page == DN_PG_DRUM && !DN_IS_BRK(dn.trk)) {
-            dn.trk = 1;
         }
         if (page == DN_PG_DRUM)
             dn.drum_row = (uint8_t)dn_clamp(dn.drum_row, 0, (int32_t)dn_slices(dn.trk) - 1);
@@ -2074,10 +2516,10 @@ static void dn_sl_fix(void)                          /* the selection always ins
 static void dn_chops_remap(uint32_t key, const uint32_t *old, uint32_t old_n)
 {
     uint32_t t, i, j;
-    for (t = 1; t <= DN_NBRK; t++) {
-        const dn_brk_t *b = &dn_bk[t - 1u];
+    for (t = 0; t < DN_SEQ_TRACKS; t++) {
+        const dn_brk_t *b = &dn_bk[DN_IS_BRK(t) ? DN_BK(t) : 0u];
         dn_track_t *tr = &dn_sq.pat.tr[t];
-        if (b->key != key || !b->ok)
+        if (!DN_IS_BRK(t) || b->key != key || !b->ok)
             continue;
         for (i = 0; i < DN_SEQ_STEPS; i++) {
             uint32_t at, best = 0, bd = 0xFFFFFFFFu;
@@ -2385,7 +2827,7 @@ void dn_app_input(void)
     uint32_t btn = plat_buttons(), keys = plat_keys(), press = btn & ~dn.btn_prev, k;
     int32_t d;
     dn.btn_prev = btn;
-    if (keys != dn.keys_prev)
+    if (keys != dn.keys_raw)
         dn_keys(keys);
     dn_chops_flush();
     if (dn.page == DN_PG_SLICE) {                   /* chop mode's buttons (before the usual ones take them) */
@@ -2478,9 +2920,19 @@ void dn_app_input(void)
                     dn.redraw |= DN_RD_ALL;
                 }
             } else
-                dn_goto(k != 4u ? k : dn.page == 4u ? DN_PG_SET : dn.page == DN_PG_SET ? DN_PG_MIDI : 4u);   /* GLO
-                                                     * again: SETUP, then the MIDI instruments, then OUT */
+                dn_goto(k != 4u ? k : dn.page == 4u ? DN_PG_FX : dn.page == DN_PG_FX ? DN_PG_SET
+                        : dn.page == DN_PG_SET ? DN_PG_MIDI : dn.page == DN_PG_MIDI ? DN_PG_PROJ : 4u);   /* GLO again:
+                                                     * FX, SETUP, the MIDI instruments, PROJECT, then OUT */
         break;
+    }
+    if (press & (1u << B_SEQ))
+        dn.seq_held = 1, dn.seq_chord = 0;
+    if (dn.seq_held && !(btn & (1u << B_SEQ))) {    /* SEQ acts as it comes up: held, a white key 1-8 picks a track */
+        dn.seq_held = 0;
+        if (!dn.seq_chord)
+            press |= 1u << B_SEQ;
+    } else {
+        press &= ~(1u << B_SEQ);
     }
     if (press & (1u << B_SEQ)) {                    /* SEQ: this instrument's sequencer page; again: back */
         if (DN_IS_SEQPG(dn.page)) {
@@ -2490,11 +2942,26 @@ void dn_app_input(void)
             if (DN_IS_BRKPG(dn.page)) {
                 dn_goto(DN_PG_DRUM);                /* (the break the BRK pages show) */
             } else {
-                dn.trk = dn.page == DN_PG_MIDI ? (uint8_t)(3u + dn.midi_sel % 5u) : 0u;
-                dn_goto(DN_PG_ROLL);
+                if (dn.page == DN_PG_MIDI && dn_midi_trk(dn.midi_sel) < 8u)
+                    dn.trk = (uint8_t)dn_midi_trk(dn.midi_sel);
+                else if (dn.page != DN_PG_MIDI && dn.page != DN_PG_PROJ && dn_trk_of(DN_E_REESE) < 8u)
+                    dn.trk = (uint8_t)dn_trk_of(DN_E_REESE);
+                dn_goto(DN_IS_BRK(dn.trk) ? DN_PG_DRUM : DN_PG_ROLL);
             }
             dn.back_page = (uint8_t)back;
         }
+    }
+    if ((press & (1u << B_FX)) && dn.page == DN_PG_FX) {   /* FX: MIX, FX A, FX B */
+        dn.fx_view = (uint8_t)((dn.fx_view + 1u) % 3u);
+        dn.redraw |= DN_RD_ALL;
+    }
+    if ((press & (1u << B_FX)) && dn.page == DN_PG_PROJ) {   /* PROJECT: the instrument chosen goes on the track */
+        if (dn.peng != 0xFFu) {
+            uint32_t e = dn.peng;
+            dn_eng_set(dn.trk, e);
+            dn_say(e == DN_E_OFF ? "TRACK OFF" : "CHANGED");
+        }
+        dn.redraw |= DN_RD_ALL;
     }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_LFO) {   /* LFO: the main knobs, MORE, DRAW (a DRAW shape) */
         dn.lfo_view = (uint8_t)((dn.lfo_view + 1u) % (dn_lp[dn.lfo_sel % DN_NLFO].shape == DN_LS_DRAW ? 3u : 2u));
@@ -2504,7 +2971,7 @@ void dn_app_input(void)
     if ((press & (1u << B_FX)) && dn.page == DN_PG_DRUM && dn.save_held && dn.step_held < 0 && DN_IS_BRK(dn.trk)) {
         dn_track_t *tr = &dn_sq.pat.tr[dn.trk];     /* SAVE + FX on a break's grid: the break straight, each step its
                                                      * own slice (the hit nearest it) */
-        const dn_brk_t *bk = &dn_bk[dn.trk - 1u];
+        const dn_brk_t *bk = &dn_bk[DN_BK(dn.trk)];
         uint32_t i, gs = dn_brk_grid_slices(bk);
         dn_lock();
         for (i = 0; i < tr->len; i++) {
@@ -2525,9 +2992,11 @@ void dn_app_input(void)
         dn.roll_cur = (uint8_t)(16u * dn.view);
         dn.redraw |= DN_RD_ALL;
     }
-    if (press & (1u << B_ARP)) {                    /* BRK: BREAKS A (or B, with track 3 selected) */
-        if (!DN_IS_BRK(dn.trk))
-            dn.trk = 1;
+    if (press & (1u << B_ARP)) {                    /* BRK: the selected break track's (or the last one shown) */
+        if (!DN_IS_BRK(dn.trk) && dn_trk_of(DN_E_BRKA + dn.bk_last % 2u) < 8u)
+            dn.trk = (uint8_t)dn_trk_of(DN_E_BRKA + dn.bk_last % 2u);
+        else if (!DN_IS_BRK(dn.trk) && dn_trk_of(DN_E_BRKA + (dn.bk_last + 1u) % 2u) < 8u)
+            dn.trk = (uint8_t)dn_trk_of(DN_E_BRKA + (dn.bk_last + 1u) % 2u);
         dn_goto(dn.page == DN_PG_BRK ? DN_PG_BRK2 : dn.page == DN_PG_BRK2 ? DN_PG_SLICE : DN_PG_BRK);   /* ARP again:
                                                      * BRK's second page, the slice editor, and back */
         dn.redraw |= DN_RD_ALL;
@@ -2602,7 +3071,11 @@ void dn_app_input(void)
         } else if (dn.page == DN_PG_MIDI) {
             dn_set(DN_PX_MSEL, (int32_t)dn.midi_sel + (d > 0 ? 1 : -1));
         } else if (DN_IS_BRKPG(dn.page) || dn.page == DN_PG_DRUM) {
-            dn.trk = dn.trk == 1u ? 2u : 1u;        /* BREAKS A <-> B */
+            uint32_t o = dn_trk_of(DN_IS_BRK(dn.trk) && DN_BK(dn.trk) ? DN_E_BRKA : DN_E_BRKB);
+            if (o < 8u)                             /* BREAKS A <-> B (when both are on tracks) */
+                dn.trk = (uint8_t)o;
+            else if (!DN_IS_BRK(dn.trk))
+                dn.bk_last ^= 1u;
             dn_sl_fix();
             dn.redraw |= DN_RD_ALL;
         } else {                                    /* the sound pages, round */
@@ -2869,11 +3342,11 @@ static void dn_draw_top(void)
         const char *tag = dn_bsel() ? "BRK B" : "BRK A";
         cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
         pn = bk->loop.name;
-    } else if ((dn.page == DN_PG_ROLL && dn.trk >= 3u) || dn.page == DN_PG_MIDI) {   /* a MIDI instrument */
+    } else if ((dn.page == DN_PG_ROLL && DN_IS_MIDI(dn.trk)) || dn.page == DN_PG_MIDI) {   /* a MIDI instrument */
         static char ch[12];
         char tag[8] = "MIDI ";
         uint32_t c = dn_sq.pat.tr[dn.trk % DN_SEQ_TRACKS].chan + 1u;
-        tag[5] = (char)('1' + (dn.trk >= 3u ? dn.trk - 3u : 0u));
+        tag[5] = (char)('1' + (DN_IS_MIDI(dn.trk) ? dn_midi_idx(dn.trk) % 9u : 0u));
         tag[6] = 0;
         cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
         ch[0] = 0;
@@ -2883,6 +3356,19 @@ static void dn_draw_top(void)
         ch[str_len_dn(ch) + 1u] = 0;
         ch[str_len_dn(ch)] = (char)('0' + c);
         pn = ch;
+    } else if (dn.page == DN_PG_PROJ || dn.page == DN_PG_FX) {   /* the project's name; FX: the rack */
+        static char fx[20];
+        const char *tag = dn.page == DN_PG_PROJ ? "PROJECT" : "FX";
+        cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
+        pn = dn_pname;
+        if (dn.page == DN_PG_FX) {
+            fx[0] = 0;
+            dn_cat(fx, "A ");
+            dn_cat(fx, DN_FX_NAME[dn_fxp[0].type % DN_FX_N]);
+            dn_cat(fx, "  B ");
+            dn_cat(fx, DN_FX_NAME[dn_fxp[1].type % DN_FX_N]);
+            pn = fx;
+        }
     } else {
         cv_text(29 - text_w(&FONT_T, "REESE") / 2, 28, &FONT_T, "REESE", DN_C_BAR);
     }
@@ -2964,6 +3450,24 @@ static void dn_draw_top(void)
         else
             cv_text(219 - text_w(&FONT_T, pos) / 2, 50, &FONT_T, pos, DN_C_LABEL);
     }
+    if (dn.page == DN_PG_PROJ) {                    /* PROJECT: the eight tracks and their instruments (the selected
+                                                     * one lit; one chosen, not in yet: red) */
+        uint32_t t;
+        cv_rect(4, 63, 232, 30, DN_C_BG);
+        for (t = 0; t < DN_SEQ_TRACKS; t++) {
+            int32_t cx = 4 + (int32_t)(t % 4u) * 58, cy = 63 + (int32_t)(t / 4u) * 15;
+            int sel = t == dn.trk;
+            uint32_t e = sel && dn.peng != 0xFFu ? dn.peng : dn_eng[t];
+            char c[12];
+            cv_rect(cx, cy, 56, 14, sel ? DN_C_BLUE : DN_C_WELL);
+            c[0] = (char)('1' + t), c[1] = ' ', c[2] = 0;
+            dn_cat(c, DN_IS_MIDI(t) && !(sel && dn.peng != 0xFFu) ? dn_inst_name(t) : DN_E_NAME[e % DN_E_N]);
+            cv_text(cx + 3, cy + 1, &FONT_T, c, sel && dn.peng != 0xFFu ? DN_C_RED : sel ? DN_C_BAR
+                                               : e == DN_E_OFF ? DN_C_DIMTXT : DN_C_LABEL);
+        }
+        cv_blit(0, 0);
+        return;
+    }
     if (dn.page == DN_PG_LFO) {                     /* the LFO: its shape over a cycle, where it is, its value now */
         const dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
         const dn_lfo_s_t *ls = &dn_ls[dn.lfo_sel % DN_NLFO];
@@ -3025,7 +3529,7 @@ static void dn_draw_seq(void)
         int32_t y = 21 + 12 * (int32_t)t, sel = t == dn.trk;
         line[0] = (char)('1' + t);                  /* the track: its number, R (REESE) or M (MIDI); red: muted */
         line[1] = ' ';
-        line[2] = DN_IS_BRK(t) ? 'B' : t ? 'M' : 'R';
+        line[2] = DN_IS_BRK(t) ? 'B' : DN_IS_MIDI(t) ? 'M' : DN_IS_RS(t) ? 'R' : '-';
         line[3] = 0;
         dn_pattern_coverage(&dn_sq.pat, t, cov);
         cv_rect(2, y, 25, 11, sel ? DN_C_BLUE : DN_C_BG);
@@ -3076,7 +3580,7 @@ static void dn_draw_seq(void)
             dn_cat(line, "SL ");
             dn_num(v, st->note + 1);
         } else {
-            dn_note_name(v, st->note + (dn.trk == 0u ? dn_rs.p[RP_TRANS] : 0));
+            dn_note_name(v, st->note + (DN_IS_RS(dn.trk) ? dn_rs.p[RP_TRANS] : 0));
         }
         dn_cat(line, v);
         dn_cat(line, "  LEN ");
@@ -3091,8 +3595,8 @@ static void dn_draw_seq(void)
         cv_text(8, 125, &FONT_XS, "HOLD TO CLEAR THE TRACK", DN_C_RED);
     } else {
         const dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
-        dn_cat(line, DN_IS_BRK(dn.trk) ? (dn.trk == 1u ? "BRK A" : "BRK B") : dn.trk ? "MIDI " : "REESE");
-        if (dn.trk && !DN_IS_BRK(dn.trk)) {
+        dn_cat(line, DN_IS_MIDI(dn.trk) ? "MIDI " : DN_E_NAME[dn_eng[dn.trk] % DN_E_N]);
+        if (DN_IS_MIDI(dn.trk)) {
             dn_num(v, tr->chan + 1);
             dn_cat(line, v);
         }
@@ -3245,7 +3749,7 @@ static void dn_draw_roll(void)
 {
     const dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
     uint32_t i, r, v0 = 16u * dn.view, L = tr->len;
-    int32_t trans = dn.trk == 0u ? dn_rs.p[RP_TRANS] : 0, prev_y = -1, prev_end = -1, prev_i = 0;
+    int32_t trans = DN_IS_RS(dn.trk) ? dn_rs.p[RP_TRANS] : 0, prev_y = -1, prev_end = -1, prev_i = 0;
     uint32_t prev_len = 0, legato = (dn_sq.legato & ~DN_PAT_CUT(&dn_sq.pat)) >> dn.trk & 1u;
     char line[48], v[8];
     cv_rect(0, 17, 240, 104, DN_C_PANEL);
@@ -3406,9 +3910,12 @@ static void dn_draw_drum(void)
 /* the instrument a track is, by name */
 static const char *dn_inst_name(uint32_t t)
 {
-    static const char *const N[DN_SEQ_TRACKS] = {"REESE", "BRK A", "BRK B", "MIDI 1", "MIDI 2", "MIDI 3", "MIDI 4",
-                                                 "MIDI 5"};
-    return N[t % DN_SEQ_TRACKS];
+    static char m[8] = "MIDI ";
+    t %= DN_SEQ_TRACKS;
+    if (!DN_IS_MIDI(t))
+        return DN_E_NAME[dn_eng[t] % DN_E_N];
+    m[5] = (char)('1' + dn_midi_idx(t) % 9u), m[6] = 0;
+    return m;
 }
 /* a sequencer page's tab row: the instrument, then its 8 patterns (the playing one lit, a queued one flashing, the
  * ones with notes marked), then how full pattern memory is */
@@ -3438,15 +3945,24 @@ static uint32_t dn_tabs(uint8_t *ids, const char **nms)
 {
     static const uint8_t BRK_T[3] = {DN_PG_BRK, DN_PG_BRK2, DN_PG_SLICE};
     static const char *const BRK_N[3] = {"BRK", "BRK2", "SLICE"};
-    static const char *const MN[5] = {"MIDI 1", "MIDI 2", "MIDI 3", "MIDI 4", "MIDI 5"};
+    static const char *const MN[8] = {"MIDI 1", "MIDI 2", "MIDI 3", "MIDI 4", "MIDI 5", "MIDI 6", "MIDI 7", "MIDI 8"};
+    static const char *const FN[3] = {"MIX", "FX A", "FX B"};
     uint32_t k, n = 0;
-    if (dn.page == DN_PG_MIDI)                      /* the MIDI instruments (SELECT: the next) */
-        for (k = 0; k < 5u; k++)
+    if (dn.page == DN_PG_MIDI) {                    /* the MIDI instruments (SELECT: the next) */
+        for (k = 0; k < dn_midi_n() && k < 8u; k++)
             ids[n] = k == dn.midi_sel ? DN_PG_MIDI : 0xFFu, nms[n++] = MN[k];
+        if (!n)
+            ids[n] = DN_PG_MIDI, nms[n++] = "NO MIDI TRACK";
+    } else if (dn.page == DN_PG_FX) {               /* the rack: MIX, FX A, FX B (FX: the next) */
+        for (k = 0; k < 3u; k++)
+            ids[n] = k == dn.fx_view ? DN_PG_FX : 0xFFu, nms[n++] = FN[k];
+    } else if (dn.page == DN_PG_PROJ) {
+        ids[n] = DN_PG_PROJ, nms[n++] = "PROJECT";
+    }
     else if (DN_IS_BRKPG(dn.page))
         for (k = 0; k < 3u; k++)
             ids[n] = BRK_T[k], nms[n++] = BRK_N[k];
-    else
+    else if (dn.page != DN_PG_PROJ && dn.page != DN_PG_FX)
         for (k = 0; k < DN_NSND; k++) {
             static const char *const LN[DN_NLFO] = {"LFO1", "LFO2", "LFO3", "LFO4"};
             ids[n] = DN_SND[k];
@@ -3576,6 +4092,34 @@ static void dn_draw_bottom(void)
         cv_blit(0, 96);
         return;
     }
+    if (dn.page == DN_PG_PROJ) {                    /* PROJECT: the samples' memory, the FX memory, the load */
+        char c[40], v[8];
+        uint32_t used = dn_smp_used() / 1024u, cap = dn_smp_cap() / 1024u;
+        c[0] = 0;
+        dn_cat(c, "SMP ");
+        dn_num(v, (int32_t)used);
+        dn_cat(c, v);
+        dn_cat(c, "/");
+        dn_num(v, (int32_t)cap);
+        dn_cat(c, v);
+        dn_cat(c, "K  FX ");
+        dn_num(v, (int32_t)((dn_fx_ram(dn_fxp[0].type) + dn_fx_ram(dn_fxp[1].type)) / 1024u));
+        dn_cat(c, v);
+        dn_cat(c, "/");
+        dn_num(v, (int32_t)(DN_FX_ARENA / 1024u));
+        dn_cat(c, v);
+        dn_cat(c, "K  CPU ");
+        dn_num(v, (int32_t)plat_cpu_pct());
+        dn_cat(c, v);
+        dn_cat(c, "%");
+        cv_rect(0, 121, 240, 23, DN_C_BAR);
+        if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0)
+            cv_text(232 - text_w(&FONT_T, dn.msg), 127, &FONT_T, dn.msg, DN_C_RED);
+        else
+            cv_text(8, 125, &FONT_XS, c, DN_C_LABEL);
+        cv_blit(0, 96);
+        return;
+    }
     if (dn.page == DN_PG_BRK2) {                    /* BRK2: the audio's load now (STRETCH costs more) */
         char c[12] = "CPU ";
         dn_num(c + 4, (int32_t)plat_cpu_pct());
@@ -3585,7 +4129,11 @@ static void dn_draw_bottom(void)
         t[0] = 'T'; t[1] = (char)('1' + dn.trk); t[2] = 0;
         cv_text(120, 125, &FONT_XS, t, dn.trk ? DN_C_LABEL : DN_C_DIMTXT);
     }
-    if (dn.dirty)
+    if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0) {   /* a word (NO MEMORY ...) over the right end */
+        int32_t mw = text_w(&FONT_T, dn.msg);
+        cv_rect(mw > 90 ? 100 : 226 - mw, 121, mw > 90 ? 140 : mw + 14, 23, DN_C_BAR);
+        cv_text(232 - mw, 127, &FONT_T, dn.msg, DN_C_RED);
+    } else if (dn.dirty)
         cv_text(232 - text_w(&FONT_XS, "SAVE?"), 125, &FONT_XS, "SAVE?", DN_C_BLUE);
     else
         cv_text(232 - text_w(&FONT_XS, "SAVED"), 125, &FONT_XS, "SAVED", DN_C_DIMTXT);
@@ -3610,10 +4158,12 @@ void dn_app_draw(int force)
     if (dn.redraw & DN_RD_BOTTOM)
         dn_draw_bottom();
     dn.redraw = 0;
-    lit |= 1u << (DN_IS_SEQPG(dn.page) ? B_SEQ : DN_IS_BRKPG(dn.page) ? B_ARP : dn.page == DN_PG_SET || dn.page == DN_PG_MIDI ? B_GLO
+    lit |= 1u << (DN_IS_SEQPG(dn.page) ? B_SEQ : DN_IS_BRKPG(dn.page) ? B_ARP : DN_IS_GLOPG(dn.page) ? B_GLO
                   : dn.page == DN_PG_LFO ? B_LFO : DN_PAGE_BTN[dn.page]);
-    if (dn.page == DN_PG_LFO && dn.lfo_view)
+    if ((dn.page == DN_PG_LFO && dn.lfo_view) || (dn.page == DN_PG_FX && dn.fx_view))
         lit |= 1u << B_FX;
+    if (dn.page == DN_PG_PROJ && dn.peng != 0xFFu && (plat_ms() / 250u) % 2u)
+        lit |= 1u << B_FX;                          /* (an instrument chosen: FX blinks to put it in) */
     if (dn.page == DN_PG_ROLL && dn.roll_keys)
         lit |= 1u << B_FX;
     if (dn.dirty)
