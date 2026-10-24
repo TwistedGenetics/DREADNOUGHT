@@ -3,8 +3,8 @@
 # Releases: the version is in the VERSION file (X.Y; the FM-1 package identity is FM-1_9XXYY00, X0X's scheme).
 # A push to main publishes the Release vX.Y with DREADNOUGHT-X.Y.fwsc if it doesn't exist yet; once it does, later
 # pushes leave it alone (work in progress never replaces a published file: bump VERSION for the next one). Running
-# this workflow on a vX.Y tag (or pushing one) rebuilds that Release's files from the tag. The flasher site is then
-# redeployed.
+# this workflow on a vX.Y tag (or pushing one) rebuilds that Release's files from the tag; so does pushing a branch
+# rebuild-vX.Y made of that release's commit plus this workflow file. The flasher site is then redeployed.
 #
 # From 0.3: DREADNOUGHT's own app and engines on X0X's platform (the x0x-firmware submodule, pinned), built the way
 # Carnac OS builds (tools/build_fm1.py). See docs/UPSTREAM.md.
@@ -12,7 +12,7 @@ name: build
 
 on:
   push:
-    branches: [main, x0x-platform]
+    branches: [main, x0x-platform, "rebuild-v*"]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -54,6 +54,7 @@ jobs:
         run: |
           v=$(tr -d ' \n' < VERSION)
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          case "${GITHUB_REF_NAME}" in rebuild-v*) [ "${GITHUB_REF_NAME}" = "rebuild-v$v" ] || { echo "::error title=Version::branch ${GITHUB_REF_NAME}, but VERSION says $v"; exit 1; } ;; esac
           if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${GITHUB_REF_NAME}" != "v$v" ]; then
             echo "::error title=Version::tag ${GITHUB_REF_NAME}, but VERSION says $v"; exit 1
           fi
@@ -109,7 +110,8 @@ jobs:
   release:
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
-      (github.ref == 'refs/heads/main' && github.event_name == 'push')
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      startsWith(github.ref, 'refs/heads/rebuild-v')
     needs: [firmware, web]
     runs-on: ubuntu-latest
     permissions:
@@ -127,12 +129,12 @@ jobs:
           v=$(tr -d ' \n' < VERSION)
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "tag=v$v" >> "$GITHUB_OUTPUT"
-      - name: Already published? (from main: never rebuilt from later code)
+      - name: "Already published? From main a release is never rebuilt from later code"
         id: have
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${GITHUB_REF_TYPE}" != tag ] && gh api "repos/$GITHUB_REPOSITORY/releases/tags/${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
+          if [ "${GITHUB_REF_NAME}" = main ] && gh api "repos/$GITHUB_REPOSITORY/releases/tags/${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
             echo "skip=1" >> "$GITHUB_OUTPUT"
             echo "::notice title=Release::${{ steps.ver.outputs.tag }} is published already: left as it is"
           fi
