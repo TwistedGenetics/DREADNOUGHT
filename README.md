@@ -4,23 +4,31 @@ A dark jungle / drum & bass firmware for the **M-VAVE FM-1**: Reese and dread ba
 wavetables (with Serum import), a Rex-style break chopper, pads, tech stabs and a heavy FX section,
 sequenced from the box, with a Massive-style interface.
 
-**Status: 0.6 — the mop-up: long notes, piano roll, slicing, choke, stretch.** DREADNOUGHT's own app, screen and engines on [X0X](https://github.com/charlesvestal/fm1-x0x)'s
+**Status: 0.7 — the web editor.** DREADNOUGHT's own app, screen and engines on [X0X](https://github.com/charlesvestal/fm1-x0x)'s
 proven FM-1 platform (boot-loop guard, safe mode, USB, storage, updates). First engine: **REESE**, measured against
 the maths (see [docs/REESE.md](docs/REESE.md)), an 8-track step sequencer, and BREAKS, a Rex-style break chopper: track 1 plays
 REESE, tracks 2 and 3 chop breaks (two built in, or your own from the [breaks page](https://twistedgenetics.github.io/DREADNOUGHT/breaks/)),
 tracks 4–8 play other gear over MIDI until their engines arrive. Every push builds a `.fwsc` in GitHub Actions and publishes it as a
 download (below).
 
+## Web editor
+
+[**twistedgenetics.github.io/DREADNOUGHT/editor**](https://twistedgenetics.github.io/DREADNOUGHT/editor/) (Chrome or
+Edge, FM-1 on USB with DREADNOUGHT 0.7 or later): all 8 tracks in a mouse-driven piano roll and slice grid, the REESE
+and BREAKS controls, play / stop, tempo, save; back up everything to a file and restore it; keep as many REESE sounds
+as you like in the browser or as files. It follows the box live: turn a knob on the FM-1 and the page moves too.
+**Demo** tries it with a simulated FM-1.
+
 ## Download & install
 
-Go to [**Releases**](https://github.com/TwistedGenetics/DREADNOUGHT/releases/latest) and download `DREADNOUGHT-0.6.fwsc`
+Go to [**Releases**](https://github.com/TwistedGenetics/DREADNOUGHT/releases/latest) and download `DREADNOUGHT-0.7.fwsc`
 (the newest version's file). It's a beta that hasn't been played on a real FM-1 yet: read
 [docs/RECOVERY.md](docs/RECOVERY.md) first and back up your FM-1.
 
 - **Web flasher:** open [twistedgenetics.github.io/DREADNOUGHT/flasher](https://twistedgenetics.github.io/DREADNOUGHT/flasher/)
   in Chrome or Edge with the FM-1 on USB, back up, then pick the newest release from the list or choose the
   `.fwsc` file you downloaded, and press Install.
-- **Command line:** X0X's installer, `python3 x0x-firmware/tools/fm1_install.py DREADNOUGHT-0.6.fwsc` (needs `pip install mido python-rtmidi`).
+- **Command line:** X0X's installer, `python3 x0x-firmware/tools/fm1_install.py DREADNOUGHT-0.7.fwsc` (needs `pip install mido python-rtmidi`).
 
 The FM-1 restarts on the DREADNOUGHT screen. Press **PLAY** to hear the demo reese line.
 
@@ -67,14 +75,15 @@ each run attaches the `.fwsc` package as an artifact. To build on Linux x86-64 y
 ```
 git submodule update --init                     # X0X's platform, pinned
 tools/get_deps.sh                               # JieLi toolchain + 3 AC79 SDK files, hash-checked
-python3 tools/build_fm1.py --release 0.6        # build/fm1/DREADNOUGHT-0.6.fwsc (preflight included)
+python3 tools/build_fm1.py --release 0.7        # build/fm1/DREADNOUGHT-0.7.fwsc (preflight included)
 ```
 
 ## Tests
 
 ```
 sh tests/run_host.sh                             # engines measured, the whole app driven from the panel: no toolchain
-node --test 'web/flasher/test/*.test.mjs'       # flasher checks
+node --test 'web/flasher/test/*.test.mjs' 'web/editor/test/*.test.mjs'   # flasher and editor checks
+python3 tools/make_site.py none site && python3 web/editor/test/e2e_demo.py site   # the editor in Chromium (playwright)
 ```
 
 `tests/run_host.sh` leaves screenshots (`build/host/ui-*.png`) and recordings (`build/host/*.wav`) to look at and

@@ -101,7 +101,7 @@ jobs:
         with:
           node-version: "22"
       - name: Flasher tests
-        run: node --test 'web/flasher/test/*.test.mjs'
+        run: node --test 'web/flasher/test/*.test.mjs' 'web/editor/test/*.test.mjs'
 
   release:
     if: >-

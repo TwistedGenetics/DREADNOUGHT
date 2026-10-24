@@ -29,4 +29,5 @@ $CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/rees
 for s in tests/host/scenarios/*.txt; do
     build/host/dn_host "$s" build/host
 done
+node tests/host/editor_golden.mjs build/host/editor-golden.json
 echo "host tests: all ok"

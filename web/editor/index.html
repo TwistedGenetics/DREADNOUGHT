@@ -1,0 +1,90 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     DREADNOUGHT web editor: the sound, the breaks and all 8 tracks of the pattern on a computer screen, live with the
+     FM-1 over USB (Chrome or Edge, Web MIDI). Copyright (C) 2026 Jamie (TwistedGenetics). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DREADNOUGHT editor</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">DREADNOUGHT <small>editor</small></div>
+  <div class="conn">
+    <button id="connect">Connect FM-1</button>
+    <button id="demo" class="quiet" title="Try the editor with a simulated FM-1">Demo</button>
+    <span id="status">Not connected</span>
+  </div>
+  <div class="transport">
+    <button id="play" class="round" disabled aria-label="Play">▶</button>
+    <label class="bpm">BPM <input id="bpm" type="number" min="60" max="200" disabled></label>
+    <button id="save" disabled title="Keep the sound, the pattern and the slices on the FM-1 (as SAVE does)">Save on FM-1</button>
+  </div>
+  <nav class="links"><a href="../flasher/">Flasher</a><a href="../breaks/">Your breaks</a></nav>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="pattern" aria-selected="true">Pattern</button>
+  <button role="tab" data-tab="sound">REESE</button>
+  <button role="tab" data-tab="breaks">Breaks</button>
+  <button role="tab" data-tab="files">Files</button>
+</nav>
+
+<main>
+  <section id="pattern" class="tab on">
+    <aside id="tracks"></aside>
+    <div class="ed">
+      <div class="tool">
+        <strong id="trkname">Track 1</strong>
+        <label>Length <input id="trklen" type="number" min="1" max="64" value="16"></label>
+        <label>Swing <input id="swing" type="range" min="50" max="75" value="50"><span id="swingv">50</span></label>
+        <label>New notes <select id="newlen">
+          <option value="1">¼ step</option><option value="2">½ step</option><option value="3">¾ step</option>
+          <option value="4" selected>1 step</option><option value="8">2 steps</option><option value="16">4 steps</option>
+          <option value="32">8 steps</option></select></label>
+        <span class="sp"></span>
+        <button id="up" class="quiet small" title="Higher notes">▲</button><button id="down" class="quiet small" title="Lower notes">▼</button>
+      </div>
+      <div class="cv"><canvas id="roll"></canvas></div>
+      <div class="lane"><span class="lab">VELOCITY</span><canvas id="vel"></canvas></div>
+      <p class="hint" id="hint">Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent.
+        Double-click: slide. Right-click or Alt-click: delete.</p>
+    </div>
+  </section>
+
+  <section id="sound" class="tab">
+    <div class="row"><label>Factory sound <select id="preset"></select></label>
+      <span class="small">Loading a factory sound replaces the REESE settings below.</span></div>
+    <div id="reese" class="groups"></div>
+  </section>
+
+  <section id="breaks" class="tab">
+    <div class="cols"><div id="brkA" class="groups one"></div><div id="brkB" class="groups one"></div></div>
+    <p class="small">Your own loops: <a href="../breaks/">the breaks page</a> uploads them and edits their slices.</p>
+  </section>
+
+  <section id="files" class="tab">
+    <div class="card">
+      <h2>Back up and restore</h2>
+      <p class="small">Everything the editor sees — the REESE sound, the breaks' settings, the tempo and all 8 tracks — as
+        one file on your computer. Restoring sends it to the FM-1 (press Save on FM-1 to keep it there).</p>
+      <div class="row"><button id="backup">Back up to a file</button><button id="restore" class="quiet">Restore from a file…</button></div>
+    </div>
+    <div class="card">
+      <h2>Your REESE sounds</h2>
+      <p class="small">Keep as many sounds as you like here (in this browser), or as files to share.</p>
+      <div class="row"><input id="sndname" type="text" placeholder="Name this sound" maxlength="24">
+        <button id="keep">Keep</button><button id="export" class="quiet">Save as file</button>
+        <button id="import" class="quiet">Load a file…</button></div>
+      <ul id="library"></ul>
+    </div>
+    <input type="file" id="file" accept=".json,application/json" hidden>
+  </section>
+</main>
+
+<footer>Free software, GPL-3.0. Not affiliated with M-VAVE. <a href="https://github.com/TwistedGenetics/DREADNOUGHT">Source</a></footer>
+<script type="module" src="app.js"></script>
+</body>
+</html>

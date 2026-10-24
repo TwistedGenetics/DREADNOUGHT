@@ -127,3 +127,18 @@ From `docs/prompts/PROMPT-0.6.md`.
 
 Not yet tested on a real FM-1.
 
+## 0.7 — the web editor (2026-10-24)
+
+- **Web editor** at `/editor` on the site (Chrome or Edge, over USB): every track in a piano roll (REESE and the MIDI
+  tracks) or a slice grid (BREAKS A / B): click to add, drag to move, drag the end to lengthen, shift-click accent,
+  double-click slide (breaks: reverse), right-click delete, a velocity lane; track length, mutes, swing. The REESE
+  sound (factory sounds and every control), both BREAKS (loop, pitch, decay, crush, choke, slices, stretch, level),
+  tempo, play / stop, save on the FM-1. Back up and restore everything as a file; a library of REESE sounds in the
+  browser and as files. It follows the box live (a change on the FM-1 shows on the page). A Demo mode with a
+  simulated FM-1.
+- Firmware: the editor's commands (60–69: state, parameters, pattern read / write / commit, transport, save, factory
+  sounds, names), tested on the host; the page's decoders checked against the firmware's own replies; the page tested
+  end to end in Chromium against the simulated FM-1.
+
+Not yet tested on a real FM-1.
+
