@@ -19,6 +19,7 @@
 #define DN_BRK_RBUF 4096u                           /* a reversed slice, samples (~186 ms of a 22 kHz loop) */
 #define DN_BRK_PEAKS 232u                           /* the screen's picture of the loop: one peak per column */
 #define DN_BRK_MAXSL 64u                            /* slices a loop at most */
+#define DN_BRK_GRAIN 1024u                          /* STRETCH: a grain, output samples (~23 ms), two overlapping */
 
 typedef struct {
     const uint8_t *adpcm;
@@ -48,7 +49,9 @@ typedef struct {
     uint8_t choke;                                  /* 0 off, 1..4: a hit cuts the other voices in its group (the app) */
     uint8_t smode;                                  /* slices: 0 GRID (16 a bar), 1 AUTO (the loop's hits), 2 MANUAL */
     uint8_t stretch;                                /* 0 REPITCH, 1 SLICE (Rex), 2 STRETCH (granular) */
-    uint32_t inc;                                   /* loop samples a sample, Q16 (dn_brk_tempo) */
+    uint32_t inc;                                   /* loop samples a sample, Q16 (dn_brk_tempo): REPITCH, SLICE */
+    uint32_t tinc;                                  /* STRETCH: the time moving on (the tempo's rate), Q16 */
+    uint32_t pinc;                                  /* STRETCH: the grains' own speed (the pitch's rate), Q16 */
     /* the voice */
     uint8_t on, rev, rel, fast;                     /* fast: the release is a quick fade (the transport stopped) */
     uint8_t slice;                                  /* the slice playing (the screen's playhead) */
@@ -62,6 +65,11 @@ typedef struct {
     uint32_t hold_n;
     int32_t held;
     uint32_t played;                                /* samples of the loop played since the trigger (the playhead) */
+    uint32_t endp;                                  /* SLICE: where the slice ends (forward) */
+    uint32_t blen;                                  /* the slice in rbuf: samples (reverse, STRETCH) */
+    int32_t tpos;                                   /* STRETCH: where the time is in rbuf, Q16 */
+    int32_t tdir;                                   /* STRETCH: +1 forward, -1 reversed */
+    uint32_t gpos[2], gage[2];                      /* STRETCH: each grain's read place (Q16) and age (samples) */
     int16_t rbuf[DN_BRK_RBUF];
 } dn_brk_t;
 

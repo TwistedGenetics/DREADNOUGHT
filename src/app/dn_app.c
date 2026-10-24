@@ -537,8 +537,10 @@ static void dn_set(uint32_t id, int32_t v)
         dn_bk[k].smode = (uint8_t)v;
         dn_brk_slices_apply(&dn_bk[k]);             /* (inside the lock) */
     }
-    else if (id == DN_PX_BSTRETCH)
+    else if (id == DN_PX_BSTRETCH) {
         dn_bk[k].stretch = (uint8_t)v;
+        dn_brk_tempo(&dn_bk[k], dn_sq.bpm);         /* (the speeds differ by mode) */
+    }
     else if (id == DN_PX_BLEVEL)
         dn_bk[k].level = (uint8_t)v;
     else if (id == DN_PX_BPM)
@@ -1883,8 +1885,15 @@ static void dn_draw_bottom(void)
     cv_text(8, 125, &FONT_XS, t, DN_C_LABEL);
     if (dn.play)
         cv_text(70, 125, &FONT_XS, "HOLD", DN_C_BLUE);
-    t[0] = 'T'; t[1] = (char)('1' + dn.trk); t[2] = 0;
-    cv_text(120, 125, &FONT_XS, t, dn.trk ? DN_C_LABEL : DN_C_DIMTXT);
+    if (dn.page == DN_PG_BRK2) {                    /* BRK2: the audio's load now (STRETCH costs more) */
+        char c[12] = "CPU ";
+        dn_num(c + 4, (int32_t)plat_cpu_pct());
+        dn_cat(c, "%");
+        cv_text(104, 125, &FONT_XS, c, DN_C_LABEL);
+    } else {
+        t[0] = 'T'; t[1] = (char)('1' + dn.trk); t[2] = 0;
+        cv_text(120, 125, &FONT_XS, t, dn.trk ? DN_C_LABEL : DN_C_DIMTXT);
+    }
     if (dn.dirty)
         cv_text(232 - text_w(&FONT_XS, "SAVE?"), 125, &FONT_XS, "SAVE?", DN_C_BLUE);
     else

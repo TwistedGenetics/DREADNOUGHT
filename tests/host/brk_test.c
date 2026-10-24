@@ -5,6 +5,7 @@
  * Writes OUT/breaks-chop.wav: the built-in ROLLER chopped into a jungle pattern at 172 BPM, to listen to.
  * Copyright (C) 2026 Jamie (TwistedGenetics). */
 #include <math.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +44,46 @@ static void decode_all(const uint8_t *d, uint32_t n)   /* a reference decoder, w
         idx = idx < 0 ? 0 : idx > 88 ? 88 : idx;
         ref[i] = (int16_t)pred;
     }
+}
+
+/* IMA ADPCM, low nibble first, from predictor 0 / index 0 (X0X's sampleio.ima_encode) */
+static void ima_encode(const int16_t *x, uint32_t n, uint8_t *out)
+{
+    static const int st[89] = {7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60,
+        66, 73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544,
+        598, 658, 724, 796, 876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327,
+        3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818,
+        18500, 20350, 22385, 24623, 27086, 29794, 32767};
+    static const int ix[8] = {-1, -1, -1, -1, 2, 4, 6, 8};
+    int pred = 0, idx = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        int s = st[idx], d = x[i] - pred, code = d < 0 ? 8 : 0, diff = s >> 3;
+        d = abs(d);
+        if (d >= s) code |= 4, d -= s, diff += s;
+        if (d >= s >> 1) code |= 2, d -= s >> 1, diff += s >> 1;
+        if (d >= s >> 2) code |= 1, diff += s >> 2;
+        pred += (code & 8) ? -diff : diff;
+        pred = pred < -32768 ? -32768 : pred > 32767 ? 32767 : pred;
+        idx += ix[code & 7];
+        idx = idx < 0 ? 0 : idx > 88 ? 88 : idx;
+        if (i & 1) out[i >> 1] |= (uint8_t)(code << 4);
+        else out[i >> 1] = (uint8_t)code;
+    }
+}
+
+/* the frequency from the rising zero crossings of the left channel between frames a and b */
+static double zc_freq(const int32_t *x, uint32_t a, uint32_t b)
+{
+    double first = -1, last = -1;
+    int cnt = 0;
+    for (uint32_t i = a + 1; i < b; i++)
+        if (x[2 * i - 2] < 0 && x[2 * i] >= 0) {
+            double t = i - 1 + (double)-x[2 * i - 2] / (x[2 * i] - x[2 * i - 2]);
+            if (first < 0) first = t;
+            last = t;
+            cnt++;
+        }
+    return cnt > 1 ? (cnt - 1) * 44100.0 / (last - first) : 0;
 }
 
 static double corr(const double *x, const double *y, int n)
@@ -232,6 +273,99 @@ int main(int argc, char **argv)
         B.smode = 0;
         dn_brk_slices_apply(&B);
         check("GRID: 16 a bar again", B.nslices == 32u && B.start[1] == M.n / 32u, B.nslices, 32);
+    }
+    /* ---- STRETCH modes (0.6): a test loop of sustained 330 Hz notes, one a sixteenth, 2 bars at 136 BPM ---- */
+    {
+        static uint8_t tl[60000];
+        static int16_t pcm[120000];
+        uint32_t tn = 77824, step = tn / 32, i2;
+        double ph = 0;
+        for (i2 = 0; i2 < tn; i2++) {                /* each note: a 2 ms attack, then steady */
+            uint32_t at = i2 % step;
+            double a = at < 44 ? at / 44.0 : 1.0;
+            ph += 2 * 3.14159265358979 * 330.0 / 22050.0;
+            pcm[i2] = (int16_t)(16000 * a * sin(ph));
+        }
+        ima_encode(pcm, tn, tl);
+        dn_loop_t T = {tl, tn, 22050, 2, "TONE"};
+        double f[3][2];
+        int32_t step_max[3] = {0, 0, 0};
+        uint32_t last_loud[3] = {0, 0, 0};
+        for (int mode = 0; mode < 3; mode++)
+            for (int ti = 0; ti < 2; ti++) {
+                uint32_t bpm = ti ? 172 : 136, j;
+                dn_brk_init(&B);
+                dn_brk_load(&B, &T);
+                B.stretch = (uint8_t)mode;
+                dn_brk_tempo(&B, bpm);
+                dn_brk_trigger(&B, 3, 127, 0);
+                render(8000);
+                f[mode][ti] = zc_freq(out, 300, 2500);
+                if (ti) {
+                    for (j = 400; j < 2400; j++) {
+                        int32_t d = abs(out[2 * j] - out[2 * j - 2]);
+                        step_max[mode] = d > step_max[mode] ? d : step_max[mode];
+                    }
+                    for (j = 0; j < 8000; j++)
+                        if (abs(out[2 * j]) > 2000)
+                            last_loud[mode] = j;
+                }
+            }
+        printf("     pitch at 136 / 172 BPM: REPITCH %.1f / %.1f Hz, SLICE %.1f / %.1f, STRETCH %.1f / %.1f\n",
+               f[0][0], f[0][1], f[1][0], f[1][1], f[2][0], f[2][1]);
+        check("REPITCH: the pitch follows the tempo (172 / 136)", fabs(f[0][1] / f[0][0] - 172.0 / 136) < 0.01,
+              f[0][1] / f[0][0], 172.0 / 136);
+        for (int mode = 1; mode < 3; mode++)
+            for (int ti = 0; ti < 2; ti++)
+                check(mode == 1 ? "SLICE keeps the pitch (Hz, within 10 cents)" : "STRETCH keeps the pitch (Hz, within 10 cents)",
+                      fabs(1200 * log2(f[mode][ti] / 330.0)) < 10, f[mode][ti], 330);
+        {
+            double want = 44100.0 * 15 / 172;       /* STRETCH: a slice lasts one sixteenth at the new tempo */
+            check("STRETCH: the slice lasts a sixteenth at 172 (samples, within 3 %)",
+                  fabs(last_loud[2] - want) < 0.03 * want + 400, last_loud[2], want);
+            check("SLICE: the slice keeps its own length (samples)",
+                  fabs(last_loud[1] - 2.0 * step) < 0.03 * 2 * step + 400, last_loud[1], 2.0 * step);
+        }
+        check("STRETCH: no clicks at the grain joins (largest step vs plain playback)",
+              step_max[2] <= step_max[1] * 13 / 10 + 50, step_max[2], step_max[1]);
+    }
+    /* transients: a kick's attack through STRETCH as strong as through REPITCH (the first 5 ms) */
+    {
+        dn_loop_t R = {DN_BRK_BUILTIN_LOOPS[0].adpcm, DN_BRK_BUILTIN_LOOPS[0].n, DN_BRK_BUILTIN_LOOPS[0].rate, 2, ""};
+        int32_t pk[2] = {0, 0};
+        for (int mode = 0; mode < 2; mode++) {
+            dn_brk_init(&B);
+            dn_brk_load(&B, &R);
+            B.stretch = mode ? 2 : 0;
+            dn_brk_tempo(&B, 172);
+            dn_brk_trigger(&B, 0, 127, 0);
+            render(400);
+            for (uint32_t j = 0; j < 220; j++)
+                pk[mode] = abs(out[2 * j]) > pk[mode] ? abs(out[2 * j]) : pk[mode];
+        }
+        check("STRETCH keeps the kick's attack (peak in 5 ms vs REPITCH)", pk[1] * 10 >= pk[0] * 8, pk[1], pk[0]);
+    }
+    /* the cost on this machine, a voice a second of audio (the FM-1's own figure: the CPU % on the BRK2 page) */
+    {
+        double t[3];
+        dn_loop_t R = {DN_BRK_BUILTIN_LOOPS[0].adpcm, DN_BRK_BUILTIN_LOOPS[0].n, DN_BRK_BUILTIN_LOOPS[0].rate, 2, ""};
+        for (int mode = 0; mode < 3; mode++) {
+            clock_t c0;
+            dn_brk_init(&B);
+            dn_brk_load(&B, &R);
+            B.stretch = (uint8_t)mode;
+            dn_brk_tempo(&B, 172);
+            c0 = clock();
+            for (int rep = 0; rep < 20; rep++)
+                for (uint32_t s2 = 0; s2 < 11; s2++) {
+                    dn_brk_trigger(&B, s2, 127, 0);
+                    render(3846);
+                }
+            t[mode] = (double)(clock() - c0) / CLOCKS_PER_SEC / 20;
+        }
+        printf("     cost a voice, a second of audio here: REPITCH %.2f ms, SLICE %.2f ms, STRETCH %.2f ms\n",
+               t[0] * 1000, t[1] * 1000, t[2] * 1000);
+        check("STRETCH costs under 4x REPITCH", t[2] < 4 * t[0] + 0.0005, t[2] / (t[0] + 1e-9), 4);
     }
     printf(fails ? "BREAKS: %d FAILED\n" : "BREAKS: slices, reverse, sync, release, cuts, crush all ok\n", fails);
     return fails ? 1 : 0;

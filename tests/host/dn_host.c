@@ -94,6 +94,7 @@ int plat_store_save(uint32_t obj, const void *src, uint32_t len)
     store_len[obj] = (int)len;
     return 0;
 }
+uint32_t plat_cpu_pct(void) { return 0; }         /* (the simulator does not measure the FM-1's load) */
 int plat_slot_zones(int k) { (void)k; return 0; }   /* the simulator: no uploaded loops (the built-in ones play) */
 const uint8_t *plat_slot(int k, int z, uint32_t *n, uint32_t *rate, char name[9])
 {

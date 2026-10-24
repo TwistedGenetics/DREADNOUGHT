@@ -308,7 +308,14 @@ void dn_brk_tempo(dn_brk_t *b, uint32_t bpm)
     if (!b->loop.n || !b->loop.bars)
         return;
     f = (float)bpm * (float)b->loop.n / ((float)b->loop.bars * 10584000.0f);   /* 240 s x 44100 a bar */
-    b->inc = (uint32_t)(f * (float)DN_SEMI_Q16[dn_clamp(b->pitch, -24, 24) + 24]);
+    {
+        float semi = (float)DN_SEMI_Q16[dn_clamp(b->pitch, -24, 24) + 24];
+        float own = (float)(b->loop.rate ? b->loop.rate : 22050u) / 44100.0f;      /* the loop's own speed */
+        b->tinc = (uint32_t)(f * 65536.0f);         /* STRETCH: time at the tempo; grains at the pitch */
+        b->pinc = (uint32_t)(own * semi);
+        b->inc = b->stretch == 1u ? b->pinc          /* SLICE: each slice at its own speed (+ PITCH), placed in time */
+                                  : (uint32_t)(f * semi);   /* REPITCH: the speed follows the tempo, pitch and all */
+    }
 }
 
 /* the decoder at sample `at` (from the state saved before it) */
@@ -345,13 +352,23 @@ void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse)
     b->played = 0;
     b->hold_n = 0;
     seek(b, start);
-    if (b->rev) {                                   /* the slice into RAM, then played backwards */
+    b->endp = b->start[slice + 1u];
+    if (b->rev || b->stretch == 2u) {               /* the slice into RAM: played backwards, or by grains */
         uint32_t len = b->start[slice + 1u] - start, i;
         if (len > DN_BRK_RBUF)
             len = DN_BRK_RBUF;
         for (i = 0; i < len; i++)
             b->rbuf[i] = (int16_t)next(b);
+        b->blen = len;
         b->rpos = (int32_t)((len - 1u) << 16);
+        if (b->stretch == 2u) {                     /* two grains: the first already at its window's top, so the
+                                                     * slice's attack plays whole; the second rising from nothing */
+            b->tdir = b->rev ? -1 : 1;
+            b->tpos = b->rev ? (int32_t)((len - 1u) << 16) : 0;
+            b->gpos[0] = b->gpos[1] = (uint32_t)b->tpos;
+            b->gage[0] = DN_BRK_GRAIN / 2u;
+            b->gage[1] = 0;
+        }
     } else {
         b->a = next(b);
         b->b = next(b);
@@ -380,17 +397,75 @@ void dn_brk_release(dn_brk_t *b)
         b->rel = 1;
 }
 
+/* rbuf at a Q16 place (0 outside it) */
+static inline int32_t rb_at(const dn_brk_t *b, uint32_t q)
+{
+    uint32_t j = q >> 16;
+    int32_t s0, s1;
+    if (j + 1u >= b->blen)
+        return j < b->blen ? b->rbuf[j] : 0;
+    s0 = b->rbuf[j];
+    s1 = b->rbuf[j + 1u];
+    return s0 + (((s1 - s0) * (int32_t)((q & 0xFFFFu) >> 1)) >> 15);
+}
+
+/* STRETCH: where a new grain starts. Near the time's place, the offset (+-96 samples, steps of 8) whose next 32
+ * samples best match what the other grain plays next (WSOLA): the grains join in phase, drums don't flam or phase */
+static uint32_t grain_start(const dn_brk_t *b, uint32_t other)
+{
+    int32_t base = b->tpos >> 16, o, best_o = 0, oth = (int32_t)(other >> 16), j, best = INT32_MIN;
+    for (o = -96; o <= 96; o += 8) {
+        int32_t c = base + o, acc = 0;              /* (16 products of 14-bit values: fits 32 bits) */
+        if (c < 0 || c + 32 >= (int32_t)b->blen || oth + 32 >= (int32_t)b->blen)
+            continue;
+        for (j = 0; j < 32; j += 2)
+            acc += (b->rbuf[c + j] >> 2) * (b->rbuf[oth + j] >> 2);
+        if (acc > best)
+            best = acc, best_o = o;
+    }
+    base += best_o;
+    return (uint32_t)(base < 0 ? 0 : base) << 16;
+}
+
+/* STRETCH: one output sample from the two grains (Hann windows half a grain apart: they add up to one) */
+static inline int32_t stretch_tick(dn_brk_t *b)
+{
+    int32_t v = 0;
+    uint32_t g;
+    for (g = 0; g < 2u; g++) {
+        int32_t w = dn_sine(b->gage[g] << 21);      /* sin(pi age / GRAIN): the age in 2^10 -> half a cycle */
+        w = (w * w) >> 15;                          /* sin^2: the Hann window */
+        v += (rb_at(b, b->gpos[g]) * w) >> 15;
+        b->gpos[g] += b->pinc;
+        if (++b->gage[g] >= DN_BRK_GRAIN) {         /* this grain is done: a new one where the time is now */
+            b->gage[g] = 0;
+            b->gpos[g] = grain_start(b, b->gpos[g ^ 1u]);
+        }
+    }
+    b->tpos += b->tdir * (int32_t)b->tinc;
+    if (b->tpos < 0 || (uint32_t)(b->tpos >> 16) >= b->blen) {   /* the slice's time is used up: fade */
+        b->tpos = b->tpos < 0 ? 0 : (int32_t)((b->blen - 1u) << 16);
+        if (!b->rel)
+            b->rel = b->fast = 1;
+    }
+    return v;
+}
+
 void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
 {
-    uint32_t i, k = DN_ENV_K[b->fast ? 30 : dn_clamp(b->decay, 0, 126)] >> 5;   /* per sample (the table: per 32) */
+    uint32_t i, k;
     uint32_t hold = 1u + b->crush / 9u, shift = b->crush / 11u;
     if (!b->ok)
         return;
     for (i = 0; i < n; i++) {
         int32_t v = 0, o;
         uint8_t was = b->on;
+        k = DN_ENV_K[b->fast ? 30 : dn_clamp(b->decay, 0, 126)] >> 5;   /* per sample (the table: per 32) */
         if (b->on) {
-            if (b->rev) {
+            if (b->stretch == 2u) {
+                v = stretch_tick(b);
+                b->played += b->tinc >> 8;
+            } else if (b->rev) {
                 int32_t j = b->rpos >> 16;
                 int32_t s0 = b->rbuf[j], s1 = j + 1 < (int32_t)DN_BRK_RBUF ? b->rbuf[j + 1] : s0;   /* at j + frac */
                 v = s0 + (((s1 - s0) * ((b->rpos & 0xFFFF) >> 1)) >> 15);
@@ -407,8 +482,11 @@ void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
                 }
                 if (b->p >= b->loop.n + 2u)
                     b->on = 0;                      /* the end of the loop */
+                if (b->stretch == 1u && b->p >= b->endp && !b->rel)
+                    b->rel = b->fast = 1;           /* SLICE: the slice ends (a slower tempo leaves a gap): fade */
             }
-            b->played += b->inc >> 8;               /* (Q8: the screen's playhead) */
+            if (b->stretch != 2u)
+                b->played += b->inc >> 8;           /* (Q8: the screen's playhead) */
             if (b->crush) {                         /* sample rate down (hold), then bits down */
                 if (b->hold_n == 0u)
                     b->held = v;
