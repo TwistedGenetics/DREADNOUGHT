@@ -63,7 +63,14 @@ jobs:
         run: sh tests/run_host.sh
 
       - name: Build the firmware package (with the start-up preflight and the miscompile check)
-        run: python3 tools/build_fm1.py --release "${{ steps.ver.outputs.version }}"
+        run: |
+          set -o pipefail
+          if ! python3 tools/build_fm1.py --release "${{ steps.ver.outputs.version }}" 2>&1 | tee build.log; then
+            msg=$(grep -E "error|FAIL|Error" build.log | head -30; echo ---; tail -25 build.log)
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=firmware build::$msg"
+            exit 1
+          fi
 
       - name: Collect the package
         run: |
