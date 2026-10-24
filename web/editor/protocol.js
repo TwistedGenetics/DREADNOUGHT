@@ -71,7 +71,8 @@ export const brkIndex = (k, i) => REESE.length + 1 + 8 * k + i;   // BREAKS k (0
 export const HIDDEN = new Set(["LRATE", "LFLT"]);
 
 // ---- the LFOs (0.9): 8 values each after BREAKS B; the DRAW points and where they are by their own commands -----
-export const NLFO = 4, LFO_PTS = 32;
+export const NLFO = 4, LFO_PTS = 32;                // (a synth's: REESE's 4, then from 0.15 SUB's own 4)
+export const NLFO_ALL = 8;
 export const LFO_SHAPES = ["SINE", "TRI", "SAW UP", "SAW DN", "SQUARE", "S&H", "SMOOTH", "DRAW"];
 export const LFO_DIVS = ["8 BARS", "4 BARS", "2 BARS", "1 BAR", "1/2", "1/4D", "1/2T", "1/4", "1/8D", "1/4T", "1/8",
   "1/16D", "1/8T", "1/16", "1/16T", "1/32"];
@@ -89,7 +90,8 @@ export const lfoParams = () => [
   R("PHASE", 0, 127, "", (v) => `${Math.floor(v * 360 / 128)}°`), R("MODE", 0, 2, "", (v) => LFO_MODES[v]),
   R("SMOOTH", 0, 127, ""),
 ];
-export const lfoIndex = (k, i) => REESE.length + 1 + 16 + 8 * k + i;   // LFO k, its value i (lfoParams' order)
+// LFO k (0-3 REESE's, 4-7 SUB's, 0.15), its value i (lfoParams' order). SUB's come after SUB's values.
+export const lfoIndex = (k, i) => (k < NLFO ? REESE.length + 1 + 16 + 8 * k + i : REESE.length + 1 + 16 + NLFO * 8 + SUB.length + 8 * (k - NLFO) + i);
 export const NPARAM_08 = REESE.length + 1 + 16, NPARAM = NPARAM_08 + NLFO * 8;
 
 // ---- SUB (0.13): the SH-101-style bass, its values after the LFOs (src/dsp/dn_sub.h SP_*) -----------------------
@@ -109,6 +111,8 @@ export const SUB = [
 ];
 export const subIndex = (i) => NPARAM + i;
 export const NPARAM_13 = NPARAM + SUB.length;
+export const NPARAM_15 = NPARAM_13 + NLFO * 8;     // (0.15: SUB's LFOs)
+export const nLfos = (nparams) => (nparams >= NPARAM_15 ? NLFO_ALL : nparams >= NPARAM ? NLFO : 0);
 export function parseLfoPts(r) {
   const pts = [];
   for (let i = 0; i < LFO_PTS; i++) pts.push(num(r, 2 + 2 * i, 2) - 100);
@@ -117,7 +121,7 @@ export function parseLfoPts(r) {
 export const lfoPtsArgs = (l, npts, pts) => [l, npts, ...pts.flatMap((v) => digits(Math.max(-100, Math.min(100, Math.round(v))) + 100, 2))];
 export function parseLfoNow(r) {
   const out = [];
-  for (let k = 0; k < NLFO; k++) out.push({ phase: num(r, 4 * k, 2) / 16384, value: (num(r, 4 * k + 2, 2) - 8192) / 8191 });
+  for (let k = 0; k < Math.min(NLFO_ALL, r.length >> 2); k++) out.push({ phase: num(r, 4 * k, 2) / 16384, value: (num(r, 4 * k + 2, 2) - 8192) / 8191 });
   return out;
 }
 // the shape at a phase (0..1), as dn_lfo.c draws it (the page's picture of it)

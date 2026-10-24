@@ -496,8 +496,8 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "modpitch")) got = dn_rs.mod_pitch;
             else if (!strcmp(b, "bmpitch")) got = dn_bk[0].mpitch;
             else if (!strcmp(b, "lsel")) got = dn.lfo_sel + 1;
-            else if (!strcmp(b, "ldest")) got = dn_lp[dn.lfo_sel].dest;
-            else if (!strcmp(b, "lshape")) got = dn_lp[dn.lfo_sel].shape;
+            else if (!strcmp(b, "ldest")) got = dn_lp[DN_LSEL].dest;
+            else if (!strcmp(b, "lshape")) got = dn_lp[DN_LSEL].shape;
             else if (!strcmp(b, "cin")) got = dn.cin_left != 0;
             else if (!strcmp(b, "clk")) got = (long)dn.clk_count;
             else if (!strcmp(b, "pos")) got = dn_sq.playing ? (long)dn_sq.pos : -1;
@@ -553,7 +553,7 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "smodcut")) got = dn_sb.mod[SP_CUT] != 0;
             else if (!strcmp(b, "sbsync")) got = dn_sb.esync;
             else if (!strcmp(b, "rssync")) got = dn_rs.esync;
-            else if (!strcmp(b, "lph")) got = (long)(dn_ls[0].ph >> 24);   /* LFO 1's phase, 0..255 */
+            else if (!strcmp(b, "lph")) got = (long)(dn_ls[DN_LBASE].ph >> 24);   /* the track synth's LFO 1 phase, 0..255 */
             else if (!strcmp(b, "sbnote")) got = dn_sb.gate ? dn_sb.note : -1;
             else if (!strncmp(b, "s.", 2)) {
                 got = -9999;
@@ -561,6 +561,10 @@ int main(int argc, char **argv)
                     if (!strcmp(b + 2, dn_sub_param_name(k)))
                         got = dn_sb.p[k];
             }
+            else if (!strcmp(b, "rlfo1")) got = dn_lp[0].dest;                 /* REESE's LFO 1 DEST (0.15) */
+            else if (!strcmp(b, "slfo1")) got = dn_lp[DN_NLFO].dest;           /* SUB's LFO 1 DEST */
+            else if (!strcmp(b, "slfo1d")) got = dn_lp[DN_NLFO].depth;
+            else if (!strncmp(b, "used.", 5)) got = dn_user[b[5] - '0'][b[7] - '0'].used;   /* used.SET.SLOT */
             else if (!strcmp(b, "msg")) got = dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0;
             else if (!strncmp(b, "p.", 2)) {
                 got = -9999;

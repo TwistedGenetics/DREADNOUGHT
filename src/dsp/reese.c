@@ -128,6 +128,8 @@ static const reese_preset_t PRESETS[] = {
     RS_P("SUB REESE", RO_2SAW, 40, 0, 110, 56, 10, 20, 0, 0, 70, 124, 28, 0, 36, 0, 0, -24),
     /* a bright seven-saw spread a whole semitone wide and a long glide: the hoover side of the family */
     RS_P("HOOVER RS", RO_7SAW, 127, 0, 30, 96, 10, 60, 40, 0, 80, 110, 38, 0, 60, 0, 0, -12),
+    /* INIT: a plain starting point (two saws, open, no drive, no movement) */
+    RS_P("INIT", RO_2SAW, 40, 0, 60, 100, 0, 0, 0, 0, 64, 127, 20, 0, 0, 0, 0, -24),
 };
 #define NPRESETS (sizeof PRESETS / sizeof PRESETS[0])
 uint32_t reese_preset_count(void) { return NPRESETS; }

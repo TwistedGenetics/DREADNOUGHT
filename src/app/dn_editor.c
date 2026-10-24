@@ -20,7 +20,7 @@
  *   69 NAMES kind from         -> count from, names (0 after each)   kind 0 REESE presets, 1 the loops BREAKS can play
  *   70 LFO_PTS_GET l           -> l, npts, 32 points (2, +100)      an LFO's DRAW shape (0.9)
  *   71 LFO_PTS_SET l npts pts  -> rc (0 set)                         32 points (2 each, +100), -100..100
- *   72 LFO_NOW                 -> 4 x (phase (2): 14 bits, value (2): +8192, 14 bits)   where the LFOs are
+ *   72 LFO_NOW                 -> 8 x (phase (2): 14 bits, value (2): +8192, 14 bits)   where the LFOs are
  *   73 PATS                    -> per track: playing, queued (127 none), used (2: a bit a pattern); then notes (2), room (2)
  *   74 PAT_SEL t n             -> rc (0)                             track t to pattern n (stopped: now; playing: when
  *                                                                    its pattern ends) (0.11; 8 patterns a track)
@@ -48,7 +48,8 @@ static const uint8_t DN_ED_LFO[8] = {DN_PX_LSHAPE, DN_PX_LSYNC, DN_PX_LRATE, DN_
                                      DN_PX_LMODE, DN_PX_LSMOOTH};
 #define DN_ED_NBASE (RP_COUNT + 1u + 2u * 8u)       /* (0.7 / 0.8: these) */
 #define DN_ED_NPARAM_09 (DN_ED_NBASE + DN_NLFO * 8u)
-#define DN_ED_NPARAM (DN_ED_NPARAM_09 + SP_COUNT)    /* (0.13: SUB's after the LFOs) */
+#define DN_ED_NPARAM_13 (DN_ED_NPARAM_09 + SP_COUNT) /* (0.13: SUB's after the LFOs) */
+#define DN_ED_NPARAM (DN_ED_NPARAM_13 + DN_NLFO * 8u) /* (0.15: SUB's own LFOs; those before are REESE's) */
 /* the editor frames the device glue must take whole (not into its 64-byte copy) */
 static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 79u; }
 static dn_pattern_t dn_ed_pat X0X_POOL;             /* PAT_WRITE's copy, until PAT_COMMIT */
@@ -57,6 +58,11 @@ static dn_pattern_t dn_ed_pat X0X_POOL;             /* PAT_WRITE's copy, until P
 static uint32_t dn_ed_id(uint32_t i, int32_t *brk)
 {
     *brk = -1;
+    if (i >= DN_ED_NPARAM_13) {                     /* SUB's LFOs (brk: 20 + which) */
+        i -= DN_ED_NPARAM_13;
+        *brk = 20 + (int32_t)(i / 8u);
+        return DN_ED_LFO[i % 8u];
+    }
     if (i >= DN_ED_NPARAM_09)
         return DN_PX_SUB0 + (i - DN_ED_NPARAM_09);
     if (i >= DN_ED_NBASE) {                         /* an LFO's (brk: 10 + which LFO) */
@@ -78,11 +84,13 @@ static int32_t dn_ed_get(uint32_t i)
     uint32_t id = dn_ed_id(i, &brk);
     uint8_t ls = dn.lfo_sel;
     if (brk >= 10)
-        dn.lfo_sel = (uint8_t)(brk - 10);           /* (the LFO values read the selected LFO) */
+        dn.lfo_sel = (uint8_t)(brk % 10), dn.lfo_force = (uint8_t)(brk / 10);   /* (that synth's LFO, whatever
+                                                     * track is selected) */
     else if (brk >= 0)
         dn.bk_force = (uint8_t)(brk + 1);           /* (the BRK values read BREAKS A / B, whichever track it's on) */
     v = dn_get(id);
     dn.bk_force = 0;
+    dn.lfo_force = 0;
     dn.lfo_sel = ls;
     return v;
 }
@@ -95,11 +103,12 @@ static int dn_ed_set(uint32_t i, int32_t v)
         return 1;
     id = dn_ed_id(i, &brk);
     if (brk >= 10)
-        dn.lfo_sel = (uint8_t)(brk - 10);
+        dn.lfo_sel = (uint8_t)(brk % 10), dn.lfo_force = (uint8_t)(brk / 10);
     else if (brk >= 0)
         dn.bk_force = (uint8_t)(brk + 1);
     dn_set(id, v);
     dn.bk_force = 0;
+    dn.lfo_force = 0;
     dn.lfo_sel = ls;
     return 0;
 }
@@ -127,7 +136,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         put(dn.dirty);
         put(dn_bk[0].nslices);
         put(dn_bk[1].nslices);
-        put(reese_preset_count());
+        put(reese_preset_count() + DN_NUSER);    /* (0.15: the factory sounds, then USER 1-8) */
         put(dn_src_count());
         dn_ed_num(put, sizeof(dn_pattern_t), 2);
         put(DN_ED_NPARAM);
@@ -215,7 +224,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         return 1;
     case ED_LFO_PTS_GET: {
         const dn_lfo_p_t *l;
-        if (na < 1u || a[0] >= DN_NLFO)
+        if (na < 1u || a[0] >= DN_NLFO_ALL)
             return 0;
         l = &dn_lp[a[0]];
         put(a[0]);
@@ -226,7 +235,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
     }
     case ED_LFO_PTS_SET: {
         dn_lfo_p_t *l;
-        if (na < 2u + 2u * DN_LFO_PTS || a[0] >= DN_NLFO) {
+        if (na < 2u + 2u * DN_LFO_PTS || a[0] >= DN_NLFO_ALL) {
             put(1);
             return 1;
         }
@@ -258,7 +267,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         put(0);
         return 1;
     case ED_LFO_NOW:
-        for (i = 0; i < DN_NLFO; i++) {
+        for (i = 0; i < DN_NLFO_ALL; i++) {         /* (0.15: REESE's 4, then SUB's 4) */
             dn_ed_num(put, dn_ls[i].ph >> 18, 2);
             dn_ed_num(put, (uint32_t)((dn_ls[i].out >> 2) + 8192), 2);
         }
@@ -318,7 +327,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         return 1;
     }
     case ED_SUB_PRESET:
-        if (na < 1u || a[0] >= dn_sub_preset_count())
+        if (na < 1u || a[0] >= dn_sub_preset_count() + DN_NUSER)
             return 0;
         dn_sub_preset(a[0]);
         put(0);
@@ -337,7 +346,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         put(dn.dirty);
         return 1;
     case ED_PRESETN:
-        if (na < 1u || a[0] >= reese_preset_count())
+        if (na < 1u || a[0] >= reese_preset_count() + DN_NUSER)
             return 0;
         dn_load_preset(a[0]);
         dn_rev++;
@@ -350,7 +359,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         kind = a[0];
         from = a[1];
         count = kind == 1u ? dn_src_count() : kind == 2u ? DN_E_N : kind == 3u ? DN_FX_N : kind == 4u ? DN_FX_NDIV
-              : kind == 5u ? dn_sub_preset_count() : reese_preset_count();
+              : kind == 5u ? dn_sub_preset_count() + DN_NUSER : reese_preset_count() + DN_NUSER;
         put(count);
         put(from);
         for (i = from; i < count && used < 180u; i++) {
@@ -358,7 +367,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
             const char *s;
             if (kind >= 2u) {
                 s = kind == 2u ? DN_E_NAME[i] : kind == 3u ? DN_FX_NAME[i] : kind == 4u ? DN_FX_DIV_NAME[i]
-                  : dn_sub_preset_name(i);
+                  : dn_sound_name(1, i);
             } else if (kind) {
                 dn_loop_t L;
                 nm[0] = 0;
@@ -368,7 +377,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
                 nm[9] = 0;
                 s = nm;
             } else {
-                s = reese_preset_name(i);
+                s = dn_sound_name(0, i);
             }
             for (j = 0; s[j] && j < 12u; j++, used++)
                 put((uint8_t)s[j] & 0x7Fu);

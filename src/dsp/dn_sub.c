@@ -139,6 +139,8 @@ static const dn_sub_preset_t SB_PRESETS[] = {
     {"CRUSHED", {60, 110, 100, 0, 20, 30, 20, 0, 60, 50, 8, 50, 40, 0, 70, 90, 0, 70, 120, 30, 20, 1, 50, 0, 100, -24, 80}},
     /* rave stab: bright saw + pulse, noise, a short env: the old-skool bleep-bass hit */
     {"RAVE STAB", {127, 90, 40, 30, 30, 40, 70, 0, 70, 60, 28, 64, 60, 0, 0, 127, 0, 50, 20, 40, 0, 0, 70, 0, 120, 0, 0}},
+    /* INIT: a plain starting point (the saw, the filter open, nothing else) */
+    {"INIT", {100, 0, 0, 0, 0, 0, 0, 0, 127, 0, 0, 0, 0, 0, 0, 127, 0, 64, 127, 20, 0, 0, 0, 0, 100, -24, 0}},
 };
 #define SB_NPRESETS (sizeof SB_PRESETS / sizeof SB_PRESETS[0])
 uint32_t dn_sub_preset_count(void) { return SB_NPRESETS; }

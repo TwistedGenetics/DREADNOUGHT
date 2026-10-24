@@ -323,3 +323,16 @@ run. Not yet tested on a real FM-1.
 Tested on the host: `sub_test` (ATK on 1/4 takes twice as long at 60 BPM as at 120, and as long as the same time free),
 the `sub` scenario (FX on AMP, the knobs reading note lengths, kept by SAVE; a SUB note restarting an LFO on RETRIG),
 every earlier test. Not yet tested on a real FM-1.
+
+## 0.15 — sounds keep their LFOs; INIT; 8 user sounds a synth (2026-10-24)
+
+- **Each synth has its own 4 LFOs**, part of its sound: REESE's and SUB's no longer share them. Picking a factory sound
+  sets that synth's LFOs (off, but WOBBLE's: 1/8 on S CUT, retriggered); the LFO page shows the selected track's synth.
+- **INIT**: the last factory sound on REESE and SUB, a plain starting point.
+- **USER 1–8 for each synth**, after the factory sounds on PRESETS. **SAVE held + PRESETS** picks the slot, letting go of
+  SAVE stores the sound there (its values, LFOs with their drawn shapes, ENV SYNC) and saves at once. Kept over a power-off.
+- Editor: SUB's LFOs on the LFOs tab, the user sounds in the preset lists, projects carry all 8 LFOs.
+- Older saves load as before (SUB's LFOs start off, the user slots empty).
+
+Tested: host scenario `patches.txt` (a preset change resets that synth's LFOs, store / recall / empty slot, over a
+reboot, REESE's and SUB's slots apart), the editor's tests and its end-to-end run.

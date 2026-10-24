@@ -3,10 +3,10 @@ sysex 60
 expect replylen 22
 expect reply.5 44
 expect reply.6 1
-expect reply.19 94
+expect reply.19 126
 sysex 61
-expect replylen 189
-expect reply.0 94
+expect replylen 253
+expect reply.0 126
 # PARAM_SET: REESE DTN (1) to 80 (+8192 = 80, 64); BREAKS A PITCH (20) to +5
 sysex 62 1 80 64
 expect reply.0 0
@@ -34,7 +34,7 @@ expect playing 0
 sysex 68 3
 expect preset 3
 sysex 69 0 0
-expect reply.0 9
+expect reply.0 18
 sysex 69 1 0
 expect reply.0 2
 sysex 99
@@ -51,7 +51,7 @@ expect pt.1.32 86
 sysex 70 0
 expect replylen 66
 sysex 72
-expect replylen 16
+expect replylen 32
 
 # 0.11: patterns: PATS (8 tracks x (playing, queued, used x2) + notes x2 + room x2 = 36), PAT_SEL track 1 to pattern 2
 sysex 73

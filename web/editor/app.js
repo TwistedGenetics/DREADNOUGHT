@@ -4,7 +4,7 @@ import {
   connect, REESE, BPM_INDEX, brkParams, brkIndex, KIND, ST_ON, ST_SLIDE, ST_ACC, LEN_STEP, LEN_MAX, noteEnd, lenText,
   noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
   lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
-  PF, FX_NAMES, FX_PARAMS, E, SUB, subIndex, NPARAM_13,
+  PF, FX_NAMES, FX_PARAMS, E, SUB, subIndex, NPARAM_13, nLfos,
 } from "./protocol.js";
 import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
@@ -166,7 +166,8 @@ function patternChanged() {
 const paramTimers = {};
 function setParam(i, v) {
   S.params[i] = v;
-  if (i >= lfoIndex(0, 0) && (i - lfoIndex(0, 0)) % 8 === 1) {   // SYNC resets RATE (as the FM-1 does)
+  if ((i >= lfoIndex(0, 0) && i < lfoIndex(NLFO, 0) && (i - lfoIndex(0, 0)) % 8 === 1) ||
+      (i >= lfoIndex(NLFO, 0) && (i - lfoIndex(NLFO, 0)) % 8 === 1)) {   // SYNC resets RATE (as the FM-1 does)
     S.params[i + 1] = v ? 7 : 64;
     setTimeout(refreshValues, 0);
   }
@@ -637,7 +638,7 @@ buildInsp();
 async function readLfos() {                          // the DRAW points (an FM-1 before 0.9 has no LFOs)
   if (!S.st || S.st.nparams < NPARAM) return null;
   const out = [];
-  for (let k = 0; k < NLFO; k++) out.push(await S.link.lfoPts(k));
+  for (let k = 0; k < nLfos(S.st.nparams); k++) out.push(await S.link.lfoPts(k));
   return out;
 }
 const LFO_PRESETS = {                                // a few shapes to start from (points, and a rate if it matters)
@@ -660,10 +661,10 @@ function buildLfos() {
   box.textContent = "";
   $("lfoOld").hidden = !!S.lfo;
   if (!S.lfo) return;
-  for (let k = 0; k < NLFO; k++) {
+  for (let k = 0; k < S.lfo.length; k++) {
     const g = document.createElement("div"), ps = lfoParams();
     g.className = "grp lfo";
-    g.innerHTML = `<h3>LFO ${k + 1}</h3><div class="lfo-prm"></div>
+    g.innerHTML = `<h3>${S.lfo.length > NLFO ? (k < NLFO ? "REESE " : "SUB ") : ""}LFO ${(k % NLFO) + 1}</h3><div class="lfo-prm"></div>
       <div class="lfo-draw"><canvas data-k="${k}" title="Draw the shape: click and drag (shift: a straight line). Drawing makes the shape DRAW."></canvas></div>
       <div class="row small lfo-tools"><label>Points <select class="npts"><option>16</option><option>32</option></select></label>
       <label>Snap <select class="snap"><option value="0">off</option><option value="50">5 levels</option><option value="25">9 levels</option></select></label>

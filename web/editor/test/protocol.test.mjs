@@ -83,7 +83,7 @@ test("a session with the simulated FM-1: state, params, pattern write and commit
     assert.equal(await link.transport(true), 1);
     assert.equal(await link.save(), 0);
     assert.deepEqual(await link.names(1), ["ROLLER", "STEPPER"]);
-    assert.equal((await link.names(0)).length, 9);
+    assert.equal((await link.names(0)).length, 18, "the factory sounds and USER 1-8");
   } finally { m.close(); }
 });
 

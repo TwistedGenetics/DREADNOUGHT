@@ -2,9 +2,10 @@
 // A simulated FM-1 running DREADNOUGHT, for the editor's demo mode and its tests: a Web MIDI access object with one
 // port that answers the editor's commands (src/app/dn_editor.c) the way the firmware does. Copyright (C) 2026 Jamie
 // (TwistedGenetics).
-import { HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO, LFO_PTS, newStep, MAGIC } from "./protocol.js";
+import { HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, newStep, MAGIC } from "./protocol.js";
 
-const PRESETS = ["CLASSIC RS", "OG REESE", "HOLLOW RS", "TECHSTEP", "NEURO RS", "SYNC RS", "DARK RS", "SUB REESE", "HOOVER RS"];
+const PRESETS = ["CLASSIC RS", "OG REESE", "HOLLOW RS", "TECHSTEP", "NEURO RS", "SYNC RS", "DARK RS", "SUB REESE", "HOOVER RS", "INIT"];
+const USERS = Array.from({ length: 8 }, (_, i) => `USER ${i + 1} -`);   // (0.15: the user sounds, empty)
 const LOOPS = ["ROLLER", "STEPPER"];
 const CLASSIC = [0, 70, 0, 80, 68, 18, 24, 0, 0, 70, 120, 30, 0, 36, 0, 0, 100, -24];
 const LIMITS = [[0, 5], [0, 127], [0, 7], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127],
@@ -14,10 +15,12 @@ const LIMITS = [[0, 5], [0, 127], [0, 7], [0, 127], [0, 127], [0, 127], [0, 127]
   // SUB (0.13)
   [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 2], [0, 127], [0, 127], [-64, 63], [0, 127],
   [0, 127], [0, 3], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 2], [0, 127], [0, 1],
-  [0, 127], [-36, 36], [0, 127]];
-const SUB_PRESETS = ["DREAD", "DONK", "ROLLER", "WOBBLE", "ACID 101", "808 SUB", "GROWL", "SQUARE SB", "PUNCH", "TECH SUB", "CRUSHED", "RAVE STAB"];
+  [0, 127], [-36, 36], [0, 127],
+  // SUB's LFOs (0.15)
+  ...[0, 1, 2, 3].flatMap(() => [[0, 7], [0, 1], [0, 127], [0, 33], [-64, 63], [0, 127], [0, 2], [0, 127]])];
+const SUB_PRESETS = ["DREAD", "DONK", "ROLLER", "WOBBLE", "ACID 101", "808 SUB", "GROWL", "SQUARE SB", "PUNCH", "TECH SUB", "CRUSHED", "RAVE STAB", "INIT"];
 const SUB_DREAD = [40, 90, 110, 0, 30, 0, 0, 0, 48, 30, 20, 40, 70, 0, 0, 90, 0, 70, 110, 30, 40, 1, 60, 0, 100, -24, 70];
-const LFO0 = 18 + 1 + 16;
+const LFO0 = 18 + 1 + 16, SLFO0 = LFO0 + 32 + 27;
 
 export function demoPattern() {
   const steps = () => Array.from({ length: 64 }, () => newStep());
@@ -33,10 +36,11 @@ export function demoPattern() {
 export class MockFM1 {
   constructor() {
     this.params = [...CLASSIC, 172, 0, 0, 127, 0, 1, 0, 0, 100, 1, 0, 127, 0, 1, 0, 0, 100,
-      ...[0, 1, 2, 3].flatMap(() => [0, 1, 7, 0, 0, 0, 0, 0]), ...SUB_DREAD];
+      ...[0, 1, 2, 3].flatMap(() => [0, 1, 7, 0, 0, 0, 0, 0]), ...SUB_DREAD,
+      ...[0, 1, 2, 3].flatMap(() => [0, 1, 7, 0, 0, 0, 0, 0])];
     this.patCur = Array(8).fill(0); this.patQ = Array(8).fill(-1);
     this.bank = Array.from({ length: 8 }, (_, t) => Array.from({ length: 8 }, (_, n) => (n === 0 ? null : { steps: Array.from({ length: 64 }, () => newStep()), len: 16, lastNote: 53 })));
-    this.lfo = Array.from({ length: NLFO }, () => ({ npts: 16, pts: Array.from({ length: LFO_PTS }, (_, i) => Math.round(100 - (i % 16) * 200 / 15)) }));
+    this.lfo = Array.from({ length: NLFO_ALL }, () => ({ npts: 16, pts: Array.from({ length: LFO_PTS }, (_, i) => Math.round(100 - (i % 16) * 200 / 15)) }));
     this.pattern = serializePattern(demoPattern());
     this.staging = new Uint8Array(this.pattern);
     this.rev = 1; this.playing = 0; this.preset = 0; this.dirty = 0; this.step = 0; this.saved = 0;
@@ -68,7 +72,7 @@ export class MockFM1 {
     switch (cmd) {
       case CMD.INFO: return [..."DREADNOUGHT DEMO".split("").map((c) => c.charCodeAt(0)), 0, 0, 0, 0, 0, 0, 0];
       case CMD.STATE: return [...digits(this.rev, 5), ...digits(this.params[18], 2), this.playing, 0, this.preset, 0,
-        this.pattern[4], this.dirty, 32, 32, PRESETS.length, LOOPS.length, ...digits(this.pattern.length, 2),
+        this.pattern[4], this.dirty, 32, 32, PRESETS.length + USERS.length, LOOPS.length, ...digits(this.pattern.length, 2),
         this.params.length, ...digits(this.playing ? this.step : 0, 2)];
       case CMD.PARAMS: return [this.params.length, ...this.params.flatMap((v) => digits(v + 8192, 2))];
       case CMD.PARAM_SET: {
@@ -76,8 +80,9 @@ export class MockFM1 {
         if (i >= this.params.length) return [1];
         const [lo, hi] = LIMITS[i];
         this.params[i] = Math.max(lo, Math.min(hi, v));
-        if (i >= LFO0 && (i - LFO0) % 8 === 1) this.params[i + 1] = v ? 7 : 64;   // SYNC resets RATE (as the FM-1)
-        if (i >= LFO0 && (i - LFO0) % 8 === 2) this.params[i] = Math.min(this.params[i], this.params[i - 1] ? 15 : 127);
+        const lo8 = i >= SLFO0 ? SLFO0 : i < LFO0 + 32 ? LFO0 : -1;   // (REESE's LFOs, or SUB's)
+        if (lo8 >= 0 && i >= LFO0 && (i - lo8) % 8 === 1) this.params[i + 1] = v ? 7 : 64;   // SYNC resets RATE (as the FM-1)
+        if (lo8 >= 0 && i >= LFO0 && (i - lo8) % 8 === 2) this.params[i] = Math.min(this.params[i], this.params[i - 1] ? 15 : 127);
         this.rev++; this.dirty = 1;
         return [0];
       }
@@ -114,7 +119,7 @@ export class MockFM1 {
       }
       case CMD.LFO_NOW: {
         const t = Date.now() / 1000;
-        return [0, 1, 2, 3].flatMap((k) => { const ph = (t * (k + 1) / 2) % 1; return [...digits(Math.floor(ph * 16384), 2), ...digits(8192 + Math.round(8191 * Math.sin(2 * Math.PI * ph)), 2)]; });
+        return [0, 1, 2, 3, 4, 5, 6, 7].flatMap((k) => { const ph = (t * (k + 1) / 2) % 1; return [...digits(Math.floor(ph * 16384), 2), ...digits(8192 + Math.round(8191 * Math.sin(2 * Math.PI * ph)), 2)]; });
       }
       case CMD.PATS: {
         const p = parsePattern([...this.pattern]), out = [];
@@ -215,8 +220,8 @@ export class MockFM1 {
         return [...a.slice(0, 5), 0];
       }
       case CMD.NAMES: {
-        const list = [PRESETS, LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB"], ["OFF", "DELAY"],
-          ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], SUB_PRESETS][a[0]] || [];
+        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB"], ["OFF", "DELAY"],
+          ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], [...SUB_PRESETS, ...USERS]][a[0]] || [];
         const out = [list.length, a[1]];
         for (let i = a[1]; i < list.length; i++) out.push(...list[i].split("").map((c) => c.charCodeAt(0)), 0);
         return out;

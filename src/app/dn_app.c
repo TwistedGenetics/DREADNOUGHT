@@ -186,6 +186,19 @@ static uint32_t dn_ld_list(int sub, uint32_t *out)
 }
 static const uint8_t DN_LD_RP[DN_LD_N] = {0, RP_CUT, RP_RES, RP_DRV, RP_NTCH, RP_DTN, 0, RP_SUB, RP_LEVEL, RP_FENV};
 
+/* a synth's sound, kept as a user sound (0.15): its values, its envelope sync, its four LFOs (DRAW points too) */
+#define DN_NUSER 8u
+typedef struct {
+    uint8_t shape, sync, rate, dest;
+    int8_t depth;
+    uint8_t phase, mode, smooth, npts;
+    int8_t pts[DN_LFO_PTS];
+} dn_plfo_t;
+typedef struct {
+    uint8_t used, esync, pad[2];
+    int8_t p[28];                                   /* (REESE's 18 or SUB's 27 values) */
+    dn_plfo_t lfo[DN_NLFO];
+} dn_patch_t;
 typedef struct {
     uint32_t magic;
     uint8_t preset, page;
@@ -205,7 +218,10 @@ typedef struct {
         dn_fx_p_t fx[2];
     } proj;
     struct { uint8_t preset, pad[3]; int16_t p[SP_COUNT]; } sub;                /* SUB (from 0.13) */
+    dn_lfo_p_t sublfo[DN_NLFO];                                                 /* SUB's own LFOs (from 0.15) */
+    dn_patch_t user[2][DN_NUSER];                                               /* the user sounds (from 0.15) */
 } dn_save_t;
+#define DN_SAVE_V014 (offsetof(dn_save_t, sublfo))
 #define DN_SAVE_V012 (offsetof(dn_save_t, sub))
 #define DN_SAVE_V011 (offsetof(dn_save_t, proj))
 #define DN_SAVE_V08 (offsetof(dn_save_t, set))
@@ -213,12 +229,17 @@ typedef struct {
 #define DN_SAVE_V04 (DN_SAVE_V08 - DN_NBRK * 8u)
 
 static reese_t dn_rs;
+static dn_patch_t dn_user[2][DN_NUSER];             /* the user sounds: REESE's, SUB's (kept with the sound) */
+static dn_save_t dn_sv X0X_POOL;                    /* (the one copy of the saved sound in RAM: 3.7 KB, off the stack) */
+typedef char dn_save_fits[sizeof(dn_save_t) <= PLAT_STORE_MAX ? 1 : -1];
 static dn_sub_t dn_sb;                              /* SUB (0.13) */
 static dn_seq_t dn_sq;
 static uint32_t dn_rev;                             /* moves on whenever the sound or the pattern changes (the editor) */
 static dn_brk_t dn_bk[DN_NBRK] X0X_POOL;
-static dn_lfo_p_t dn_lp[DN_NLFO];                   /* the LFOs: their settings (part of the sound) ... */
-static dn_lfo_s_t dn_ls[DN_NLFO];                   /* ... and where each one is (audio) */
+/* the LFOs (0.15: each synth has its own four, part of its sound: 0-3 REESE's, 4-7 SUB's) */
+#define DN_NLFO_ALL (2u * DN_NLFO)
+static dn_lfo_p_t dn_lp[DN_NLFO_ALL];               /* their settings ... */
+static dn_lfo_s_t dn_ls[DN_NLFO_ALL];               /* ... and where each one is (audio) */
 /* ---- the project (0.12): its name, each track's sends, the FX rack (two send slots in one memory arena) ---- */
 #define DN_FX_ARENA (144u * 1024u)
 static uint32_t dn_fx_mem[DN_FX_ARENA / 4u] X0X_POOL;
@@ -254,7 +275,9 @@ static struct {
     uint32_t clk_n, clk_ph, clk_last;               /* the click voice (audio): samples left, phase; the step seen */
     uint8_t clk_acc;
     uint32_t clk_count;                             /* (clicks so far: the tests count them) */
-    uint8_t lfo_sel, lfo_view;                      /* the LFO page: which LFO; MAIN / MORE / DRAW (FX) */
+    uint8_t lfo_sel, lfo_view;                      /* the LFO page: which LFO (1-4 of the synth's); MAIN / MORE / DRAW */
+    uint8_t lfo_force;
+    uint8_t store;                                  /* SAVE + PRESETS: the user slot to store into (1-8; 0 none) */                              /* the editor: the LFO values read set 1 (REESE) / 2 (SUB), 0: by page */
     uint8_t midi_sel;                               /* the MIDI page: MIDI 1..n (the tracks that play MIDI, in order) */
     uint8_t bk_last;                                /* the break the BRK pages showed last (0 A, 1 B) */
     uint8_t bk_force;                               /* the editor: the BRK values read B (2) / A (1) whatever is shown */
@@ -369,20 +392,81 @@ static void dn_lfo_legacy(void)
     dn_lp[0].depth = (int8_t)dn_clamp(dn_rs.p[RP_LFLT], -64, 63);
     dn_rs.p[RP_LFLT] = 0;                           /* (REESE's own LFO stays silent from now on) */
 }
-static void dn_lfo_init_all(void)                   /* a new sound: no LFOs, then the old filter LFO's */
+static void dn_lfo_init_set(uint32_t set)           /* a synth's new sound: its LFOs off (REESE: its old filter LFO's) */
 {
     uint32_t j;
-    for (j = 0; j < DN_NLFO; j++) {
+    for (j = set * DN_NLFO; j < (set + 1u) * DN_NLFO; j++) {
         dn_lfo_default(&dn_lp[j]);
         dn_lfo_reset(&dn_ls[j], (int32_t)(0x9E3779B9u * (j + 1u)));
     }
-    dn_lfo_legacy();
+    if (!set)
+        dn_lfo_legacy();
+}
+static void dn_lfo_init_all(void) { dn_lfo_init_set(0); }   /* (REESE's: as before 0.15) */
+static void dn_lfo_fix(dn_lfo_p_t *l)               /* an LFO from storage, checked */
+{
+    l->shape = (uint8_t)dn_clamp(l->shape, 0, DN_LS_N - 1);
+    l->sync = l->sync ? 1u : 0u;
+    l->rate = (uint8_t)dn_clamp(l->rate, 0, l->sync ? DN_LFO_NDIV - 1 : 127);
+    l->dest = (uint8_t)dn_clamp(l->dest, 0, DN_LD_N - 1);
+    l->depth = (int8_t)dn_clamp(l->depth, -64, 63);
+    l->phase &= 127u;
+    l->mode = (uint8_t)dn_clamp(l->mode, 0, DN_LM_N - 1);
+    l->smooth &= 127u;
+    l->npts = l->npts == 32u ? 32u : 16u;
+}
+
+/* ---- user sounds (0.15): a synth's sound (set 0 REESE, 1 SUB) into a slot, and back ----------------------------- */
+static void dn_patch_store(uint32_t set, dn_patch_t *u)
+{
+    uint32_t k, n = set ? SP_COUNT : RP_COUNT;
+    for (k = 0; k < sizeof u->p; k++)
+        u->p[k] = (int8_t)(k < n ? (set ? dn_sb.p[k] : dn_rs.p[k]) : 0);
+    u->used = 1;
+    u->esync = set ? dn_sb.esync : dn_rs.esync;
+    u->pad[0] = u->pad[1] = 0;
+    for (k = 0; k < DN_NLFO; k++) {
+        const dn_lfo_p_t *l = &dn_lp[set * DN_NLFO + k];
+        dn_plfo_t *q = &u->lfo[k];
+        uint32_t i;
+        q->shape = l->shape, q->sync = l->sync, q->rate = l->rate, q->dest = l->dest, q->depth = l->depth;
+        q->phase = l->phase, q->mode = l->mode, q->smooth = l->smooth, q->npts = l->npts;
+        for (i = 0; i < DN_LFO_PTS; i++)
+            q->pts[i] = l->pts[i];
+    }
+}
+static void dn_patch_load(uint32_t set, const dn_patch_t *u)   /* (inside the lock) */
+{
+    uint32_t k, n = set ? SP_COUNT : RP_COUNT;
+    for (k = 0; k < n; k++) {
+        int32_t v = u->p[k];
+        if (set)
+            dn_sb.p[k] = (int16_t)dn_clamp(v, dn_sub_param_min(k), dn_sub_param_max(k));
+        else
+            dn_rs.p[k] = (int16_t)dn_clamp(v, reese_param_min(k), reese_param_max(k));
+    }
+    if (set)
+        dn_sb.esync = u->esync ? 1u : 0u;
+    else
+        dn_rs.esync = u->esync ? 1u : 0u;
+    for (k = 0; k < DN_NLFO; k++) {
+        dn_lfo_p_t *l = &dn_lp[set * DN_NLFO + k];
+        const dn_plfo_t *q = &u->lfo[k];
+        uint32_t i;
+        dn_lfo_default(l);
+        l->shape = q->shape, l->sync = q->sync, l->rate = q->rate, l->dest = q->dest, l->depth = q->depth;
+        l->phase = q->phase, l->mode = q->mode, l->smooth = q->smooth, l->npts = q->npts, l->pad[0] = 1;
+        for (i = 0; i < DN_LFO_PTS; i++)
+            l->pts[i] = q->pts[i];
+        dn_lfo_fix(l);
+        dn_lfo_reset(&dn_ls[set * DN_NLFO + k], (int32_t)(0x9E3779B9u * (set * DN_NLFO + k + 1u)));
+    }
 }
 /* REESE's notes: a note that isn't a slide restarts the RETRIG / 1-SHOT LFOs */
-static void dn_lfo_retrig(void)                     /* a new note (not a slide): the RETRIG / 1-SHOT LFOs restart */
+static void dn_lfo_retrig(uint32_t set)             /* a new note (not a slide): its synth's RETRIG / 1-SHOT LFOs restart */
 {
     uint32_t j;
-    for (j = 0; j < DN_NLFO; j++)
+    for (j = set * DN_NLFO; j < (set + 1u) * DN_NLFO; j++)
         if (dn_lp[j].mode != DN_LM_FREE) {
             dn_ls[j].acc = 0, dn_ls[j].ph = 0, dn_ls[j].done = 0;
             dn_ls[j].sh_a = dn_ls[j].sh_b;
@@ -393,7 +477,7 @@ static void dn_rs_on(uint8_t note, uint8_t vel, int legato)
     int slide = legato && dn_rs.gate && dn_rs.active && dn_rs.p[RP_GLIDE];
     reese_note_on(&dn_rs, note, vel, legato);
     if (!slide)
-        dn_lfo_retrig();
+        dn_lfo_retrig(0);
 }
 /* SUB's notes: the same (0.13: SUB's notes restart the RETRIG LFOs too; a legato note with a key held doesn't) */
 static void dn_sb_on(uint8_t note, uint8_t vel, int legato, int accent)
@@ -401,23 +485,23 @@ static void dn_sb_on(uint8_t note, uint8_t vel, int legato, int accent)
     int held = legato && dn_sb.gate && dn_sb.active && dn_sb.stage;
     dn_sub_note_on(&dn_sb, note, vel, legato, accent);
     if (!held)
-        dn_lfo_retrig();
+        dn_lfo_retrig(1);
 }
 /* the LFOs' tick (every 32 samples, audio): each one on, then onto its destination. Depth -64..63; full depth:
  * CUTOFF +-128 steps (the whole range), PITCH +-12 semitones, the other values +-64 steps; Ln DEPTH scales that
  * LFO's depth (x0 .. x2) */
 static void dn_lfo_tick(uint32_t n)
 {
-    int32_t dm[DN_NLFO] = {0}, rm[RP_COUNT] = {0}, pitch = 0, bp[DN_NBRK] = {0}, bd[DN_NBRK] = {0}, bc[DN_NBRK] = {0};
+    int32_t dm[DN_NLFO_ALL] = {0}, rm[RP_COUNT] = {0}, pitch = 0, bp[DN_NBRK] = {0}, bd[DN_NBRK] = {0}, bc[DN_NBRK] = {0};
     int32_t bl[DN_NBRK] = {0}, sm[SP_COUNT] = {0}, spitch = 0;
     uint32_t j, k;
     dn_sb.bpm = dn_sq.bpm;                          /* (SUB's synced envelope times) */
-    for (j = 0; j < DN_NLFO; j++)
+    for (j = 0; j < DN_NLFO_ALL; j++)
         dn_lfo_run(&dn_ls[j], &dn_lp[j], n, dn_sq.bpm);
-    for (j = 0; j < DN_NLFO; j++)                   /* the LFOs on other LFOs' depth first */
+    for (j = 0; j < DN_NLFO_ALL; j++)               /* the LFOs on other LFOs' depth first (Ln: its own synth's) */
         if (DN_LD_IS_DEPTH(dn_lp[j].dest))
-            dm[dn_lp[j].dest - DN_LD_L1DEPTH] += (dn_ls[j].out * dn_lp[j].depth) >> 6;
-    for (j = 0; j < DN_NLFO; j++) {
+            dm[(j & ~(DN_NLFO - 1u)) + dn_lp[j].dest - DN_LD_L1DEPTH] += (dn_ls[j].out * dn_lp[j].depth) >> 6;
+    for (j = 0; j < DN_NLFO_ALL; j++) {
         uint32_t d = dn_lp[j].dest;
         int32_t dep = dn_clamp(dn_lp[j].depth * (32767 + dm[j]) / 32767, -128, 127), a = (dn_ls[j].out * dep) >> 6;
         if (!d || DN_LD_IS_DEPTH(d) || d >= DN_LD_N)
@@ -618,7 +702,7 @@ void dn_app_render(int32_t *lr, uint32_t n)
             uint32_t st = dn_sq.pos - 1u, j;
             dn.clk_last = dn_sq.pos;
             if (st == 0u)                           /* the pattern starts: the synced LFOs from their start */
-                for (j = 0; j < DN_NLFO; j++)
+                for (j = 0; j < DN_NLFO_ALL; j++)
                     if (dn_lp[j].sync)
                         dn_ls[j].acc = 0, dn_ls[j].ph = 0, dn_ls[j].done = 0;
             if (st % 4u == 0u && (dn.click == 2u || (dn.click == 1u && dn.rec)))
@@ -838,12 +922,12 @@ int dn_app_slices_set(uint32_t key, uint32_t n, const uint32_t *starts)
     dn.redraw |= DN_RD_ALL;
     {                                               /* the saved sound gets MANUAL for those tracks too (only that:
                                                      * other edits not saved yet stay unsaved) */
-        static dn_save_t sv;
-        if (plat_store_load(OBJ_SOUND, &sv, sizeof sv) == (int)sizeof sv && sv.magic == DN_SAVE_MAGIC) {
+        dn_save_t *sv = &dn_sv;
+        if (plat_store_load(OBJ_SOUND, sv, sizeof *sv) == (int)sizeof *sv && sv->magic == DN_SAVE_MAGIC) {
             for (k = 0; k < DN_NBRK; k++)
                 if (dn_bk[k].key == key)
-                    sv.brk2[k].smode = dn_bk[k].smode;
-            plat_store_save(OBJ_SOUND, &sv, sizeof sv);
+                    sv->brk2[k].smode = dn_bk[k].smode;
+            plat_store_save(OBJ_SOUND, sv, sizeof *sv);
         }
     }
     return plat_store_save(OBJ_SONG, &dn_man, sizeof dn_man) ? 3 : 0;
@@ -907,13 +991,16 @@ static uint32_t dn_dial(uint32_t k)
 /* ------------------------------------------------------------------------------------------------ values --- */
 /* the LFO values: the selected LFO's (the LFO page), or LFO 1's (MOD's shortcuts) */
 #define DN_IS_LPX(id) ((id) >= DN_PX_LSHAPE && (id) <= DN_PX_L1DEPTH)
+/* the LFO the LFO page shows: the synth's set (by the track's, or the editor's choice), its 1-4 */
+#define DN_LBASE (dn.lfo_force ? (dn.lfo_force - 1u) * DN_NLFO : DN_IS_SUB(dn.trk) ? DN_NLFO : 0u)
+#define DN_LSEL (DN_LBASE + dn.lfo_sel % DN_NLFO)
 static dn_lfo_p_t *dn_lfo_px(uint32_t *id)
 {
     if (*id == DN_PX_L1RATE || *id == DN_PX_L1DEPTH) {
         *id = *id == DN_PX_L1RATE ? DN_PX_LRATE : DN_PX_LDEPTH;
         return &dn_lp[0];
     }
-    return &dn_lp[dn.lfo_sel % DN_NLFO];
+    return &dn_lp[DN_LSEL];
 }
 static int32_t dn_lfo_get(uint32_t id)
 {
@@ -1455,11 +1542,42 @@ static void dn_set(uint32_t id, int32_t v)
     dn.redraw |= DN_RD_ALL;
 }
 
+/* PRESETS: the factory sounds (the last INIT), then the user sounds USER 1-8 */
+static int dn_strcmp_dn(const char *a, const char *b)
+{
+    while (*a && *a == *b)
+        a++, b++;
+    return *a != *b;
+}
+static const char *dn_sound_name(uint32_t set, uint32_t i)
+{
+    static char t[2][10];
+    uint32_t nf = set ? dn_sub_preset_count() : reese_preset_count();
+    if (i < nf)
+        return set ? dn_sub_preset_name(i) : reese_preset_name(i);
+    i -= nf;
+    t[set][0] = 'U', t[set][1] = 'S', t[set][2] = 'E', t[set][3] = 'R', t[set][4] = ' ';
+    t[set][5] = (char)('1' + i % DN_NUSER), t[set][6] = 0;
+    if (!dn_user[set][i % DN_NUSER].used)
+        t[set][6] = ' ', t[set][7] = '-', t[set][8] = 0;   /* (empty) */
+    return t[set];
+}
 static void dn_load_preset(uint32_t i)
 {
+    uint32_t nf = reese_preset_count();
+    if (i >= nf && !dn_user[0][(i - nf) % DN_NUSER].used) {
+        dn.preset = (uint8_t)i;                     /* an empty user slot: shown (SAVE + PRESETS stores into it) */
+        dn_say("EMPTY: SAVE+PRESETS STORES");
+        dn.redraw |= DN_RD_ALL;
+        return;
+    }
     dn_lock();
-    reese_load_preset(&dn_rs, i);
-    dn_lfo_init_all();                              /* (a factory sound: its old filter LFO, if any, as LFO 1) */
+    if (i < nf) {
+        reese_load_preset(&dn_rs, i);
+        dn_lfo_init_all();                          /* (a factory sound: its old filter LFO, if any, as LFO 1) */
+    } else {
+        dn_patch_load(0, &dn_user[0][(i - nf) % DN_NUSER]);
+    }
     dn_unlock();
     dn.preset = (uint8_t)i;
     dn.dirty = 0;
@@ -1469,8 +1587,25 @@ static void dn_load_preset(uint32_t i)
 static void dn_sub_preset(uint32_t i)
 {
     uint8_t vs = dn_sb.vsens;
+    uint32_t nf = dn_sub_preset_count();
+    if (i >= nf && !dn_user[1][(i - nf) % DN_NUSER].used) {
+        dn.sb_preset = (uint8_t)i;
+        dn_say("EMPTY: SAVE+PRESETS STORES");
+        dn.redraw |= DN_RD_ALL;
+        return;
+    }
     dn_lock();
-    dn_sub_load_preset(&dn_sb, i);
+    if (i < nf) {
+        dn_sub_load_preset(&dn_sb, i);
+        dn_sb.esync = 0;
+        dn_lfo_init_set(1);                         /* (a factory sound: its LFOs off, but WOBBLE's) */
+        if (!dn_strcmp_dn(dn_sub_preset_name(i), "WOBBLE")) {
+            dn_lfo_p_t *l = &dn_lp[DN_NLFO];
+            l->rate = 10, l->dest = DN_LD_SCUT, l->depth = 40, l->mode = DN_LM_RETRIG;   /* 1/8, on S CUT */
+        }
+    } else {
+        dn_patch_load(1, &dn_user[1][(i - nf) % DN_NUSER]);
+    }
     dn_sb.vsens = vs;
     dn_unlock();
     dn.sb_preset = (uint8_t)i;
@@ -1526,6 +1661,10 @@ static void dn_save_fill(dn_save_t *sp)
     s.sub.pad[2] = 0;
     for (k = 0; k < SP_COUNT; k++)
         s.sub.p[k] = dn_sb.p[k];
+    for (k = 0; k < DN_NLFO; k++)                   /* (0.15: SUB's LFOs, the user sounds) */
+        s.sublfo[k] = dn_lp[DN_NLFO + k];
+    for (k = 0; k < 2u * DN_NUSER; k++)
+        s.user[k / DN_NUSER][k % DN_NUSER] = dn_user[k / DN_NUSER][k % DN_NUSER];
 #undef s
 }
 
@@ -1744,7 +1883,8 @@ static void dn_proj_restore(const dn_save_t *sp)
 
 static void dn_save(void)
 {
-    dn_save_t s;
+    dn_save_t *ps = &dn_sv;
+#define s (*ps)
     dn_save_fill(&s);
     dn_man.magic = DN_MAN_MAGIC;
     {
@@ -1755,17 +1895,20 @@ static void dn_save(void)
             dn_say("PATTERN MEMORY FULL");
     }
     dn.redraw |= DN_RD_ALL;
+#undef s
 }
 
 void dn_app_init(void)
 {
-    dn_save_t s;
+    dn_save_t *ps = &dn_sv;
     uint32_t k;
+#define s (*ps)
     int got;
     reese_init(&dn_rs);
     dn_sub_init(&dn_sb);
     dn.syn_last = DN_E_REESE;
     dn_lfo_init_all();
+    dn_lfo_init_set(1);
     for (k = 0; k < DN_NBRK; k++) {
         dn_brk_init(&dn_bk[k]);
         dn_bk_src[k] = (uint8_t)k;                  /* A: ROLLER, B: STEPPER */
@@ -1793,10 +1936,10 @@ void dn_app_init(void)
         dn_man.count > DN_MAN_N)
         dn_man.magic = dn_man.count = 0;            /* (no manual slices yet) */
     got = plat_store_load(OBJ_SOUND, &s, sizeof s);
-    if ((got == (int)sizeof s || got == (int)DN_SAVE_V012 || got == (int)DN_SAVE_V011 || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 ||
+    if ((got == (int)sizeof s || got == (int)DN_SAVE_V014 || got == (int)DN_SAVE_V012 || got == (int)DN_SAVE_V011 || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 ||
          got == (int)DN_SAVE_V04) &&
         s.magic == DN_SAVE_MAGIC) {
-        dn.preset = (uint8_t)(s.preset % reese_preset_count());
+        dn.preset = (uint8_t)(s.preset % (reese_preset_count() + DN_NUSER));
         dn.page = (uint8_t)(DN_IS_SNDPG(s.page) ? s.page : 0u);
         dn.oct = (int8_t)dn_clamp(s.oct, -3, 3);
         dn_rs.bpm = (uint16_t)dn_clamp(s.bpm, 60, 200);
@@ -1806,25 +1949,23 @@ void dn_app_init(void)
         dn_lfo_init_all();                          /* (0.8 and older: their filter LFO as LFO 1) */
         if (got >= (int)DN_SAVE_V012)
             dn_proj_restore(&s);                    /* 0.12: the project */
-        if (got == (int)sizeof s) {                 /* 0.13: SUB */
-            dn.sb_preset = (uint8_t)(s.sub.preset % dn_sub_preset_count());
+        if (got >= (int)DN_SAVE_V014) {             /* 0.13: SUB */
+            dn.sb_preset = (uint8_t)(s.sub.preset % (dn_sub_preset_count() + DN_NUSER));
             dn_rs.esync = s.sub.pad[0] ? 1u : 0u;
             dn_sb.esync = s.sub.pad[1] ? 1u : 0u;
             for (k = 0; k < SP_COUNT; k++)
                 dn_sb.p[k] = (int16_t)dn_clamp(s.sub.p[k], dn_sub_param_min(k), dn_sub_param_max(k));
         }
+        if (got == (int)sizeof s)                   /* 0.15: the user sounds */
+            for (k = 0; k < 2u * DN_NUSER; k++)
+                dn_user[k / DN_NUSER][k % DN_NUSER] = s.user[k / DN_NUSER][k % DN_NUSER];
         if (got >= (int)DN_SAVE_V011) {
             for (k = 0; k < DN_NLFO; k++) {         /* 0.9: the LFOs, checked */
                 dn_lp[k] = s.lfo[k];
-                dn_lp[k].shape = (uint8_t)dn_clamp(dn_lp[k].shape, 0, DN_LS_N - 1);
-                dn_lp[k].sync = dn_lp[k].sync ? 1u : 0u;
-                dn_lp[k].rate = (uint8_t)dn_clamp(dn_lp[k].rate, 0, dn_lp[k].sync ? DN_LFO_NDIV - 1 : 127);
-                dn_lp[k].dest = (uint8_t)dn_clamp(dn_lp[k].dest, 0, DN_LD_N - 1);
-                dn_lp[k].depth = (int8_t)dn_clamp(dn_lp[k].depth, -64, 63);
-                dn_lp[k].phase &= 127u;
-                dn_lp[k].mode = (uint8_t)dn_clamp(dn_lp[k].mode, 0, DN_LM_N - 1);
-                dn_lp[k].smooth &= 127u;
-                dn_lp[k].npts = dn_lp[k].npts == 32u ? 32u : 16u;
+                if (got == (int)sizeof s)
+                    dn_lp[DN_NLFO + k] = s.sublfo[k];   /* (0.15: SUB's) */
+                dn_lfo_fix(&dn_lp[k]);
+                dn_lfo_fix(&dn_lp[DN_NLFO + k]);
             }
             dn.click = (uint8_t)dn_clamp(s.set.click, 0, 2);
             dn.clk_lvl = (uint8_t)dn_clamp(s.set.clk_lvl, 0, 127);
@@ -1852,6 +1993,7 @@ void dn_app_init(void)
     dn.btn_prev = plat_buttons();                   /* what is held at start-up is no press */
     dn.keys_prev = dn.keys_raw = plat_keys();
     dn.ready = 1;
+#undef s
 }
 
 /* ------------------------------------------------------------------------------------------------- input --- */
@@ -2223,7 +2365,7 @@ static void dn_keys_entry(uint32_t keys)
 static void dn_keys_draw(uint32_t keys)
 {
     uint32_t down = keys & ~dn.keys_prev, up = dn.keys_prev & ~keys, k, i, n;
-    dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
+    dn_lfo_p_t *l = &dn_lp[DN_LSEL];
     n = l->npts == 32u ? 32u : 16u;
     for (k = 0; k < NKEYS; k++) {
         int32_t o = dn_key_ord(k);
@@ -2267,7 +2409,7 @@ static void dn_keys_draw(uint32_t keys)
 static void dn_lfo_draw_knob(uint32_t k, int32_t d)  /* DRAW: KNOB 1 the pen (or the held point), 2 SMOOTH, 3 POINTS,
                                                      * 4 the points in view */
 {
-    dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
+    dn_lfo_p_t *l = &dn_lp[DN_LSEL];
     dn_lock();
     if (k == 0u) {
         dn.pen = (int8_t)dn_clamp(dn.pen + d * 5, -100, 100);
@@ -2943,10 +3085,11 @@ static void dn_slice_knob(uint32_t k, int32_t d)
 /* the chops reach flash a few seconds after the last change (the slot store; the sound's MANUAL with it) */
 static void dn_chops_flush(void)
 {
-    static dn_save_t sv;
+    dn_save_t *svp = &dn_sv;
     uint32_t k;
     if (!dn.chop_t || (int32_t)(plat_ms() - dn.chop_t) < 3000)
         return;
+#define sv (*svp)
     dn.chop_t = 0;
     dn_man.magic = DN_MAN_MAGIC;
     plat_store_save(OBJ_SONG, &dn_man, sizeof dn_man);
@@ -2958,6 +3101,7 @@ static void dn_chops_flush(void)
         dn_save_fill(&sv);
         plat_store_save(OBJ_SOUND, &sv, sizeof sv);
     }
+#undef sv
 }
 
 /* copy / paste: SAVE held with OCT- copies the bar in view of the selected track, with OCT+ pastes it there */
@@ -3053,7 +3197,21 @@ void dn_app_input(void)
     }
     if (dn.save_held && !(btn & (1u << B_SAVE))) {
         dn.save_held = 0;
-        if (!dn.save_chord)
+        if (dn.store) {                             /* SAVE + PRESETS: the synth's sound into that user slot, kept */
+            uint32_t set = DN_IS_SUB(dn.trk) ? 1u : 0u, u = dn.store - 1u;
+            static char t[16];
+            dn_patch_store(set, &dn_user[set][u]);
+            if (set)
+                dn.sb_preset = (uint8_t)(dn_sub_preset_count() + u);
+            else
+                dn.preset = (uint8_t)(reese_preset_count() + u);
+            dn.store = 0;
+            dn_save();
+            t[0] = 0;
+            dn_cat(t, "STORED USER ");
+            t[12] = (char)('1' + u), t[13] = 0;
+            dn_say(t);
+        } else if (!dn.save_chord)
             dn_save();
     }
     if ((btn & (1u << B_OCTDN)) && (btn & (1u << B_OCTUP)))
@@ -3134,7 +3292,7 @@ void dn_app_input(void)
         dn.redraw |= DN_RD_ALL;
     }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_LFO) {   /* LFO: the main knobs, MORE, DRAW (a DRAW shape) */
-        dn.lfo_view = (uint8_t)((dn.lfo_view + 1u) % (dn_lp[dn.lfo_sel % DN_NLFO].shape == DN_LS_DRAW ? 3u : 2u));
+        dn.lfo_view = (uint8_t)((dn.lfo_view + 1u) % (dn_lp[DN_LSEL].shape == DN_LS_DRAW ? 3u : 2u));
         dn.pt_held = -1;
         dn.redraw |= DN_RD_ALL;
     }
@@ -3259,11 +3417,24 @@ void dn_app_input(void)
     }
     if ((d = plat_enc(EN_PRESET)) != 0 && (DN_IS_BRKPG(dn.page) || dn.page == DN_PG_DRUM)) {
         dn_set(DN_PX_BSRC, dn_get(DN_PX_BSRC) + (d > 0 ? 1 : -1));   /* on BRK: the loop */
-    } else if (d && DN_IS_SUB(dn.trk)) {             /* SUB's factory sounds */
-        int32_t n = (int32_t)dn_sub_preset_count();
+    } else if (d && dn.save_held) {                 /* SAVE held + PRESETS: the user slot to store this
+                                                     * synth's sound in (when SAVE comes up) */
+        uint32_t set = DN_IS_SUB(dn.trk) ? 1u : 0u, nf = set ? dn_sub_preset_count() : reese_preset_count();
+        uint32_t cur = set ? dn.sb_preset : dn.preset;
+        int32_t at = dn.store ? (int32_t)dn.store - 1 : cur >= nf ? (int32_t)(cur - nf) : -1;
+        static char t[20];
+        at = dn_clamp(at < 0 && d > 0 ? d - 1 : at + d, 0, (int32_t)DN_NUSER - 1);
+        dn.store = (uint8_t)(at + 1);
+        dn.save_chord = 1;
+        t[0] = 0;
+        dn_cat(t, "STORE TO USER ");
+        t[14] = (char)('1' + at), t[15] = 0;
+        dn_say(t);
+    } else if (d && DN_IS_SUB(dn.trk)) {             /* SUB's sounds: factory, then USER 1-8 */
+        int32_t n = (int32_t)(dn_sub_preset_count() + DN_NUSER);
         dn_sub_preset((uint32_t)((((int32_t)dn.sb_preset + d) % n + n) % n));
     } else if (d) {
-        int32_t n = (int32_t)reese_preset_count();
+        int32_t n = (int32_t)(reese_preset_count() + DN_NUSER);
         dn_load_preset((uint32_t)((((int32_t)dn.preset + d) % n + n) % n));
     }
     if ((d = plat_enc(EN_ALGO)) != 0)
@@ -3362,7 +3533,7 @@ static void dn_knob(int32_t cx, int32_t cy, uint32_t id, int focus)
     if (id < RP_COUNT || DN_IS_SPX(id)) {           /* an LFO on it: its reach, red outside the ring (as Massive) */
         uint32_t j;
         int32_t r = 0;
-        for (j = 0; j < DN_NLFO; j++) {
+        for (j = 0; j < DN_NLFO_ALL; j++) {
             uint32_t d = dn_lp[j].dest;
             int32_t dep = dn_lp[j].depth < 0 ? -dn_lp[j].depth : dn_lp[j].depth;
             if (id < RP_COUNT && d && d < DN_LD_APITCH && d != DN_LD_PITCH && DN_LD_RP[d] == id)
@@ -3522,7 +3693,7 @@ static void dn_draw_top(void)
 {
     char t[16];
     int32_t x, i, w = (int32_t)dn_scope_w, start, y, py = 0;
-    const char *pn = reese_preset_name(dn.preset);
+    const char *pn = dn_sound_name(0, dn.preset);
     int brk = DN_IS_BRKPG(dn.page) || dn.page == DN_PG_DRUM;
     const dn_brk_t *bk = &dn_bk[dn_bsel()];
     cv_begin(240, 96, DN_C_BG);
@@ -3569,7 +3740,7 @@ static void dn_draw_top(void)
         }
     } else if (DN_IS_SUB(dn.trk) && (DN_IS_SNDPG(dn.page) || dn.page == DN_PG_ROLL)) {   /* SUB: its sound */
         cv_text(29 - text_w(&FONT_T, "SUB") / 2, 28, &FONT_T, "SUB", DN_C_BAR);
-        pn = dn_sub_preset_name(dn.sb_preset);
+        pn = dn_sound_name(1, dn.sb_preset);
     } else {
         cv_text(29 - text_w(&FONT_T, "REESE") / 2, 28, &FONT_T, "REESE", DN_C_BAR);
     }
@@ -3670,8 +3841,8 @@ static void dn_draw_top(void)
         return;
     }
     if (dn.page == DN_PG_LFO) {                     /* the LFO: its shape over a cycle, where it is, its value now */
-        const dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
-        const dn_lfo_s_t *ls = &dn_ls[dn.lfo_sel % DN_NLFO];
+        const dn_lfo_p_t *l = &dn_lp[DN_LSEL];
+        const dn_lfo_s_t *ls = &dn_ls[DN_LSEL];
         int32_t vy, mx;
         cv_rect(4, 63, 232, 29, DN_C_WELL);
         cv_rect(4, 77, 200, 1, DN_C_GRID);
@@ -4213,7 +4384,7 @@ static void dn_draw_bottom(void)
         return;
     }
     if (dn.page == DN_PG_LFO && dn.lfo_view == 2u) {   /* DRAW: the points in view as bars, one a white key */
-        const dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
+        const dn_lfo_p_t *l = &dn_lp[DN_LSEL];
         uint32_t n = l->npts == 32u ? 32u : 16u, i;
         char v[8];
         cv_rect(0, 17, 240, 104, DN_C_PANEL);
@@ -4259,7 +4430,7 @@ static void dn_draw_bottom(void)
     if (dn.play)
         cv_text(70, 125, &FONT_XS, "HOLD", DN_C_BLUE);
     if (dn.page == DN_PG_LFO) {                     /* the LFO page: which view, what FX does */
-        const dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
+        const dn_lfo_p_t *l = &dn_lp[DN_LSEL];
         const char *nx = dn.lfo_view == 0u ? "FX: MORE" : dn.lfo_view == 1u && l->shape == DN_LS_DRAW ? "FX: DRAW"
                                                                                                     : "FX: BACK";
         cv_rect(0, 121, 240, 23, DN_C_BAR);

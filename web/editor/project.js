@@ -9,7 +9,7 @@
 //
 // The file is JSON (binary parts in base64). The FM-1 must be stopped to read or write one: its patterns are reached by
 // selecting each in turn, which while playing would only queue.
-import { NLFO, NPAT, TRACKS, parsePattern, serializePattern, PF, setEngines } from "./protocol.js";
+import { NLFO_ALL, nLfos, NPAT, TRACKS, parsePattern, serializePattern, PF, setEngines } from "./protocol.js";
 import { readSlots, writeSlots, slotSamples, sameImage } from "./media.js";
 import { sliceKey, key7, pos7 } from "../breaks/slices.js";
 
@@ -35,7 +35,7 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   if (st.playing) throw new Error("Stop the FM-1 first (a project is read pattern by pattern).");
   say("Reading the sound…");
   const params = await link.params(), proj = await link.proj(), lfo = [];
-  for (let k = 0; k < NLFO; k++) lfo.push(await link.lfoPts(k));
+  for (let k = 0; k < nLfos(params.length); k++) lfo.push(await link.lfoPts(k));   // (0.15: SUB's too)
   say("Reading the patterns…");
   const pats = await link.pats(), cur = pats.tracks.map((t) => t.cur), patterns = [];
   try {
@@ -96,7 +96,8 @@ export async function writeProject(link, o, { onPart = () => {}, say = () => {} 
   say("Sending the sound…");
   const n = Math.min(o.params.length, (await link.params()).length);
   for (let i = 0; i < n; i++) await link.setParam(i, o.params[i]);
-  for (let k = 0; k < NLFO && o.lfo && o.lfo[k]; k++) await link.setLfoPts(k, o.lfo[k].npts, o.lfo[k].pts);
+  const nl = nLfos((await link.params()).length);
+  for (let k = 0; k < Math.min(NLFO_ALL, nl) && o.lfo && o.lfo[k]; k++) await link.setLfoPts(k, o.lfo[k].npts, o.lfo[k].pts);
   onPart(0.1);
   say("Sending the patterns…");
   for (let p = 0; p < NPAT; p++) {

@@ -1,0 +1,85 @@
+# DREADNOUGHT host scenario (0.15): each synth's LFOs are part of its sound. A factory sound sets them (off, but
+# WOBBLE's on S CUT); INIT is the last factory sound; USER 1-8 follow it. SAVE held + PRESETS picks a user slot and
+# SAVE coming up stores the synth's sound there (with its LFOs), kept over a reboot.
+# SUB on track 5 (PROJECT), as sub.txt does
+tap GLO
+tap GLO
+tap GLO
+tap GLO
+tap GLO
+expect page 15
+turn K1 1
+turn K2 1
+tap FX
+expect eng.5 5
+press SEQ
+tapkey 7 40
+release SEQ
+expect trk 5
+# a factory sound, then an LFO on it
+turn PRESET 1
+expect sbpreset 1
+expect slfo1 0
+tap LFO
+tap LFO
+expect page 12
+turn K3 2
+expect slfo1 23
+expect rlfo1 0
+# the next factory sound: its own LFOs (off)
+turn PRESET 1
+expect sbpreset 2
+expect slfo1 0
+# WOBBLE: its LFO on S CUT
+turn PRESET 1
+expect sbpreset 3
+expect slfo1 22
+expect slfo1d 40
+turn K4 10
+expect slfo1d 63
+# SAVE + PRESETS: USER 1, stored when SAVE comes up
+press SAVE
+turn PRESET 1
+release SAVE
+wait 50
+expect sbpreset 13
+expect used.1.0 1
+expect used.1.1 0
+expect dirty 0
+# INIT (the last factory sound): the LFOs off
+turn PRESET -1
+expect sbpreset 12
+expect slfo1 0
+expect s.CUT 127
+# USER 1 back: the sound with its LFO as stored
+turn PRESET 1
+expect sbpreset 13
+expect slfo1 22
+expect slfo1d 63
+# an empty slot: the sound stays
+turn PRESET 1
+expect sbpreset 14
+expect slfo1 22
+shot patch-01-empty.png
+# over a reboot
+# (the empty slot wasn't kept: what was saved last, USER 1, comes back)
+reboot
+expect used.1.0 1
+expect sbpreset 13
+expect slfo1 22
+expect slfo1d 63
+# REESE's are its own: track 1, SAVE + PRESETS 2 stores into USER 2
+press SEQ
+tapkey 0 40
+release SEQ
+expect trk 1
+expect rlfo1 0
+press SAVE
+turn PRESET 2
+release SAVE
+wait 50
+expect preset 11
+expect used.0.1 1
+expect used.0.0 0
+expect used.1.0 1
+shot patch-02-reese-user2.png
