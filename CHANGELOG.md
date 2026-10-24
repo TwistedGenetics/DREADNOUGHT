@@ -407,3 +407,9 @@ refusal unchanged.
 Tested: SUB with the amp held and F.SUS 0 (the 8th harmonic falls 36 dB, the fundamental within 2.3 dB) and F.SUS 127
 (it stays); every REESE and SUB factory render identical to 0.18's; host scenario `fenv.txt` (the page, a factory
 sound's values, USER 1 and a reboot keeping them, SUB's apart); the editor against the firmware's PARAMS_HI.
+
+## 0.20 — no AUDIO LATE warning on SAVE (2026-10-24)
+
+- Writing to the flash (SAVE, a user sound, chops and slices kept, samples from the editor) pauses everything for a
+  moment, the audio too: it always has. Since 0.17 that pause showed as "AUDIO LATE: CPU FULL" (Jamie: on every save).
+  The warning now leaves out the moments around a flash write; it still comes when the CPU really runs out.

@@ -243,6 +243,17 @@ typedef struct {
 #define DN_SAVE_V05 (DN_SAVE_V08 - DN_NBRK * 4u)
 #define DN_SAVE_V04 (DN_SAVE_V08 - DN_NBRK * 8u)
 
+/* a flash write stops everything, the audio too, for a moment (an erase can't run beside it): the time of the last
+ * one, so the AUDIO LATE warning (dn_app_draw) doesn't count it (0.19.1: it showed on every SAVE) */
+static uint32_t dn_flash_t;
+static int dn_store(uint32_t obj, const void *src, uint32_t len)
+{
+    int rc;
+    dn_flash_t = plat_ms();
+    rc = plat_store_save(obj, src, len);
+    dn_flash_t = plat_ms();
+    return rc;
+}
 static reese_t dn_rs;
 static dn_patch_t dn_user[2][DN_NUSER];             /* the user sounds: REESE's, SUB's (kept with the sound) */
 static int8_t dn_user_fe[2][DN_NUSER][4];           /* (0.19) each one's filter envelope */
@@ -994,10 +1005,10 @@ int dn_app_slices_set(uint32_t key, uint32_t n, const uint32_t *starts)
             for (k = 0; k < DN_NBRK; k++)
                 if (dn_bk[k].key == key)
                     sv->brk2[k].smode = dn_bk[k].smode;
-            plat_store_save(OBJ_SOUND, sv, sizeof *sv);
+            dn_store(OBJ_SOUND, sv, sizeof *sv);
         }
     }
-    return plat_store_save(OBJ_SONG, &dn_man, sizeof dn_man) ? 3 : 0;
+    return dn_store(OBJ_SONG, &dn_man, sizeof dn_man) ? 3 : 0;
 }
 
 static void dn_brk_select(uint32_t k, uint32_t src)
@@ -1019,6 +1030,7 @@ static void dn_brk_select(uint32_t k, uint32_t src)
 /* the sample slots are about to change (an upload): nothing may read them until dn_app_slots_changed(1) */
 void dn_app_slots_changed(int done)
 {
+    dn_flash_t = plat_ms();                         /* (the editor writing samples to flash) */
     uint32_t k;
     for (k = 0; k < DN_NBRK; k++)
         if (dn_bk_src[k] >= DN_BRK_BUILTIN) {
@@ -1936,7 +1948,7 @@ static int dn_pat_save(void)                        /* 0 kept; 1 too many notes;
         uint32_t from = k * DN_PB_CHUNK, n = len > from ? len - from : 0u;
         if (n > DN_PB_CHUNK)
             n = DN_PB_CHUNK;
-        if (plat_store_save(DN_PB_OBJ[k], dn_pbuf + from, n ? n : 1u))   /* (an unused chunk: one byte) */
+        if (dn_store(DN_PB_OBJ[k], dn_pbuf + from, n ? n : 1u))   /* (an unused chunk: one byte) */
             return 2;
         if (n < DN_PB_CHUNK)
             break;
@@ -2035,7 +2047,7 @@ static void dn_save(void)
     dn_man.magic = DN_MAN_MAGIC;
     {
         int pr = dn_pat_save();
-        if (plat_store_save(OBJ_SOUND, &s, sizeof s) == 0 && pr == 0 && plat_store_save(OBJ_SONG, &dn_man, sizeof dn_man) == 0)
+        if (dn_store(OBJ_SOUND, &s, sizeof s) == 0 && pr == 0 && dn_store(OBJ_SONG, &dn_man, sizeof dn_man) == 0)
             dn.dirty = 0;
         if (pr == 1)
             dn_say("PATTERN MEMORY FULL");
@@ -3262,14 +3274,14 @@ static void dn_chops_flush(void)
 #define sv (*svp)
     dn.chop_t = 0;
     dn_man.magic = DN_MAN_MAGIC;
-    plat_store_save(OBJ_SONG, &dn_man, sizeof dn_man);
+    dn_store(OBJ_SONG, &dn_man, sizeof dn_man);
     if (plat_store_load(OBJ_SOUND, &sv, sizeof sv) == (int)sizeof sv && sv.magic == DN_SAVE_MAGIC) {
         for (k = 0; k < DN_NBRK; k++)
             sv.brk2[k].smode = dn_bk[k].smode;
-        plat_store_save(OBJ_SOUND, &sv, sizeof sv);
+        dn_store(OBJ_SOUND, &sv, sizeof sv);
     } else {                                        /* nothing saved yet: the sound as it is, so MANUAL comes back */
         dn_save_fill(&sv);
-        plat_store_save(OBJ_SOUND, &sv, sizeof sv);
+        dn_store(OBJ_SOUND, &sv, sizeof sv);
     }
 #undef sv
 }
@@ -4713,7 +4725,8 @@ void dn_app_draw(int force)
         static uint32_t xr_seen, proj_t;
         uint32_t xr = plat_xruns();
         if (xr != xr_seen) {
-            if (xr_seen || xr > 2u)                 /* (the start-up's own aside) */
+            if ((xr_seen || xr > 2u) && plat_ms() - dn_flash_t > 1500u)   /* (the start-up's own aside; a flash write's
+                                                     * pause is not the CPU running out) */
                 dn_say("AUDIO LATE: CPU FULL");
             xr_seen = xr;
         }
