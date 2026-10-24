@@ -1,0 +1,35 @@
+# DREADNOUGHT host scenario (0.9): "the chop knob won't move off chop 1, so I can't set new chops". Every way in:
+# from a sound page with REESE selected, MANUAL chosen on BRK2 (empty the first time), REC straight away.
+expect trk 1
+tap ARP
+tap ARP
+expect page 9
+turn K2 2
+expect smode.1 2
+expect ns.1 1
+tap ARP
+expect page 10
+expect cursor 0
+shot stuck-01-empty.png
+# REC on chop 1 (the cursor at 0): the loop splits in half, with a word on the screen
+tap REC
+expect ns.1 2
+expect sl.1.2 >38000
+expect sl.1.2 <40000
+shot stuck-02-split.png
+# KNOB 1 with two chops selects; HOME deletes back to one; then KNOB 1 moves the cursor
+turn K1 1
+expect slsel 1
+tap HOME
+expect ns.1 1
+# (the cursor was on chop 2, at the half: two eighths on)
+turn K1 2
+expect cursor >57000
+tap REC
+expect ns.1 2
+expect sl.1.2 >57000
+expect sl.1.2 <59500
+# REC right by a chop (the cursor just past chop 2): a split of that slice, never nothing
+turn K3 3
+tap REC
+expect ns.1 3

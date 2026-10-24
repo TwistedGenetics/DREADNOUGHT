@@ -120,6 +120,8 @@ static struct {
     uint32_t sl_cur, sl_view;                       /* SLICE: the cursor and the view's left edge, samples */
     uint32_t chop_t;                                /* chops changed at (ms): written to flash a moment later */
     uint32_t home_t0;                               /* HOME down (SLICE: a tap deletes a chop, held 1 s clears) */
+    const char *msg;                                /* a word on the status line (a refusal, what happened) ... */
+    uint32_t msg_t;                                 /* ... shown until this time (ms) */
     uint8_t home_done;
     uint8_t save_held, save_chord;                  /* SAVE down; it was used with OCT (copy / paste): no save */
     uint8_t clip_ok;
@@ -1272,7 +1274,17 @@ static void dn_sl_end(uint32_t bi, uint32_t old_n)
     dn_sl_fix();
 }
 
-static void dn_chop_at(uint32_t at)                 /* a new chop (REC) */
+static void dn_say(const char *m)                   /* a word on the status line for 1.5 s */
+{
+    dn.msg = m;
+    dn.msg_t = plat_ms() + 1500u;
+    dn.redraw |= DN_RD_ALL;
+}
+
+/* a new chop (REC). On (or right by) a chop it splits the slice the cursor is in, in the middle: with one chop (the
+ * whole loop, the cursor at its start) REC halves the loop, and turning on from there finds the hits. Never silent:
+ * full or too short says so. */
+static void dn_chop_at(uint32_t at, int split)
 {
     uint32_t bi = dn_bsel(), i, ns, old_n;
     dn_brk_t *b = &dn_bk[bi];
@@ -1285,9 +1297,37 @@ static void dn_chop_at(uint32_t at)                 /* a new chop (REC) */
     ns = b->n_man;
     for (i = 0; i < ns && b->man_start[i] < at; i++)
         ;
-    if (ns >= DN_BRK_MAXSL || (i < ns && b->man_start[i] < at + 64u) || (i > 0u && at < b->man_start[i - 1u] + 64u)) {
-        dn_unlock();                                /* full, or on top of a chop: nothing */
+    if (ns >= DN_BRK_MAXSL) {
+        dn_unlock();
+        dn_say("FULL: 64 CHOPS");
         return;
+    }
+    if ((i < ns && b->man_start[i] < at + 64u) || (i > 0u && at < b->man_start[i - 1u] + 64u)) {
+        uint32_t j = i < ns && b->man_start[i] < at + 64u ? i : i - 1u, lo, hi;   /* the chop it's on */
+        if (!split) {
+            dn_unlock();
+            dn_say("TOO CLOSE TO A CHOP");
+            return;
+        }
+        lo = b->man_start[j];                       /* that chop's slice, split in the middle */
+        hi = j + 1u < ns ? b->man_start[j + 1u] : b->loop.n;
+        if (hi < lo + 256u) {
+            dn_unlock();
+            dn_say("SLICE TOO SHORT TO SPLIT");
+            return;
+        }
+        dn_unlock();
+        at = dn_brk_zero_near(b, lo + (hi - lo) / 2u, 32u);
+        dn_lock();
+        for (i = 0; i < ns && b->man_start[i] < at; i++)
+            ;
+        if ((i < ns && b->man_start[i] < at + 64u) || (i > 0u && at < b->man_start[i - 1u] + 64u)) {
+            dn_unlock();
+            dn_say("SLICE TOO SHORT TO SPLIT");
+            return;
+        }
+        dn.sl_cur = at;
+        dn_say("SPLIT IN HALF");
     }
     for (ns = b->n_man; ns > i; ns--)
         b->man_start[ns] = b->man_start[ns - 1u];
@@ -1369,7 +1409,10 @@ static void dn_slice_knob(uint32_t k, int32_t d)
     int32_t at = (int32_t)dn.sl_cur;
     if (!b->ok)
         return;
-    if (k == 0u) {                                  /* CHOP: select, the cursor to it, hear it */
+    if (k == 0u && b->nslices <= 1u) {              /* one chop (empty): KNOB 1 moves the cursor (as KNOB 2) */
+        k = 1u;
+        at += d * (int32_t)(w / 8u) * (d > 2 || d < -2 ? 4 : 1);
+    } else if (k == 0u) {                           /* CHOP: select, the cursor to it, hear it */
         dn.sl_sel = (uint8_t)dn_clamp(dn.sl_sel + d, 0, (int32_t)b->nslices - 1);
         dn.sl_cur = b->start[dn.sl_sel];
         if (!b->aud) {
@@ -1450,7 +1493,7 @@ void dn_app_input(void)
                 dn_unlock();
                 at = pos > lat ? pos - lat : 0u;
             }
-            dn_chop_at(at);
+            dn_chop_at(at, !bk->aud);              /* (tapping along: never a split) */
         }
         if (press & (1u << B_FX))
             dn_chop_move();
@@ -2239,10 +2282,32 @@ static void dn_draw_bottom(void)
     cv_text(8, 125, &FONT_XS, t, DN_C_LABEL);
     if (dn.play)
         cv_text(70, 125, &FONT_XS, "HOLD", DN_C_BLUE);
-    if (dn.page == DN_PG_SLICE) {                   /* chop mode: what the buttons do */
+    if (dn.page == DN_PG_SLICE) {                   /* chop mode: which chop, where the cursor is, what to do */
+        const dn_brk_t *b = &dn_bk[dn_bsel()];
+        uint32_t r = b->loop.rate ? b->loop.rate : 22050u, cs = dn.sl_cur / (r / 100u ? r / 100u : 1u);
+        char l[48], v[12];
+        l[0] = 0;
+        dn_cat(l, "CHOP ");
+        dn_num(v, (int32_t)dn.sl_sel + 1);
+        dn_cat(l, v);
+        dn_cat(l, "/");
+        dn_num(v, (int32_t)b->nslices);
+        dn_cat(l, v);
+        dn_cat(l, "  ");
+        dn_num(v, (int32_t)(cs / 100u));
+        dn_cat(l, v);
+        dn_cat(l, ".");
+        v[0] = (char)('0' + cs / 10u % 10u), v[1] = (char)('0' + cs % 10u), v[2] = 's', v[3] = 0;
+        dn_cat(l, v);
         cv_rect(0, 121, 240, 23, DN_C_BAR);
-        cv_text(8, 127, &FONT_T, dn_bk[dn_bsel()].aud ? "REC: CHOP HERE   PLAY: STOP" : "REC: CHOP   FX: MOVE   HOME: DEL",
-                DN_C_LABEL);
+        cv_text(8, 127, &FONT_T, l, C_WHITE);
+        if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0)
+            cv_text(232 - text_w(&FONT_T, dn.msg), 127, &FONT_T, dn.msg, DN_C_RED);
+        else
+            cv_text(232 - text_w(&FONT_T, b->aud ? "REC: CHOP HERE" : b->nslices <= 1u ? "CURSOR, THEN REC"
+                                                                    : "REC CHOP FX MOVE HOME DEL"),
+                    127, &FONT_T, b->aud ? "REC: CHOP HERE" : b->nslices <= 1u ? "CURSOR, THEN REC"
+                                                              : "REC CHOP FX MOVE HOME DEL", DN_C_LABEL);
         cv_blit(0, 96);
         return;
     }
@@ -2272,6 +2337,10 @@ void dn_app_draw(int force)
     if (DN_IS_SEQPG(dn.page) && dn_sq.playing && dn_sq.pos != shown_pos)
         dn.redraw |= DN_RD_BOTTOM;                  /* the playhead moved */
     shown_pos = dn_sq.pos;
+    if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) <= 0) {
+        dn.msg = 0;                                 /* a status-line word ran out */
+        dn.redraw |= DN_RD_BOTTOM;
+    }
     dn_draw_top();                                  /* every frame: the scope moves */
     if (dn.redraw & DN_RD_BOTTOM)
         dn_draw_bottom();
