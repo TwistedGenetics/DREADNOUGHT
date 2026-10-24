@@ -13,7 +13,7 @@ check("state: pattern size", st.patSize === g.pattern.length, st.patSize, g.patt
 check("params: as many as the state says", pr.length === st.nparams && st.nparams === NPARAM, pr.length, st.nparams);
 check("params: REESE DTN", pr[1] === g.dtn, pr[1], g.dtn);
 check("params: the tempo among them", pr[REESE.length] === g.bpm, pr[REESE.length], g.bpm);
-check("pattern: the magic (DNQ2)", pat.magic === 0x32514E44, pat.magic.toString(16), "32514e44");
+check("pattern: the magic (DNQ3)", pat.magic === 0x33514E44, pat.magic.toString(16), "33514e44");
 check("pattern: back to the same bytes", serializePattern(pat).every((b, i) => b === g.pattern[i]), "", "");
 check("names: the REESE presets", nm.count === 9 && nm.names[0] === "CLASSIC RS", nm.names[0], "CLASSIC RS");
 const lp = parseLfoPts(g.lfopts), ln = parseLfoNow(g.lfonow);

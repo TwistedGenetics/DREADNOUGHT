@@ -136,30 +136,44 @@ export function parseNames(r) {
 // ---- the pattern (dn_seq.h dn_pattern_t, little-endian) ------------------------------------------------------------
 export const TRACKS = 8, STEPS = 64, LEN_STEP = 4, LEN_MAX = 255;
 export const ST_ON = 1, ST_SLIDE = 2, ST_ACC = 4;
-const TR_BYTES = STEPS * 4 + 4, PAT_BYTES = 8 + TRACKS * TR_BYTES;
 export const KIND = (t) => (t === 0 ? "REESE" : t === 1 || t === 2 ? "BREAKS" : "MIDI");
+export const ST_RTRG = 8;
+// 0.11's steps are 8 bytes {note, flags, len, vel, cond, rtim, rlen, rvel}; 0.7-0.10's were 4 (the FM-1 says which by
+// the pattern's size in STATE: 4136 or 2088)
+const SB = (n) => (n >= 8 + TRACKS * (STEPS * 8 + 4) ? 8 : 4);
+export const PAT_BYTES = 8 + TRACKS * (STEPS * 8 + 4), PAT_BYTES_OLD = 8 + TRACKS * (STEPS * 4 + 4);
+export const MAGIC = 0x33514E44, MAGIC_OLD = 0x32514E44;
+export const newStep = () => ({ note: 53, flags: 0, len: 3, vel: 100, cond: 0, rtim: 12, rlen: 0, rvel: 0 });
 
 export function parsePattern(b) {
-  if (b.length < PAT_BYTES) throw new Error("short pattern");
-  const p = { magic: (b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24) >>> 0, swing: b[4], pad: [b[5], b[6], b[7]], tracks: [] };
+  if (b.length < PAT_BYTES_OLD) throw new Error("short pattern");
+  const sb = SB(b.length), TB = STEPS * sb + 4;
+  const p = { magic: (b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24) >>> 0, swing: b[4], pad: [b[5], b[6], b[7]], tracks: [], stepBytes: sb };
   for (let t = 0; t < TRACKS; t++) {
-    const o = 8 + t * TR_BYTES, steps = [];
-    for (let i = 0; i < STEPS; i++)
-      steps.push({ note: b[o + 4 * i], flags: b[o + 4 * i + 1], len: b[o + 4 * i + 2], vel: b[o + 4 * i + 3] });
-    const q = o + STEPS * 4;
+    const o = 8 + t * TB, steps = [];
+    for (let i = 0; i < STEPS; i++) {
+      const q = o + sb * i;
+      steps.push(sb === 8
+        ? { note: b[q], flags: b[q + 1], len: b[q + 2], vel: b[q + 3], cond: b[q + 4], rtim: b[q + 5], rlen: b[q + 6], rvel: (b[q + 7] << 24) >> 24 }
+        : { ...newStep(), note: b[q], flags: b[q + 1], len: b[q + 2], vel: b[q + 3] });
+    }
+    const q = o + STEPS * sb;
     p.tracks.push({ steps, len: b[q], mute: b[q + 1], chan: b[q + 2], lastNote: b[q + 3] });
   }
   return p;
 }
 export function serializePattern(p) {
-  const b = new Uint8Array(PAT_BYTES);
+  const sb = p.stepBytes || 8, TB = STEPS * sb + 4, b = new Uint8Array(8 + TRACKS * TB);
   b[0] = p.magic & 255; b[1] = (p.magic >>> 8) & 255; b[2] = (p.magic >>> 16) & 255; b[3] = (p.magic >>> 24) & 255;
   b[4] = p.swing;
   if (p.pad) b.set(p.pad.slice(0, 3).map((x) => x & 255), 5);   // pad[0]: OVERLAP CUT, a bit a track (0.8)
   for (let t = 0; t < TRACKS; t++) {
-    const o = 8 + t * TR_BYTES, tr = p.tracks[t];
-    tr.steps.forEach((s, i) => { b.set([s.note, s.flags, s.len, s.vel], o + 4 * i); });
-    b.set([tr.len, tr.mute, tr.chan, tr.lastNote], o + STEPS * 4);
+    const o = 8 + t * TB, tr = p.tracks[t];
+    tr.steps.forEach((s, i) => {
+      b.set(sb === 8 ? [s.note, s.flags & 15, s.len, s.vel, s.cond || 0, s.rtim ?? 12, s.rlen || 0, (s.rvel || 0) & 255]
+        : [s.note, s.flags & 7, s.len, s.vel], o + sb * i);
+    });
+    b.set([tr.len, tr.mute, tr.chan, tr.lastNote], o + STEPS * sb);
   }
   return b;
 }

@@ -87,7 +87,7 @@ int main(void)
         dn_seq_init(&q);
         q.bpm = 172;
         q.pat.tr[0].len = 16;
-        for (i = 0; i < 16u; i += 4u) q.pat.tr[0].st[i] = (dn_step_t){53, DN_ST_ON, 2, 100};
+        for (i = 0; i < 16u; i += 4u) q.pat.tr[0].st[i] = (dn_step_t){53, DN_ST_ON, 2, 100, 0, 0, 0, 0};
         dn_lfo_default(&p);                         /* SINE, synced, 1/4 */
         dn_lfo_reset(&s, 1);
         dn_seq_start(&q, &CB);

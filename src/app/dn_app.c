@@ -309,7 +309,35 @@ static void dn_sq_off(uint32_t t, uint8_t note)
         reese_note_off(&dn_rs);                     /* (not a note the keys or MIDI in play now) */
 }
 static void dn_sq_clock(uint8_t st) { plat_midi_out(0x0Fu | (uint32_t)st << 8); }
-static const dn_seq_cb_t DN_SQ_CB = {dn_sq_on, dn_sq_off, dn_sq_clock};
+/* ---- patterns: 8 an instrument (a track), the playing one in dn_sq.pat, the others here ------------------------
+ * dn_bank[t][n] holds track t's pattern n; the one playing (dn_pcur[t]) lives in dn_sq.pat.tr[t] while it plays
+ * (edits go there) and is copied back when another comes in. A change asked for while playing waits for the track's
+ * pattern to end (dn_pq: queued; the sequencer's LST says its last pass); stopped, it's at once. A track keeps its
+ * mute and MIDI channel across its patterns. Kept in flash, only the notes that are on (see dn_pat_save). */
+#define DN_NPAT 8u
+static dn_track_t dn_bank[DN_SEQ_TRACKS][DN_NPAT] X0X_POOL;
+static uint8_t dn_pcur[DN_SEQ_TRACKS], dn_pq[DN_SEQ_TRACKS];   /* playing; queued (0xFF: none) */
+static void dn_pat_switch(uint32_t t, uint32_t n)   /* (the lock held, or in the audio interrupt) */
+{
+    dn_track_t *live = &dn_sq.pat.tr[t];
+    uint8_t mute = live->mute, chan = live->chan;
+    dn_bank[t][dn_pcur[t]] = *live;
+    *live = dn_bank[t][n];
+    live->mute = mute;
+    live->chan = chan;
+    dn_pcur[t] = (uint8_t)n;
+    dn_pq[t] = 0xFF;
+    dn_sq.lst &= (uint8_t)~(1u << t);
+    dn_seq_track_new(&dn_sq, t);
+}
+static void dn_sq_wrap(uint32_t t)                  /* (audio) a track's pattern ends: a queued one comes in */
+{
+    if (dn_pq[t] != 0xFF && dn_pq[t] != dn_pcur[t])
+        dn_pat_switch(t, dn_pq[t]);
+    else
+        dn_pq[t] = 0xFF, dn_sq.lst &= (uint8_t)~(1u << t);
+}
+static const dn_seq_cb_t DN_SQ_CB = {dn_sq_on, dn_sq_off, dn_sq_clock, dn_sq_wrap};
 
 /* the click: a short square burst, higher on the bar, fading in ~25 ms */
 #define DN_CLK_LEN 1100u
@@ -1020,14 +1048,197 @@ static void dn_save_fill(dn_save_t *sp)
 #undef s
 }
 
+/* ---- the patterns in flash: four store objects (OBJ_PAT0, OBJ_PAT1, OBJ_SET, OBJ_MOTION: 4 x 3840 bytes), as one
+ * stream: "DNB1", a version, swing, the pattern's pad (OVERLAP CUT), then per track its playing pattern, mute,
+ * channel, then per track and pattern its length, last note and the steps that are on (9 bytes each: where, then the
+ * step). Room for ~1680 notes across all 64 patterns. */
+#define DN_PB_MAGIC 0x31424E44u                     /* "DNB1" */
+#define DN_PB_CHUNK 3840u
+#define DN_PB_MAX (4u * DN_PB_CHUNK)
+#define DN_PB_HEAD (10u + 3u * DN_SEQ_TRACKS + 3u * DN_SEQ_TRACKS * DN_NPAT)
+static const uint8_t DN_PB_OBJ[4] = {OBJ_PAT0, OBJ_PAT1, OBJ_SET, OBJ_MOTION};
+static uint8_t dn_pbuf[DN_PB_MAX] X0X_POOL;
+static const dn_track_t *dn_pat_get(uint32_t t, uint32_t n)   /* track t's pattern n, wherever it is now */
+{
+    return n == dn_pcur[t] ? &dn_sq.pat.tr[t] : &dn_bank[t][n];
+}
+static uint32_t dn_pat_notes(void)                  /* the notes on, all patterns */
+{
+    uint32_t t, n, i, c = 0;
+    for (t = 0; t < DN_SEQ_TRACKS; t++)
+        for (n = 0; n < DN_NPAT; n++) {
+            const dn_track_t *tr = dn_pat_get(t, n);
+            for (i = 0; i < DN_SEQ_STEPS; i++)
+                c += tr->st[i].flags & DN_ST_ON;
+        }
+    return c;
+}
+static uint32_t dn_pat_room(void) { return (DN_PB_MAX - DN_PB_HEAD) / 9u; }   /* notes that fit */
+static uint32_t dn_pat_used(uint32_t t)             /* which of track t's patterns have notes (a bit each) */
+{
+    uint32_t n, i, m = 0;
+    for (n = 0; n < DN_NPAT; n++) {
+        const dn_track_t *tr = dn_pat_get(t, n);
+        for (i = 0; i < DN_SEQ_STEPS && !(m >> n & 1u); i++)
+            if (tr->st[i].flags & DN_ST_ON)
+                m |= 1u << n;
+    }
+    return m;
+}
+static uint32_t dn_pat_pack(void)                   /* into dn_pbuf; its length (0: too many notes) */
+{
+    uint32_t t, n, i, o = 0;
+    uint8_t *b = dn_pbuf;
+    if (dn_pat_notes() > dn_pat_room())
+        return 0;
+    b[o++] = DN_PB_MAGIC & 255u, b[o++] = DN_PB_MAGIC >> 8 & 255u, b[o++] = DN_PB_MAGIC >> 16 & 255u;
+    b[o++] = DN_PB_MAGIC >> 24;
+    b[o++] = 1;
+    b[o++] = dn_sq.pat.swing;
+    b[o++] = dn_sq.pat.pad[0], b[o++] = dn_sq.pat.pad[1], b[o++] = dn_sq.pat.pad[2];
+    b[o++] = DN_NPAT;
+    for (t = 0; t < DN_SEQ_TRACKS; t++)
+        b[o++] = dn_pcur[t], b[o++] = dn_sq.pat.tr[t].mute, b[o++] = dn_sq.pat.tr[t].chan;
+    for (t = 0; t < DN_SEQ_TRACKS; t++)
+        for (n = 0; n < DN_NPAT; n++) {
+            const dn_track_t *tr = dn_pat_get(t, n);
+            uint32_t at = o + 2u, c = 0;
+            b[o++] = tr->len, b[o++] = tr->last_note, o++;
+            for (i = 0; i < DN_SEQ_STEPS; i++) {
+                const dn_step_t *st = &tr->st[i];
+                if (!(st->flags & DN_ST_ON))
+                    continue;
+                b[o++] = (uint8_t)i, b[o++] = st->note, b[o++] = st->flags, b[o++] = st->len, b[o++] = st->vel;
+                b[o++] = st->cond, b[o++] = st->rtim, b[o++] = st->rlen, b[o++] = (uint8_t)st->rvel;
+                c++;
+            }
+            b[at] = (uint8_t)c;
+        }
+    return o;
+}
+static int dn_pat_unpack(uint32_t len)              /* from dn_pbuf; 0: not ours (the patterns stay as they are) */
+{
+    static dn_pattern_t p X0X_POOL;
+    const uint8_t *b = dn_pbuf;
+    uint32_t t, n, i, o = 10u, k;
+    if (len < DN_PB_HEAD || (b[0] | b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24) != DN_PB_MAGIC || b[4] != 1u ||
+        b[9] != DN_NPAT)
+        return 0;
+    dn_pattern_clear(&p);
+    p.swing = b[5], p.pad[0] = b[6], p.pad[1] = b[7], p.pad[2] = b[8];
+    for (t = 0; t < DN_SEQ_TRACKS; t++) {
+        dn_pcur[t] = (uint8_t)(b[o] % DN_NPAT), p.tr[t].mute = b[o + 1u], p.tr[t].chan = b[o + 2u];
+        o += 3u;
+        dn_pq[t] = 0xFF;
+    }
+    for (t = 0; t < DN_SEQ_TRACKS; t++)
+        for (n = 0; n < DN_NPAT; n++) {
+            dn_track_t *tr = &p.tr[t];
+            uint32_t c;
+            for (i = 0; i < DN_SEQ_STEPS; i++)
+                dn_step_clear(&tr->st[i]);
+            if (o + 3u > len)
+                return 0;
+            tr->len = b[o], tr->last_note = b[o + 1u], c = b[o + 2u];
+            o += 3u;
+            for (k = 0; k < c; k++, o += 9u) {
+                dn_step_t *st;
+                if (o + 9u > len || b[o] >= DN_SEQ_STEPS)
+                    return 0;
+                st = &tr->st[b[o]];
+                st->note = b[o + 1u], st->flags = b[o + 2u], st->len = b[o + 3u], st->vel = b[o + 4u];
+                st->cond = b[o + 5u], st->rtim = b[o + 6u], st->rlen = b[o + 7u], st->rvel = (int8_t)b[o + 8u];
+            }
+            if (!dn_pattern_valid(&p))              /* (checks and clamps the track just read) */
+                return 0;
+            dn_bank[t][n] = *tr;
+        }
+    for (t = 0; t < DN_SEQ_TRACKS; t++) {           /* the playing ones into the sequencer */
+        uint8_t mute = p.tr[t].mute, chan = p.tr[t].chan;
+        p.tr[t] = dn_bank[t][dn_pcur[t]];
+        p.tr[t].mute = mute, p.tr[t].chan = chan;
+    }
+    dn_sq.pat = p;
+    return 1;
+}
+static int dn_pat_save(void)                        /* 0 kept; 1 too many notes; 2 the flash said no */
+{
+    uint32_t len = dn_pat_pack(), k;
+    if (!len)
+        return 1;
+    for (k = 0; k < 4u; k++) {
+        uint32_t from = k * DN_PB_CHUNK, n = len > from ? len - from : 0u;
+        if (n > DN_PB_CHUNK)
+            n = DN_PB_CHUNK;
+        if (plat_store_save(DN_PB_OBJ[k], dn_pbuf + from, n ? n : 1u))   /* (an unused chunk: one byte) */
+            return 2;
+        if (n < DN_PB_CHUNK)
+            break;
+    }
+    return 0;
+}
+static void dn_pat_load(void)                       /* at start-up: the patterns; or 0.10's one pattern as each track's
+                                                     * pattern 1; or the demo */
+{
+    uint32_t len = 0, k, t, n;
+    int got;
+    for (k = 0; k < 4u; k++) {
+        got = plat_store_load(DN_PB_OBJ[k], dn_pbuf + len, DN_PB_CHUNK);
+        if (got <= 0)
+            break;
+        len += (uint32_t)got;
+        if ((uint32_t)got < DN_PB_CHUNK)
+            break;
+    }
+    if (dn_pat_unpack(len))
+        return;
+    for (t = 0; t < DN_SEQ_TRACKS; t++) {           /* (not ours: start clean) */
+        dn_pcur[t] = 0, dn_pq[t] = 0xFF;
+        for (n = 0; n < DN_NPAT; n++) {
+            dn_track_t *tr = &dn_bank[t][n];
+            uint32_t i;
+            tr->len = 16, tr->mute = 0, tr->chan = (uint8_t)t, tr->last_note = 53;
+            for (i = 0; i < DN_SEQ_STEPS; i++)
+                dn_step_clear(&tr->st[i]);
+        }
+    }
+    got = plat_store_load(OBJ_PAT0, dn_pbuf, DN_PB_CHUNK);   /* 0.10 and older: one pattern of 8 tracks */
+    if (got <= 0 || !dn_pattern_from_old(&dn_sq.pat, dn_pbuf, (uint32_t)got))
+        dn_pattern_demo(&dn_sq.pat);                /* first boot: the demo */
+}
+/* track t to pattern n: at once when stopped, else when its pattern ends (LST its last pass) */
+static void dn_pat_select(uint32_t t, uint32_t n)
+{
+    if (n >= DN_NPAT)
+        return;
+    dn_lock();
+    if (!dn_sq.playing) {
+        if (n != dn_pcur[t])
+            dn_pat_switch(t, n);
+    } else if (n == dn_pcur[t]) {
+        dn_pq[t] = 0xFF;                            /* (the playing one again: nothing queued) */
+        dn_sq.lst &= (uint8_t)~(1u << t);
+    } else {
+        dn_pq[t] = (uint8_t)n;
+        dn_sq.lst |= (uint8_t)(1u << t);
+    }
+    dn_unlock();
+    dn_mark();
+    dn.redraw |= DN_RD_ALL;
+}
+
 static void dn_save(void)
 {
     dn_save_t s;
     dn_save_fill(&s);
     dn_man.magic = DN_MAN_MAGIC;
-    if (plat_store_save(OBJ_SOUND, &s, sizeof s) == 0 && plat_store_save(OBJ_PAT0, &dn_sq.pat, sizeof dn_sq.pat) == 0 &&
-        plat_store_save(OBJ_SONG, &dn_man, sizeof dn_man) == 0)
-        dn.dirty = 0;
+    {
+        int pr = dn_pat_save();
+        if (plat_store_save(OBJ_SOUND, &s, sizeof s) == 0 && pr == 0 && plat_store_save(OBJ_SONG, &dn_man, sizeof dn_man) == 0)
+            dn.dirty = 0;
+        if (pr == 1)
+            dn_say("PATTERN MEMORY FULL");
+    }
     dn.redraw |= DN_RD_ALL;
 }
 
@@ -1056,8 +1267,7 @@ void dn_app_init(void)
     dn.cin = 1;
     for (k = 0; k < NKEYS; k++)
         dn.rec_step[k] = 0xFF;
-    if (plat_store_load(OBJ_PAT0, &dn_sq.pat, sizeof dn_sq.pat) != (int)sizeof dn_sq.pat || !dn_pattern_valid(&dn_sq.pat))
-        dn_pattern_demo(&dn_sq.pat);                /* first boot (or a pattern from another firmware): the demo */
+    dn_pat_load();
     dn.redraw = DN_RD_ALL;
     if (plat_store_load(OBJ_SONG, &dn_man, sizeof dn_man) != (int)sizeof dn_man || dn_man.magic != DN_MAN_MAGIC ||
         dn_man.count > DN_MAN_N)
@@ -1518,8 +1728,12 @@ static void dn_step_drop(uint32_t to)
         return;
     dn_lock();
     tr->st[to] = a;
-    if (!copy)
-        tr->st[from] = (b.flags & DN_ST_ON) ? b : (dn_step_t){a.note, 0, a.len, a.vel};
+    if (!copy) {
+        if (b.flags & DN_ST_ON)
+            tr->st[from] = b;
+        else
+            tr->st[from] = a, tr->st[from].flags = 0;   /* (the old place: off, its values kept) */
+    }
     dn_unlock();
     if (copy)
         dn.save_chord = 1;                          /* (SAVE was a modifier: no save when it comes up) */

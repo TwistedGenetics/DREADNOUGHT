@@ -2,7 +2,7 @@
 // A simulated FM-1 running DREADNOUGHT, for the editor's demo mode and its tests: a Web MIDI access object with one
 // port that answers the editor's commands (src/app/dn_editor.c) the way the firmware does. Copyright (C) 2026 Jamie
 // (TwistedGenetics).
-import { HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO, LFO_PTS } from "./protocol.js";
+import { HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO, LFO_PTS, newStep, MAGIC } from "./protocol.js";
 
 const PRESETS = ["CLASSIC RS", "OG REESE", "HOLLOW RS", "TECHSTEP", "NEURO RS", "SYNC RS", "DARK RS", "SUB REESE", "HOOVER RS"];
 const LOOPS = ["ROLLER", "STEPPER"];
@@ -14,8 +14,8 @@ const LIMITS = [[0, 5], [0, 127], [0, 7], [0, 127], [0, 127], [0, 127], [0, 127]
 const LFO0 = 18 + 1 + 16;
 
 export function demoPattern() {
-  const steps = () => Array.from({ length: 64 }, () => ({ note: 53, flags: 0, len: 3, vel: 100 }));
-  const p = { magic: 0x32514E44, swing: 54, pad: [0, 0, 0], tracks: [] };
+  const steps = () => Array.from({ length: 64 }, () => newStep());
+  const p = { magic: MAGIC, swing: 54, pad: [0, 0, 0], tracks: [], stepBytes: 8 };
   for (let t = 0; t < 8; t++) p.tracks.push({ steps: steps(), len: 16, mute: 0, chan: t, lastNote: 53 });
   const S = ST_SLIDE, A = ST_ACC;
   [[0, 53, 11, 0], [3, 53, 2, A], [6, 56, 4, 0], [7, 58, 7, S], [10, 53, 7, 0], [12, 51, 7, 0], [14, 41, 7, A]]
@@ -81,7 +81,7 @@ export class MockFM1 {
       case CMD.PAT_COMMIT: {
         try {
           const p = parsePattern([...this.staging]);
-          if (p.magic !== 0x32514E44) return [1];
+          if (p.magic !== MAGIC) return [1];
         } catch (_) { return [1]; }
         this.pattern = new Uint8Array(this.staging);
         this.rev++; this.dirty = 1;

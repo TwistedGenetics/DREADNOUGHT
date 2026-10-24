@@ -16,10 +16,14 @@ test("7-bit packing round trip", () => {
   assert.equal(num(digits(123456, 3), 0, 3), 123456);
 });
 
-test("the pattern's bytes round trip (2088, the firmware's dn_pattern_t)", () => {
+test("the pattern's bytes round trip (4136, the firmware's dn_pattern_t of 0.11; 2088 for 0.7-0.10)", () => {
   const p = demoPattern(), b = serializePattern(p);
-  assert.equal(b.length, 2088);
-  assert.deepEqual(parsePattern([...b]), { ...p, pad: [0, 0, 0] });
+  assert.equal(b.length, 4136);
+  p.tracks[0].steps[3].cond = 11; p.tracks[0].steps[3].rvel = -90; p.tracks[0].steps[3].flags |= 8;
+  assert.deepEqual(parsePattern([...serializePattern(p)]), { ...p, pad: [0, 0, 0] });
+  const old = serializePattern({ ...p, stepBytes: 4 });
+  assert.equal(old.length, 2088);
+  assert.equal(parsePattern([...old]).tracks[0].steps[0].note, p.tracks[0].steps[0].note);
   setOverlapCut(p, 3, true);
   assert.equal(parsePattern([...serializePattern(p)]).pad[0], 8, "OVERLAP CUT kept in pad[0]");
 });
@@ -64,17 +68,17 @@ test("a session with the simulated FM-1: state, params, pattern write and commit
   try {
     const st = await link.state();
     assert.equal(st.bpm, 172);
-    assert.equal(st.patSize, 2088);
+    assert.equal(st.patSize, 4136);
     const pr = await link.params();
     assert.equal(pr.length, st.nparams);
     assert.equal(pr[17], -24);
     assert.equal(await link.setParam(1, 90), 0);
     assert.equal((await link.params())[1], 90);
     const pat = await link.readPattern(st.patSize);
-    pat.tracks[3].steps[5] = { note: 60, flags: ST_ON, len: 8, vel: 99 };
+    pat.tracks[3].steps[5] = { note: 60, flags: ST_ON, len: 8, vel: 99, cond: 11, rtim: 12, rlen: 0, rvel: -40 };
     await link.writePattern(pat);
     const back = await link.readPattern(st.patSize);
-    assert.deepEqual(back.tracks[3].steps[5], { note: 60, flags: ST_ON, len: 8, vel: 99 });
+    assert.deepEqual(back.tracks[3].steps[5], { note: 60, flags: ST_ON, len: 8, vel: 99, cond: 11, rtim: 12, rlen: 0, rvel: -40 });
     assert.ok((await link.state()).rev > st.rev);
     assert.equal(await link.transport(true), 1);
     assert.equal(await link.save(), 0);

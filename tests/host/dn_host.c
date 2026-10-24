@@ -406,7 +406,7 @@ int main(int argc, char **argv)
         } else if (!strcmp(a, "edround")) {          /* the page's round trip: read the pattern, change step 2 of
                                                      * track 1 to note 60 / 2 steps / on, write it back, commit */
             static uint8_t pat[sizeof(dn_pattern_t)];
-            uint32_t got = ed_read_pattern(pat), at = 8u + 4u * 1u;   /* magic, swing, pad; then track 0's step 1 */
+            uint32_t got = ed_read_pattern(pat), at = 8u + 8u * 1u;   /* magic, swing, pad; then track 0's step 1 (8 bytes a step) */
             int rc;
             pat[at] = 60;
             pat[at + 1] = DN_ST_ON;
