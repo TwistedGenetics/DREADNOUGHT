@@ -196,8 +196,62 @@ def main():
                      (b.OUT / "x0x.dis", "dreadnought.dis"), (b.OUT / "x0x.map", "dreadnought.map")):
         if src.exists():
             shutil.copy(src, a.out / dst)
+    sizes(b, a.out)
     print(f"build_fm1: {a.out / (name + '.fwsc')}  identity {b.PRODUCT}")
     return 0
+
+
+SLOT_MARGIN = 24 * 1024                                 # CI fails below this much free in the app slot
+
+
+def sizes(b, out):
+    """What the firmware really takes (the .fwsc is padded to the slot, so its size says nothing): the image
+    against the app slot, RAM (.data + .bss, the pool), the biggest symbols. Printed, written to sizes.md, and on
+    GitHub as notices and the job summary."""
+    import json
+    syms = b.tc("common/bin/objdump", "-t", b.OUT / "x0x.elf")
+    img = (b.OUT / "x0x.bin").stat().st_size
+    slot = b.APP_SLOT
+    sect, rows = {}, []
+    for ln in syms.splitlines():
+        m = re.match(r"^([0-9a-f]{8})\s.{7}\s(\S+)\s+([0-9a-f]{8})\s+(\S+)$", ln)
+        if not m:
+            continue
+        sz = int(m[3], 16)
+        if not sz:
+            continue
+        sect[m[2]] = sect.get(m[2], 0) + sz
+        rows.append((sz, m[2], m[4]))
+    rows.sort(reverse=True)
+
+    def sym(name):
+        mm = re.search(r"^([0-9a-f]+) .*\s" + name + r"$", syms, re.M)
+        return int(mm.group(1), 16) if mm else 0
+    ram = sym("_bss_end") - 0x01C08000
+    pool = sym("_pool_end") - sym("_pool_start")
+    ours = sum(sz for sz, s, n in rows if s in (".text", ".rodata", ".data") and re.match(r"(dn_|reese|DN_|RS_|ed_)", n))
+    rep = {"image": img, "slot": slot, "slot_free": slot - img, "ram_data_bss": ram, "ram_region": 98304,
+           "pool": pool, "pool_region": 0x54000, "sections": sect, "dreadnought_symbols": ours,
+           "top": [{"size": sz, "section": s, "name": n} for sz, s, n in rows[:40]]}
+    md = [f"## Firmware size ({b.PRODUCT})", "",
+          "| | used | of | free |", "|---|---|---|---|",
+          f"| App slot (code + constants) | {img:,} B | {slot:,} B | **{slot - img:,} B** |",
+          f"| RAM .data + .bss | {ram:,} B | 98,304 B | {98304 - ram:,} B |",
+          f"| RAM pool | {pool:,} B | {0x54000:,} B | {0x54000 - pool:,} B |", "",
+          "Sections: " + ", ".join(f"{k} {v:,} B" for k, v in sorted(sect.items(), key=lambda kv: -kv[1])[:8]), "",
+          "| size | section | symbol |", "|---|---|---|"] + [f"| {sz:,} | {s} | `{n}` |" for sz, s, n in rows[:40]]
+    (out / "sizes.md").write_text("\n".join(md) + "\n")
+    (out / "sizes.json").write_text(json.dumps(rep, indent=1))
+    print("\n".join(md[:8]))
+    if os.environ.get("GITHUB_ACTIONS"):
+        print(f"::notice title=App slot::{img} B of {slot} B used, {slot - img} B free")
+        print(f"::notice title=RAM::.data+.bss {ram} B of 98304; pool {pool} B of {0x54000} ({0x54000 - pool} free)")
+        print("::notice title=Biggest::" + "; ".join(f"{n} {s} {sz}" for sz, s, n in rows[:12]))
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+                f.write("\n".join(md) + "\n")
+    if slot - img < SLOT_MARGIN:
+        raise SystemExit(f"build_fm1: only {slot - img} B free in the app slot (< {SLOT_MARGIN})")
 
 
 if __name__ == "__main__":

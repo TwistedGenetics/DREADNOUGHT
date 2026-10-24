@@ -68,6 +68,7 @@ jobs:
           pkg="build/fm1/DREADNOUGHT-${{ steps.ver.outputs.version }}.fwsc"
           name="DREADNOUGHT-${{ steps.ver.outputs.version }}.fwsc"
           cp "$pkg" "dist/$name"
+          cp build/fm1/sizes.md build/fm1/sizes.json dist/ 2>/dev/null || true
           cd dist
           sha256sum *.fwsc > SHA256SUMS
           python3 - "$name" <<'EOF'
