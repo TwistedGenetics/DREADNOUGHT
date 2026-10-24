@@ -24,6 +24,9 @@ M-UPGRADE update entry and the update loader, the package maker and the build ch
 | Host harness's screen stubs (`tests/host/dn_host.c`) | X0X `host/x0x_host.c` | via the submodule | GPL-3.0-only |
 | REESE's ladder filter and supersaw spacing (`src/dsp/reese.c`) | [Clipper](https://github.com/isod89) `dsp.c`, `eng_hybrid.c` | 2026-10-23 | GPL-3.0-only |
 | SVF, polyBLEP, soft clip (`src/dsp/dn_dsp.h`) | written again after Felucca's `dsp.c` | | GPL-3.0-only |
+| Sample-slot upload commands (`src/hardware/dn_main_fm1.c`, editor section) | X0X `app/editor.c`, after Felucca's `editor.c` | via the submodule | GPL-3.0-only |
+| Breaks upload page (`web/breaks/index.html`, made by `tools/make_breaks_page.py`) | X0X `web/x0x_breaks.html`, `x0x_breaks.js` (encoder and packing unchanged) | via the submodule | GPL-3.0-only |
+| IMA ADPCM decode step (`src/dsp/dn_breaks.c`) | Felucca `eng_sample.c` (the standard IMA tables), as X0X uses it | | GPL-3.0-only |
 | Web flasher's update-protocol modules (`web/flasher/vendor/`) | SLOOP / Felucca `web/fm1ota.js`, `web/fm1pkg.js` | SLOOP v2.8.1 | GPL-3.0-only |
 
 ## What the build changes on the way through

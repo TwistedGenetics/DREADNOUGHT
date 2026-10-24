@@ -11,6 +11,7 @@ DN_NOTE_INC 128 x uint32  the phase increment of each MIDI note at 44.1 kHz (A4 
 DN_ENV_K   128 x uint16   one-pole step per control tick (32 samples), Q16, for times 1 ms .. 10 s (log): the
                           envelopes and the glide cover ~99 % of the way in that time
 DN_LFO_INC 128 x uint32   the LFO's phase increment per control tick for 0.05 .. 20 Hz (log)
+DN_SEMI_Q16 49 x uint32   2^(k/12) for k = -24 .. +24 semitones, Q16 (the breaks' pitch)
 """
 import math
 import sys
@@ -42,6 +43,7 @@ def main(out):
     L += arr("DN_ENV_K", "uint16_t", [min(65535, max(1, int(round(65536 * (1 - math.exp(-tick / (m / 1000 / 4.6))))))) for m in ms])
     hz = [0.05 * (400 ** (v / 127)) for v in range(128)]
     L += arr("DN_LFO_INC", "uint32_t", [int(round(h * tick * 2 ** 32)) for h in hz], per=8)
+    L += arr("DN_SEMI_Q16", "uint32_t", [int(round(65536 * 2 ** ((k - 24) / 12))) for k in range(49)], per=8)
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text("\n".join(L) + "\n")
     print(f"tables: {out}")

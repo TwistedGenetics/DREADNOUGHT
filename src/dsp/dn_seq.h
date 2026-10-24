@@ -42,7 +42,7 @@ typedef struct {
 
 /* what the sequencer asks of the app (all called in the audio interrupt) */
 typedef struct {
-    void (*note_on)(uint32_t track, uint8_t note, uint8_t vel, int slide);
+    void (*note_on)(uint32_t track, uint8_t note, uint8_t vel, int slide, uint8_t flags);   /* flags: the step's */
     void (*note_off)(uint32_t track, uint8_t note);
     void (*clock)(uint8_t status);                  /* 0xF8 a pulse, 0xFA start, 0xFC stop */
 } dn_seq_cb_t;

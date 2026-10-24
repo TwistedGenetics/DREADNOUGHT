@@ -13,7 +13,7 @@ static uint32_t nev;
 static uint64_t now;
 static int fails;
 
-static void on(uint32_t t, uint8_t n, uint8_t v, int s) { ev[nev++] = (ev_t){now, 'N', t, n, v, s}; }
+static void on(uint32_t t, uint8_t n, uint8_t v, int s, uint8_t f) { (void)f; ev[nev++] = (ev_t){now, 'N', t, n, v, s}; }
 static void off(uint32_t t, uint8_t n) { ev[nev++] = (ev_t){now, 'O', t, n, 0, 0}; }
 static void clk(uint8_t st) { ev[nev++] = (ev_t){now, st == 0xF8 ? 'C' : st == 0xFA ? 'S' : 'P', 0, 0, 0, 0}; }
 static const dn_seq_cb_t CB = {on, off, clk};

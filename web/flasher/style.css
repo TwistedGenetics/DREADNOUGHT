@@ -36,6 +36,7 @@ body {
   border: 3px solid var(--steel);
   border-top-color: var(--mod); border-right-color: var(--mod);
 }
+.links { display: flex; gap: 16px; flex-wrap: wrap; }
 .help { color: var(--mod); font-weight: 600; text-decoration: none; white-space: nowrap; }
 main { max-width: 760px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; }
 .panel {

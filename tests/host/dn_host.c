@@ -94,6 +94,12 @@ int plat_store_save(uint32_t obj, const void *src, uint32_t len)
     store_len[obj] = (int)len;
     return 0;
 }
+int plat_slot_zones(int k) { (void)k; return 0; }   /* the simulator: no uploaded loops (the built-in ones play) */
+const uint8_t *plat_slot(int k, int z, uint32_t *n, uint32_t *rate, char name[9])
+{
+    (void)k, (void)z, (void)n, (void)rate, (void)name;
+    return 0;
+}
 static void dn_lock(void) {}
 static void dn_unlock(void) {}
 

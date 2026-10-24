@@ -88,3 +88,20 @@ Not yet tested on a real FM-1.
 
 Not yet tested on a real FM-1.
 
+## 0.5 — BREAKS (2026-10-24)
+
+- BREAKS, a Rex-style break chopper, on tracks 2 and 3 (A and B). A loop is cut into 16 slices a bar; each step plays
+  one; the loop's speed follows the tempo (a 136 BPM break at 172 is sped up, pitch and all). Per step: slice, gate,
+  accent, reverse. Per track: loop, pitch (±24 semitones), decay after the gate (or HOLD: the break plays on), crush.
+  A new slice cuts the last one without a click. Stopping the transport fades the breaks out.
+- Two built-in loops, ROLLER and STEPPER, synthesised by DREADNOUGHT's own code at build time (no recordings).
+- Your own loops: the new [breaks page](https://twistedgenetics.github.io/DREADNOUGHT/breaks/) (X0X's, adapted) uploads
+  WAVs into the FM-1's three sample slots (~20 s in all); they appear after the built-in ones as BR1, BR2 …
+  The firmware now answers the sample-slot commands (X0X's).
+- BRK page (ARP): the loop's picture with its slices and the slice playing; LOOP, PITCH, DECAY, CRUSH.
+- Tracks 4–8 play MIDI (channels 4–8). The keys play slices with a break track selected; REC records them.
+- Host tests: a slice is the loop's own samples (correlation 1.00), reversed is the slice backwards, all slices in order
+  at another tempo are the loop sped up, the release reaches silence, cuts don't click; the BRK page driven from the panel.
+
+Not yet tested on a real FM-1.
+

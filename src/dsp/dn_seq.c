@@ -157,7 +157,7 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
         slide = (st->flags & DN_ST_SLIDE) && s->sounding[t] != 0xFF;
         if (s->sounding[t] != 0xFF && !slide)
             release(s, t, cb);
-        cb->note_on(t, st->note, (st->flags & DN_ST_ACC) ? 127u : st->vel, slide);
+        cb->note_on(t, st->note, (st->flags & DN_ST_ACC) ? 127u : st->vel, slide, st->flags);
         if (slide && s->sounding[t] != st->note)
             cb->note_off(t, s->sounding[t]);        /* (MIDI: the old note ends after the new one starts) */
         s->sounding[t] = st->note;

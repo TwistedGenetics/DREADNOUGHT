@@ -97,7 +97,8 @@ def main():
         b.GEN.mkdir(parents=True, exist_ok=True)
         dngen.mkdir(parents=True, exist_ok=True)
         for cmd in ([sys.executable, str(b.SRC / "tools" / "gen_font.py"), str(b.GEN / "felucca_font.h")],
-                    [sys.executable, str(REPO / "tools" / "gen_dn_tables.py"), str(dngen / "dn_tables.h")]):
+                    [sys.executable, str(REPO / "tools" / "gen_dn_tables.py"), str(dngen / "dn_tables.h")],
+                    [sys.executable, str(REPO / "tools" / "gen_dn_breaks.py"), str(dngen / "dn_breaks_builtin.h")]):
             r = subprocess.run(cmd, capture_output=True, text=True)
             if r.returncode:
                 sys.stderr.write(r.stdout + r.stderr)

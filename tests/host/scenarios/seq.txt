@@ -36,13 +36,13 @@ expect mute.1 1
 shot seq-03-muted.png
 tapkey 1 50
 expect mute.1 0
-# track 2 (MIDI channel 2): a step, a shorter length, its notes go out on MIDI
-turn K1 1
-expect trk 2
+# track 4 (MIDI channel 4): a step, a shorter length, its notes go out on MIDI
+turn K1 3
+expect trk 4
 tapkey 0 80
-expect on.2 1
+expect on.4 1
 turn K2 -4
-expect len.2 4
+expect len.4 4
 wait 1000
 expect midinotes >1
 # swing
@@ -51,7 +51,7 @@ expect swing 60
 tap PLAY
 expect playing 0
 # step record into track 1: clear it first (black key 9 held 1 s)
-turn K1 -1
+turn K1 -3
 expect trk 1
 key 20 down
 wait 1200
@@ -81,4 +81,4 @@ reboot
 expect on.1 4
 expect nt.1.4 57
 expect swing 60
-expect len.2 4
+expect len.4 4

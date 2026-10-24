@@ -39,6 +39,7 @@ def main(rel_dir: Path, site: Path) -> None:
     site.mkdir(parents=True)
     shutil.copyfile(ROOT / "web" / "index.html", site / "index.html")
     shutil.copytree(ROOT / "web" / "flasher", site / "flasher", ignore=shutil.ignore_patterns("test"))
+    shutil.copytree(ROOT / "web" / "breaks", site / "breaks")   # the break loops upload page (X0X's, adapted)
     listing = []
     meta = rel_dir / "releases.json"
     releases = json.loads(meta.read_text()) if meta.exists() else []
