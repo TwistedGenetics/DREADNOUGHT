@@ -82,3 +82,18 @@ test("a session with the simulated FM-1: state, params, pattern write and commit
     assert.equal((await link.names(0)).length, 9);
   } finally { m.close(); }
 });
+
+test("connect: any port name, and an INFO lost after the port opens is asked again", async () => {
+  const m = new MockFM1(), log = [];
+  m.input.name = m.output.name = "USB MIDI Device";
+  const other = { name: "IAC Bus 1", state: "connected", onmidimessage: null, open: async () => {} };
+  m.access.inputs = new Map([["iac", other], ["in", m.input]]);
+  m.access.outputs.set("iac", { name: "IAC Bus 1", state: "connected", open: async () => {}, send: () => {} });
+  let drop = 1;
+  const send = m.output.send;
+  m.output.send = (d) => { if (drop-- > 0) return; send(d); };
+  const link = await connect(m.access, (s) => log.push(s));
+  assert.match(link.name, /^DREADNOUGHT/);
+  assert.ok(log.some((s) => /try 1 of 3/.test(s)), log.join(" | "));
+  m.close();
+});

@@ -200,23 +200,38 @@ export class Link {
   async transport(on) { return (await this.req(CMD.TRANSPORT, [on ? 1 : 0]))[0]; }
   async save() { return (await this.req(CMD.SAVE, [], 8000))[0]; }
   async preset(i) { return (await this.req(CMD.PRESET, [i]))[0]; }
-  async info() { return String.fromCharCode(...(await this.req(CMD.INFO, [], 800)).filter((c, i, a) => i < a.indexOf(0))); }
+  async info() { return String.fromCharCode(...(await this.req(CMD.INFO, [], 1500)).filter((c, i, a) => i < a.indexOf(0))); }
 }
 
-// find the FM-1 running DREADNOUGHT 0.7+ among the MIDI ports (it answers INFO with "DREADNOUGHT ...")
-export async function connect(midi) {
-  const outs = [...midi.outputs.values()];
-  for (const input of midi.inputs.values()) {
-    if (input.state === "disconnected" || !/dreadnought|fm-1|fm1/i.test(input.name || "")) continue;
-    const output = outs.find((o) => o.name === input.name) || outs.find((o) => /dreadnought|fm-1|fm1/i.test(o.name || ""));
-    if (!output) continue;
-    if (input.open) await input.open();
-    if (output.open) await output.open();
-    const link = new Link(input, output);
+// find the FM-1 running DREADNOUGHT 0.7+ among the MIDI ports (it answers INFO with "DREADNOUGHT ..."). The port's
+// name differs by OS and by what the OS remembered from earlier firmware (DREADNOUGHT FM-1, X0X FM-1, FM-1, ...), so
+// the likely names are asked first, then every other port (INFO uses the non-commercial ID 7D: harmless elsewhere).
+// INFO is asked three times: the first frame after a port opens can be lost.
+const LIKELY = /dreadnought|fm-1|fm1|x0x|felucca|m-vave/i;
+export async function connect(midi, log = () => {}) {
+  const outs = [...midi.outputs.values()], ins = [...midi.inputs.values()].filter((i) => i.state !== "disconnected");
+  const order = [...ins.filter((i) => LIKELY.test(i.name || "")), ...ins.filter((i) => !LIKELY.test(i.name || ""))];
+  log(`MIDI in: ${ins.map((i) => i.name).join(", ") || "none"}; out: ${outs.map((o) => o.name).join(", ") || "none"}`);
+  for (const input of order) {
+    const output = outs.find((o) => o.name === input.name) ||
+      (LIKELY.test(input.name || "") && outs.find((o) => LIKELY.test(o.name || "")));
+    if (!output) { log(`${input.name}: no output port with that name`); continue; }
     try {
-      const info = await link.info();
-      if (/^DREADNOUGHT/i.test(info)) { link.name = info; return link; }
-    } catch (_) { /* not answering: the next */ }
+      if (input.open) await input.open();
+      if (output.open) await output.open();
+    } catch (e) { log(`${input.name}: can't open (${e.message}): another app may have it`); continue; }
+    const link = new Link(input, output);
+    for (let k = 0; k < 3; k++) {
+      try {
+        const info = await link.info();
+        log(`${input.name}: answered "${info}"`);
+        if (/^DREADNOUGHT/i.test(info)) { link.name = info; return link; }
+        break;
+      } catch (_) { log(`${input.name}: no answer to INFO (try ${k + 1} of 3)`); }
+    }
+    input.onmidimessage = null;
   }
-  throw new Error("No FM-1 running DREADNOUGHT 0.7 or later found. Connect it by USB and close other apps that use its MIDI port.");
+  const names = ins.map((i) => i.name).join(", ");
+  throw new Error(`No FM-1 running DREADNOUGHT 0.7 or later answered. MIDI ports seen: ${names || "none"}. ` +
+    "Connect it by USB, close other apps that use its MIDI port (Ableton, the breaks page or the flasher in another tab), and try again.");
 }

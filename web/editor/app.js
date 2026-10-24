@@ -42,7 +42,8 @@ $("connect").onclick = () => guard(async () => {
   if (!navigator.requestMIDIAccess) throw new Error("This browser can't talk to MIDI devices. Use Chrome or Edge.");
   say("Connecting…");
   const midi = await navigator.requestMIDIAccess({ sysex: true });
-  const link = await connect(midi);
+  S.connLog = [];
+  const link = await connect(midi, (m) => { S.connLog.push(m); console.log("[DREADNOUGHT connect]", m); });
   await start(link, `Connected: ${link.name}`);
 });
 $("demo").onclick = () => guard(async () => {

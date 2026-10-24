@@ -100,6 +100,16 @@ Find out which step fails on a real FM-1 running 0.8:
 - **Another app holding the port** (Ableton, the breaks page or the flasher in another tab). Say so in the error
   text.
 
+**Already done (after 0.8, on the site only, no firmware change).**
+- The user's report: Chrome didn't ask for MIDI permission (it was granted earlier on the site), nothing else had the
+  port, and the page said "No FM-1 running DREADNOUGHT 0.7 or later found".
+- So the access worked, and either no port matched the name or INFO wasn't answered in time. The editor asked INFO
+  once with an 800 ms timeout. The breaks page retries, and also matches `x0x|felucca`.
+- `connect()` now tries the likely names first, then every port; asks INFO three times with 1.5 s each; logs every
+  step (`S.connLog` and the console); and names the ports it saw in the error.
+- Start B from the user's next report with that list. If the port is there and INFO still goes unanswered, the fault
+  is on the firmware side (`ed_service` / `ota_frame_get`).
+
 **Also:**
 - Add a **Diagnostics** panel to the editor (light, collapsible): the MIDI ports it sees, which one it chose, the
   frames sent and received in hex, and timeouts.
