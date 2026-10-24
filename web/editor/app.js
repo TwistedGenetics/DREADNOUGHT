@@ -5,13 +5,14 @@ import {
   noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
   lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
   PF, FX_NAMES, fxParams, E, SUB, subIndex, NPARAM_13, nLfos, FENV, NPARAM_19, feIndex,
-  SMP_PAD, SMP_ZONE, SMP_KEYS, SMP_NPADS, SMP_NZONES, readSampler, smpNote,
+  SMP_PAD, SMP_ZONE, SMP_KEYS, SMP_NPADS, SMP_NZONES, readSampler, smpNote, FM_MACROS,
 } from "./protocol.js";
 import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
   slotSamples, CAP, RATES, RATE_NAME, FOLDS,
 } from "./media.js";
 import { readProject, writeProject, checkProject, mediaOf, FORMAT } from "./project.js";
+import { parseSyx, zoneBytes, zoneVoices, unpack as fmUnpack, vname as fmVname, vmax as fmVmax, vtext as fmVtext, isCarrier, opFreq } from "./dx7.js";
 
 const $ = (id) => document.getElementById(id);
 const S = {
@@ -19,7 +20,7 @@ const S = {
   writing: 0, lastRev: -1, poll: null, dirtyPat: false, drag: null, selNote: -1, zoom: 0, x0: 0,
   lfo: null, lfoNow: null, lfoDraw: null, pats: null,
   proj: null, media: [], dev: null, mediaRead: false, dir: null,
-  smp: null, pad: 0, zone: 0,
+  smp: null, pad: 0, zone: 0, fm: null, fmNames: [],
 };
 const ROWS = 36, ROW_H = 14, GUT = 46;
 
@@ -62,6 +63,12 @@ async function start(link, label) {
     S.smp = m;
     buildSampler();
     if (m) render();
+    return link.fmGet().then(async (f) => {        // (0.25: FM; none before)
+      if (S.link !== link) return;
+      S.fm = f;
+      S.fmNames = (await link.names(6).catch(() => [])) || [];
+      buildFm();
+    });
   }).catch(() => {});
 }
 
@@ -147,10 +154,15 @@ async function poll() {
     if (S.proj) { S.proj = await S.link.proj().catch(() => S.proj); setEngines(S.proj.eng); }
     refreshValues();
     refreshProject();
+    if (S.fm && $("fmtab").classList.contains("on") && !S.fmBusy &&
+        !(document.activeElement && document.activeElement.closest && document.activeElement.closest("#fmtab"))) {
+      const seq = S.fmSeq, f = await S.link.fmGet().catch(() => null);   // (changed on the FM-1: the tab follows,
+      if (f && seq === S.fmSeq && !S.fmBusy) { S.fm = f; buildFm(); }      //  unless you changed it meanwhile)
+    }
     if (S.smp && $("smptab").classList.contains("on") && !S.smpBusy &&
         !(document.activeElement && document.activeElement.closest && document.activeElement.closest("#smptab"))) {
-      S.smp = (await readSampler(S.link)) || S.smp;     // (changed on the FM-1: the tab follows)
-      buildSampler();
+      const seq = S.smpSeq, m = await readSampler(S.link);   // (changed on the FM-1: the tab follows, unless
+      if (m && seq === S.smpSeq && !S.smpBusy) { S.smp = m; buildSampler(); }   //  you changed it meanwhile)
     }
   } else if (S.proj && $("files").classList.contains("on")) {
     S.proj = await S.link.proj().catch(() => S.proj);   // (the CPU and the memory, live)
@@ -593,11 +605,103 @@ function buildBreaks() {
     brkParams(S.loops).forEach((p, i) => slider(g, brkIndex(k, i), p));
   });
 }
+// ---- FM (0.25): the voice's 155 values, LEVEL, VOICES, the macros ----------------------------------------------------
+const fmTimers = {};
+function fmSet(k, v, after) {                        // (a drag: the last value goes, at most every 40 ms)
+  S.fmSeq = (S.fmSeq || 0) + 1;
+  clearTimeout(fmTimers[k]);
+  S.fmBusy = (S.fmBusy || 0) + 1;
+  fmTimers[k] = setTimeout(() => guard(async () => { await S.link.fmSet(k, v); if (after) after(); }).finally(() => { S.fmBusy--; }), 40);
+}
+function fmSlider(box, k, name, min, max, get, text, after) {
+  const el = document.createElement("div");
+  el.className = "prm";
+  el.innerHTML = `<span class="nm">${name}</span><input type="range" min="${min}" max="${max}" step="1"><span class="v"></span>`;
+  const r = el.querySelector("input"), v = el.querySelector(".v");
+  const show = () => { v.textContent = text(+r.value); };
+  r.value = get();
+  show();
+  r.oninput = () => {
+    if (k < 156) S.fm.voice[k] = +r.value; else if (k === 156) S.fm.level = +r.value; else if (k === 157) S.fm.voices = +r.value;
+    else S.fm.macros[k - 158] = +r.value;
+    show();
+    if (after) after();
+    fmSet(k, +r.value);
+  };
+  box.appendChild(el);
+  return el;
+}
+function fmGroup(box, title) {
+  const g = document.createElement("div");
+  g.className = "grp";
+  g.innerHTML = `<h3></h3>`;
+  g.firstChild.textContent = title;
+  box.appendChild(g);
+  return g;
+}
+function buildFm() {
+  $("fmTabBtn").hidden = !S.fm;
+  if (!S.fm) return;
+  const f = S.fm, box = $("fmEd"), ps = $("fmpreset");
+  ps.textContent = "";
+  S.fmNames.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `${i < 10 ? "" : "★ "}${n}`; ps.appendChild(o); });
+  ps.value = f.preset;
+  ps.onchange = () => guard(async () => { await S.link.fmLoad(+ps.value); S.fm = await S.link.fmGet(); buildFm(); });
+  if (document.activeElement !== $("fmname")) $("fmname").value = String.fromCharCode(...f.voice.slice(145, 155)).replace(/\s+$/, "");
+  $("fmname").onchange = () => {
+    const nm = $("fmname").value.toUpperCase().replace(/[^\x20-\x7E]/g, "").padEnd(10).slice(0, 10);
+    [...nm].forEach((c, i) => { f.voice[145 + i] = c.charCodeAt(0); fmSet(145 + i, c.charCodeAt(0)); });
+  };
+  const t = S.proj ? S.proj.eng.indexOf(E.FM) : -1;
+  $("fmwhere").textContent = t >= 0 ? `On track ${t + 1}.` : "On no track yet: put it on one on the Project tab.";
+  const algText = () => {
+    const a = f.voice[134], c = [0, 1, 2, 3, 4, 5].filter((op) => isCarrier(a, op)).map((op) => `OP${op + 1}`);
+    $("fmalg").textContent = `Algorithm ${a + 1}: ${c.join(", ")} sound${c.length === 1 ? "s" : ""}, the others modulate.`;
+  };
+  algText();
+  box.textContent = "";
+  const vs = (g, k, after) => fmSlider(g, k, fmVname(k) === "ALGO" ? "ALGO" : fmVname(k), 0, fmVmax(k), () => f.voice[k], (v) => fmVtext(k, v), after);
+  let g = fmGroup(box, "VOICE");
+  vs(g, 134, () => { algText(); document.querySelectorAll("#fmEd .opgrp").forEach((x) => x.dispatchEvent(new Event("relabel"))); });
+  [135, 136, 144].forEach((k) => vs(g, k));
+  g = fmGroup(box, "OUT · MACROS");
+  fmSlider(g, 156, "LEVEL", 0, 127, () => f.level, (v) => `${v}`);
+  fmSlider(g, 157, "VOICES", 1, 6, () => f.voices, (v) => (v === 1 ? "MONO" : `${v}`));
+  FM_MACROS.forEach((n, i) => fmSlider(g, 158 + i, n, -50, 50, () => f.macros[i], (v) => (v > 0 ? `+${v}` : `${v}`)));
+  g = fmGroup(box, "LFO");
+  [137, 138, 139, 140, 141, 142, 143].forEach((k) => vs(g, k));
+  g = fmGroup(box, "PITCH EG");
+  for (let k = 126; k < 134; k++) vs(g, k);
+  for (let op = 0; op < 6; op++) {                   // OP1 first (the voice keeps OP6 first)
+    const o = (5 - op) * 21;
+    g = fmGroup(box, "");
+    g.classList.add("opgrp");
+    const head = g.querySelector("h3"), on = document.createElement("input");
+    on.type = "checkbox";
+    on.title = "This operator on";
+    const label = () => {
+      head.textContent = `OP${op + 1} · ${isCarrier(f.voice[134], op) ? "carrier" : "modulator"} · ${opFreq(f.voice, op)} `;
+      on.checked = !!(f.voice[155] & (1 << (5 - op)));
+      head.appendChild(on);
+    };
+    on.onchange = () => { f.voice[155] = on.checked ? f.voice[155] | (1 << (5 - op)) : f.voice[155] & ~(1 << (5 - op)); fmSet(155, f.voice[155]); };
+    g.addEventListener("relabel", label);
+    label();
+    [16, 18, 19, 20, 17, 0, 1, 2, 3, 4, 5, 6, 7, 15, 14, 13, 8, 9, 10, 11, 12].forEach((i) => vs(g, o + i, i >= 17 && i <= 20 || i === 18 || i === 19 ? label : null));
+  }
+}
+document.querySelectorAll(".fmkey").forEach((b) => {
+  const n = +b.dataset.n;
+  b.onpointerdown = () => { if (S.link) guard(() => S.link.fmPlay(n, true)); };
+  b.onpointerup = b.onpointerleave = () => { if (S.link) guard(() => S.link.fmPlay(n, false)); };
+});
+
 // ---- SAMPLER (0.23): 16 pads, or a key map of 8 zones -------------------------------------------------------------
 const loopName = (v) => (v < 0 ? "—" : S.loops[v] || `sample ${v + 1}`);
 function smpSet(kind, i, k, v) {
   const o = kind === 0 ? S.smp.pads[i] : kind === 1 ? S.smp.zones[i] : S.smp.keys;
   o[k] = v;
+  S.smpSeq = (S.smpSeq || 0) + 1;
   S.smpBusy = (S.smpBusy || 0) + 1;
   return guard(async () => { await S.link.smpSet(kind, i, k, v); }).finally(() => { S.smpBusy--; });
 }
@@ -622,6 +726,7 @@ function smpSlider(box, kind, i, k, p) {
     r.oninput = () => {                              // (a drag: the last value goes, at most every 40 ms)
       show();
       vals()[k] = +r.value;
+      S.smpSeq = (S.smpSeq || 0) + 1;
       clearTimeout(t);
       t = setTimeout(() => { smpSet(kind, i, k, +r.value).then(() => { if (kind === 1) drawZoneMap(); }); }, 40);
     };
@@ -1128,8 +1233,10 @@ $("pname").onchange = () => guard(async () => {
 // S.media: [{name, set: {rate, fold}, lock, ch / rate (decoded from orig: changeable), adpcm / n (as on the FM-1),
 //            orig (the file's bytes), stale (changed, not sent)}]
 const isSrc = (m) => !!m.ch;                         // (converted here: its settings can change)
-const sizeOf = (m) => (isSrc(m) && (m.stale || !m.adpcm) ? costAt(m, m.set.rate) : m.adpcm.length);
-const proxy = (m) => (isSrc(m) ? m : { rate: m.rate, ch: [{ length: m.n }], set: { rate: m.rate }, lock: true });
+const dx7Data = (m) => zoneBytes(m.dx7.filter((v) => v.on).map((v) => v.packed));   // (0.25: a DX7 bank's voices picked)
+const sizeOf = (m) => (m.dx7 ? dx7Data(m).length : isSrc(m) && (m.stale || !m.adpcm) ? costAt(m, m.set.rate) : m.adpcm.length);
+const proxy = (m) => (m.dx7 ? { rate: 22050, ch: [{ length: 2 * dx7Data(m).length }], set: { rate: 22050 }, lock: true }
+  : isSrc(m) ? m : { rate: m.rate, ch: [{ length: m.n }], set: { rate: m.rate }, lock: true });
 async function decodeFile(bytes) {
   try { return readWav(bytes); } catch (_) { /* not a WAV the reader takes: the browser's decoder */ }
   const ctx = new OfflineAudioContext(1, 1, 44100), ab = await ctx.decodeAudioData(bytes.slice().buffer);
@@ -1143,7 +1250,11 @@ async function readMedia() {
   S.writing++;
   try { S.dev = await readSlots(S.link); } finally { S.writing--; }
   const kept = S.media.filter((m) => !m.sent);       // (added here, not sent yet: they stay)
-  S.media = slotSamples(S.dev).map((x, i) => ({ name: `Sample ${i + 1}`, adpcm: x.adpcm, n: x.n, rate: x.rate, set: { rate: x.rate, fold: "mix" }, sent: true }));
+  S.media = slotSamples(S.dev).map((x, i) => {
+    const dx = zoneVoices(x.adpcm);                  // (0.25: DX7 voices, not a sample)
+    return dx ? { name: "DX7 voices", dx7: dx.map((v) => ({ ...v, on: true })), adpcm: x.adpcm, n: x.n, rate: x.rate, sent: true }
+      : { name: `Sample ${i + 1}`, adpcm: x.adpcm, n: x.n, rate: x.rate, set: { rate: x.rate, fold: "mix" }, sent: true };
+  });
   S.media.push(...kept);
   say("Samples read.", "ok");
   renderMedia();
@@ -1151,7 +1262,14 @@ async function readMedia() {
 async function addMedia(files) {
   for (const f of files) {
     try {
-      const orig = new Uint8Array(await f.arrayBuffer()), d = await decodeFile(orig);
+      const orig = new Uint8Array(await f.arrayBuffer());
+      if (/\.syx$/i.test(f.name) || orig[0] === 0xf0) {   // (0.25: a DX7 bank or voice, for FM)
+        const { voices, notes } = parseSyx(orig);
+        S.media.push({ name: f.name.replace(/\.[^.]+$/, ""), dx7: voices.map((v) => ({ ...v, on: true })), stale: true, open: true });
+        if (notes.length) say(`${f.name}: ${notes.join("; ")}`, "bad");
+        continue;
+      }
+      const d = await decodeFile(orig);
       if (!d.ch[0].length) throw new Error("no audio");
       S.media.push({ name: f.name.replace(/\.[^.]+$/, ""), ch: d.ch, rate: d.rate, orig, set: { rate: 22050, fold: "mix" }, stale: true });
     } catch (e) { say(`Couldn't read ${f.name}: ${e.message}`, "bad"); }
@@ -1175,6 +1293,37 @@ function renderMedia() {
   S.media.forEach((m, i) => {
     const tr = document.createElement("tr");
     tr.className = (m.stale ? "stale " : "") + (!plan ? "over" : "");
+    if (m.dx7) {                                     // (0.25) a DX7 bank: its voices, each picked or not
+      const on = m.dx7.filter((v) => v.on).length;
+      tr.innerHTML = `<td class="name"></td><td>${on} of ${m.dx7.length} voices</td><td colspan="2"><button class="quiet small">${m.open ? "Hide" : "Pick voices"}</button></td>
+        <td class="v">${(sizeOf(m) / 1024).toFixed(1)} KB</td><td><button class="quiet small" title="Remove">✕</button></td>`;
+      tr.querySelector(".name").textContent = `DX7 · ${m.name}`;
+      const [pk, rm] = tr.querySelectorAll("button");
+      pk.onclick = () => { m.open = !m.open; renderMedia(); };
+      rm.onclick = () => { S.media.splice(i, 1); renderMedia(); };
+      tb.appendChild(tr);
+      if (m.open) {
+        const r2 = document.createElement("tr"), td0 = document.createElement("td"), td = document.createElement("div");
+        td0.colSpan = 6;
+        td.className = "dx7pick";
+        td0.appendChild(td);
+        m.dx7.forEach((v) => {
+          const l = document.createElement("label"), c = document.createElement("input"), b = document.createElement("button");
+          c.type = "checkbox"; c.checked = v.on;
+          c.onchange = () => { v.on = c.checked; m.stale = true; renderMedia(); };
+          b.className = "quiet small"; b.textContent = "▶"; b.title = "Hear it on the FM-1 (it becomes FM's voice there)";
+          b.onclick = (ev) => { ev.preventDefault(); guard(async () => {
+            await S.link.fmLoad(fmUnpack(v.packed)); await S.link.fmPlay(60, true);
+            setTimeout(() => guard(() => S.link.fmPlay(60, false)), 700);
+          }); };
+          l.append(c, document.createTextNode(` ${v.name || "(no name)"} `), b);
+          td.appendChild(l);
+        });
+        r2.appendChild(td0);
+        tb.appendChild(r2);
+      }
+      return;
+    }
     const len = isSrc(m) ? seconds(m) : m.n / m.rate;
     tr.innerHTML = `<td class="name"></td><td>${len.toFixed(2)} s</td><td></td><td></td><td class="v">${(sizeOf(m) / 1024).toFixed(1)} KB</td>
       <td><button class="quiet small" title="Listen (as it will be on the FM-1)">▶</button><button class="quiet small" title="Remove">✕</button></td>`;
@@ -1216,6 +1365,7 @@ $("mfit").onclick = () => {
 $("msend").onclick = () => guard(async () => {
   if (S.st.playing) throw new Error("Stop the FM-1 first: writing its memory interrupts the sound.");
   const parts = S.media.map((m) => {
+    if (m.dx7) { const b = dx7Data(m); return { adpcm: b, n: 2 * b.length, rate: 22050 }; }   // (DX7 voices: a zone of their own)
     if (isSrc(m) && (m.stale || !m.adpcm)) { const c = convert(m); m.adpcm = imaEncode(c.s); m.n = c.s.length; }
     return { adpcm: m.adpcm, n: m.n, rate: isSrc(m) ? m.set.rate : m.rate };   // (a source's m.rate is its file's)
   });
@@ -1228,7 +1378,9 @@ $("msend").onclick = () => guard(async () => {
     S.media.forEach((m) => { m.stale = false; m.sent = true; });
     S.loops = await S.link.names(1);
     S.proj = await S.link.proj();
+    if (S.fm) S.fmNames = await S.link.names(6).catch(() => S.fmNames);
   } finally { S.writing--; $("pprog").hidden = true; }
+  if (S.fm) buildFm();
   buildBreaks(); renderMedia(); refreshMeters();
   say("Samples on the FM-1. The breaks play them: ARP, then PRESETS for the loop.", "ok");
 });

@@ -30,6 +30,7 @@
   <button role="tab" data-tab="sound">REESE</button>
   <button role="tab" data-tab="subtab" id="subTabBtn" hidden>SUB</button>
   <button role="tab" data-tab="smptab" id="smpTabBtn" hidden>SAMPLER</button>
+  <button role="tab" data-tab="fmtab" id="fmTabBtn" hidden>FM</button>
   <button role="tab" data-tab="lfos">LFOs</button>
   <button role="tab" data-tab="breaks">Breaks</button>
   <button role="tab" data-tab="files">Project</button>
@@ -104,6 +105,20 @@
     </div>
   </section>
 
+  <section id="fmtab" class="tab">
+    <div class="row"><label>Voice <select id="fmpreset"></select></label>
+      <label>Name <input type="text" id="fmname" maxlength="10" size="12"></label>
+      <span class="small" id="fmwhere"></span></div>
+    <div class="row"><span class="small">Hear it on the FM-1 (hold):</span>
+      <button class="quiet small fmkey" data-n="36">C1</button><button class="quiet small fmkey" data-n="48">C2</button>
+      <button class="quiet small fmkey" data-n="60">C3</button><button class="quiet small fmkey" data-n="72">C4</button>
+      <span class="small" id="fmalg"></span></div>
+    <p class="small">A six-operator FM synth that plays DX7 voices: the factory's, and the ones you add from a DX7 bank on
+      the Project tab (Add files… takes .syx). The macros go on top of the voice without changing it: BRIGHT the
+      modulators' levels, TIME every envelope, ATTACK and RELEASE the carriers'.</p>
+    <div id="fmEd" class="groups"></div>
+  </section>
+
   <section id="lfos" class="tab">
     <p class="small">Each synth has its own four LFOs (REESE's, then SUB's), and they are part of its sound. Each goes to one place (REESE's filter, pitch, level…, the breaks' pitch, decay, crush,
       level, or another LFO's depth). SYNC locks the rate to the tempo. Draw on a shape to make your own (DRAW): it plays
@@ -147,12 +162,13 @@
       <h2>Samples</h2>
       <p class="small">Drop WAV (or MP3, AIFF…) files here. Each goes on the FM-1 in mono, at the rate you pick: lower rates
         fit more (and 26 kHz is the SP-1200's). <b>Fit to space</b> picks the rates so they all fit, the longest samples
-        lowered first. Listen with ▶ before you send. The breaks play them (ARP: the BRK page, PRESETS for the loop).</p>
+        lowered first. Listen with ▶ before you send. The breaks play them (ARP: the BRK page, PRESETS for the loop).
+        DX7 banks (.syx) go here too: pick the voices you want and they go on with the samples, for FM (128 bytes a voice).</p>
       <div class="row"><button id="madd" class="quiet">Add files…</button><button id="mfit" class="quiet">Fit to space</button>
         <button id="msend">Send samples to the FM-1</button><span class="small" id="mtotal"></span></div>
       <div class="meter big"><i id="m-media"></i></div>
       <table class="mtab"><thead><tr><th>Sample</th><th>Length</th><th>Mono</th><th>Rate</th><th>Size</th><th></th></tr></thead><tbody id="mlist"></tbody></table>
-      <input type="file" id="mfiles" accept="audio/*,.wav,.aif,.aiff,.mp3,.flac" multiple hidden>
+      <input type="file" id="mfiles" accept="audio/*,.wav,.aif,.aiff,.mp3,.flac,.syx" multiple hidden>
     </div>
     </div>
     <div class="card">

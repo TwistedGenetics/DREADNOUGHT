@@ -44,6 +44,14 @@
  *   81 SMP_SET kind i k v(2)   -> rc (0 set)                         one of those (a SAMPLE: the loops' order, -1 OFF)
  *   82 SMP_PLAY note on        -> rc                                 a hit (ONE-SHOT: note is the pad) or a key of the
  *                                                                    map, on / off: the editor's audition
+ *   83 FM_GET                  -> the FM voice (156: dn_fm.h's unpacked voice, OP6 first), LEVEL, VOICES, the macros
+ *                                 BRIGHT TIME ATTACK RELEASE (+64 each), the voice PRESETS is on (2), how many (2) (0.25)
+ *   84 FM_SET k(2) v(2)        -> rc (0 set)                         k 0..155 a value of the voice, 156 LEVEL, 157
+ *                                                                    VOICES, 158..161 the macros (v + 8192)
+ *   85 FM_LOAD i(2)            -> rc                                 PRESETS' voice i (factory, then the project's)
+ *      FM_LOAD 156 bytes       -> rc                                 this voice (the editor's: a bank's, auditioned)
+ *   86 FM_PLAY note on         -> rc                                 FM plays a note (on / off): the audition
+ * NAMES kind 6 (0.25): FM's voices, the factory's then the project's.
  * From 0.13 PARAMS ends with SUB's values (dn_sub.h SP_*, 27 of them).
  * From 0.11 a step in the pattern is 8 bytes {note, flags, len, vel, cond, rtim, rlen, rvel}: dn_seq.h.
  * From 0.9 PARAMS also has the LFOs, 8 each after BREAKS B: SHAPE SYNC RATE DEST DEPTH PHASE MODE SMOOTH (SYNC
@@ -51,7 +59,8 @@
  */
 enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT_COMMIT, ED_TRANSPORT, ED_SAVE,
        ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL, ED_PROJ, ED_PROJ_SET,
-       ED_PROJ_NAME, ED_SUB_PRESET, ED_PARAMS_HI, ED_SMP_GET, ED_SMP_SET, ED_SMP_PLAY };
+       ED_PROJ_NAME, ED_SUB_PRESET, ED_PARAMS_HI, ED_SMP_GET, ED_SMP_SET, ED_SMP_PLAY, ED_FM_GET, ED_FM_SET,
+       ED_FM_LOAD, ED_FM_PLAY };
 #define DN_ED_NHI 8u
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
@@ -63,7 +72,7 @@ static const uint8_t DN_ED_LFO[8] = {DN_PX_LSHAPE, DN_PX_LSYNC, DN_PX_LRATE, DN_
 #define DN_ED_NPARAM_13 (DN_ED_NPARAM_09 + SP_COUNT) /* (0.13: SUB's after the LFOs) */
 #define DN_ED_NPARAM (DN_ED_NPARAM_13 + DN_NLFO * 8u) /* (0.15: SUB's own LFOs; those before are REESE's) */
 /* the editor frames the device glue must take whole (not into its 64-byte copy) */
-static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 82u; }
+static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 86u; }
 /* SAMPLER's values by kind (0 pad, 1 zone, 2 keys, 3 mode): the app's id for value k, and how many */
 static uint32_t dn_ed_smp_n(uint32_t kind) { return kind == 0u ? PD_N : kind == 1u ? ZN_N : kind == 2u ? KY_N : 1u; }
 static uint32_t dn_ed_smp_id(uint32_t kind, uint32_t k)
@@ -407,6 +416,79 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         dn_unlock();
         put(0);
         return 1;
+    case ED_FM_GET:
+        for (i = 0; i < DN_FM_PATCH; i++)
+            put(dn_fm_base[i] & 0x7Fu);
+        put((uint32_t)dn_fmx.level & 0x7Fu);
+        put(dn_fmx.voices);
+        put((uint32_t)(dn_fm_mac.bright + 64));
+        put((uint32_t)(dn_fm_mac.time + 64));
+        put((uint32_t)(dn_fm_mac.attack + 64));
+        put((uint32_t)(dn_fm_mac.release + 64));
+        dn_ed_num(put, dn.fm_preset, 2);
+        dn_ed_num(put, dn_fm_presets(), 2);
+        return 1;
+    case ED_FM_SET: {
+        uint32_t k;
+        int32_t v;
+        if (na < 4u)
+            return 0;
+        k = a[0] | (uint32_t)a[1] << 7;
+        v = (int32_t)(a[2] | a[3] << 7) - 8192;
+        if (k < DN_FM_PATCH) {
+            if (k == DN_FMV_OPSW)
+                v &= 0x3f;
+            else if (k >= DN_FMV_NAME)
+                v = v < 32 ? 32 : v > 126 ? 126 : v;
+            else
+                v = dn_clamp(v, 0, dn_fm_vmax(k));
+            dn_fm_base[k] = (uint8_t)v;
+            dn_fm_sync();
+            dn.dirty = 1;
+        } else if (k == 156u) {
+            dn_fm_set(DN_PX_FLEVEL, dn_clamp(v, 0, 127));
+        } else if (k == 157u) {
+            dn_fm_set(DN_PX_FVOICES, dn_clamp(v, 1, DN_FM_NV));
+        } else if (k <= 161u) {
+            static const uint8_t MAC[4] = {DN_PX_FBRIGHT, DN_PX_FTIME, DN_PX_FATK, DN_PX_FREL};
+            dn_fm_set(MAC[k - 158u], dn_clamp(v, -50, 50));
+        } else {
+            put(1);
+            return 1;
+        }
+        dn_rev++;
+        dn.redraw |= DN_RD_ALL;
+        put(0);
+        return 1;
+    }
+    case ED_FM_LOAD:
+        if (na >= DN_FM_PATCH) {                    /* a whole voice */
+            for (i = 0; i < DN_FM_PATCH; i++)
+                dn_fm_base[i] = (uint8_t)(i == DN_FMV_OPSW ? a[i] & 0x3fu : i >= DN_FMV_NAME ? a[i]
+                                          : (uint32_t)dn_clamp(a[i], 0, dn_fm_vmax(i)));
+            dn_fm_sync();
+            dn.dirty = 1;
+        } else if (na >= 2u && (uint32_t)(a[0] | a[1] << 7) < dn_fm_presets()) {
+            dn_fm_load(a[0] | (uint32_t)a[1] << 7);
+        } else {
+            put(1);
+            return 1;
+        }
+        dn_rev++;
+        dn.redraw |= DN_RD_ALL;
+        put(0);
+        return 1;
+    case ED_FM_PLAY:
+        if (na < 2u)
+            return 0;
+        dn_lock();
+        if (a[1])
+            dn_fm_note_on(&dn_fmx, a[0], 100);
+        else
+            dn_fm_note_off(&dn_fmx, a[0]);
+        dn_unlock();
+        put(0);
+        return 1;
     case ED_SUB_PRESET:
         if (na < 1u || a[0] >= dn_sub_preset_count() + DN_NUSER)
             return 0;
@@ -440,13 +522,26 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         kind = a[0];
         from = a[1];
         count = kind == 1u ? dn_src_count() : kind == 2u ? DN_E_N : kind == 3u ? DN_FX_N : kind == 4u ? DN_FX_NDIV
-              : kind == 5u ? dn_sub_preset_count() + DN_NUSER : reese_preset_count() + DN_NUSER;
+              : kind == 5u ? dn_sub_preset_count() + DN_NUSER : kind == 6u ? dn_fm_presets()
+              : reese_preset_count() + DN_NUSER;
         put(count);
         put(from);
         for (i = from; i < count && used < 180u; i++) {
-            char nm[10];
+            char nm[12];
             const char *s;
-            if (kind >= 2u) {
+            if (kind == 6u) {                       /* (FM: a factory voice's name, or a project voice's 10) */
+                if (i < dn_fm_factory_count()) {
+                    s = dn_fm_factory_name(i);
+                } else {
+                    const uint8_t *pk = dn_fmv_get(i - dn_fm_factory_count());
+                    for (j = 0; j < 10u; j++)
+                        nm[j] = pk && pk[118u + j] >= 32u && pk[118u + j] < 127u ? (char)pk[118u + j] : ' ';
+                    for (j = 10u; j > 0u && nm[j - 1u] == ' '; j--)
+                        ;
+                    nm[j] = 0;
+                    s = nm;
+                }
+            } else if (kind >= 2u) {
                 s = kind == 2u ? DN_E_NAME[i] : kind == 3u ? DN_FX_NAME[i] : kind == 4u ? DN_FX_DIV_NAME[i]
                   : dn_sound_name(1, i);
             } else if (kind) {

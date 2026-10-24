@@ -1,0 +1,117 @@
+# DREADNOUGHT host scenario (0.25): FM on a track. Its pages (VOICE, OP / OP+, EG / EG LVL, LFO / LFO+, OUT; no
+# LFO page), PRESETS over the factory voices and then the project's DX7 voices (sent in a sample slot: not a loop),
+# the keys polyphonic, the macros on top of the voice, the voice kept over a reboot.
+# White keys (tracks 1..8): 0 2 4 6 7 9 11 12. Values (set ID V): 60 ALGO, 62 BRIGHT, 64 ATTACK, 66 OP, 78 + an
+# operator's value (DN_FMO_*: 16 LEVEL, 18 COARSE).
+sysex 76 6 7 0
+expect eng.7 7
+press SEQ
+tapkey 11 40
+release SEQ
+expect trk 7
+expect page 0
+expect fmpreset 0
+expect fmname.0 68
+shot fm-01-voice.png
+# PRESETS: the next factory voice, FM REESE (ALGO 5)
+turn PRESET 1
+expect fmpreset 1
+expect fmname.3 82
+expect fmb.134 4
+turn K1 1
+expect fmb.134 5
+# the keys: two down, two voices; up, released, gone
+key 0 down
+wait 20
+key 4 down
+wait 20
+expect fmv 2
+expect peak >1000
+key 0 up
+key 4 up
+wait 4000
+expect fmv 0
+# OP: KNOB 1 the operator (OP3), KNOB 2 its COARSE (1 -> 2); EDIT again: OP+ (DETUNE, VEL, MODE)
+tap EDIT
+expect page 1
+turn K1 2
+expect fmop 3
+turn K2 1
+expect fmb.81 2
+shot fm-02-op.png
+tap EDIT
+expect page 1
+shot fm-03-op2.png
+tap EDIT
+# EG: the operator's rates; ENV again its levels
+tap ENV
+expect page 2
+shot fm-04-eg.png
+tap ENV
+shot fm-05-eglvl.png
+tap ENV
+# LFO (the DX7's own), OUT
+tap LFO
+expect page 3
+shot fm-06-lfo.png
+tap GLO
+expect page 4
+# ATTACK +10 (KNOB 3): the carriers' R1 slower in the voice played, the voice itself as it was
+set 64 10
+expect fmb.105 80
+expect fme.105 70
+shot fm-07-out.png
+# SELECT round the pages: no LFO page (OUT -> SETUP -> VOICE)
+turn SELECT 1
+expect page 11
+expect trk 7
+turn SELECT 1
+expect page 0
+expect trk 7
+# the project's DX7 voices (in a sample slot): after the factory ten, not among the loops
+expect srccount 2
+fmbank 3
+expect fmcount 13
+expect srccount 2
+turn PRESET 9
+expect fmpreset 10
+expect fmname.0 80
+expect fmname.5 49
+shot fm-08-project-voice.png
+# SEQ: its piano roll
+tap SEQ
+expect page 7
+tap SEQ
+# kept: SAVE, reboot (the voice, ATTACK +10 on it, where PRESETS was: PROJ 1, a copy of DUB FM BS, R1 99)
+tap SAVE
+wait 300
+reboot
+expect eng.7 7
+expect fmpreset 10
+expect fmname.0 80
+expect fmb.105 99
+expect fme.105 89
+# the editor's frames (0.25): FM_GET (the voice, then LEVEL, VOICES, the macros, where PRESETS is), FM_SET OP1's
+# LEVEL (value 121) to 50, FM_LOAD PRESETS' voice 2, FM_PLAY a note, NAMES kind 6
+sysex 83
+expect replylen 166
+expect reply.134 1
+expect reply.156 100
+expect reply.157 6
+expect reply.160 74
+expect reply.162 10
+expect reply.164 13
+sysex 84 121 0 50 64
+expect reply.0 0
+expect fmb.121 50
+sysex 85 2 0
+expect reply.0 0
+expect fmpreset 2
+expect fmname.0 72
+sysex 86 60 1
+wait 20
+expect fmv 1
+sysex 86 60 0
+sysex 69 6 0
+expect reply.0 13
+expect reply.2 68

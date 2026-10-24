@@ -279,7 +279,8 @@ with sync_playwright() as pw:
         p.click("#pload")
     fc.value.set_files(dl.value.path())
     p.wait_for_function("window.__dn.mock.proj.eng[3] === 1", timeout=60000)
-    p.wait_for_timeout(500)
+    p.wait_for_function("document.getElementById('status').textContent.includes('is on the FM-1')", timeout=60000)
+    p.wait_for_timeout(300)
     check("loaded back: the layout and the send", p.evaluate("() => window.__dn.mock.proj.send[0][3]") == 90)
     check("loaded back: the sample can be converted again (its original came with it)",
           p.evaluate("() => !!(window.__dn.media[0] && window.__dn.media[0].ch)"))
@@ -323,6 +324,55 @@ with sync_playwright() as pw:
     got = p.evaluate("() => window.__dn.mock.smp.zones[1].slice(0, 2)")
     check("SAMPLER: zone 2 -> loop 1, root C2", got == [0, 48], got)
     p.screenshot(path=str(shots / "editor-sampler-keys.png"), full_page=True)
+    # FM (0.25): its tab (the factory voices, the values), a voice picked, ALGO changed; a DX7 bank on the Project tab,
+    # 5 of its voices picked and sent: they're FM's voices on the FM-1 too
+    p.click("#fmTabBtn")
+    p.wait_for_timeout(200)
+    check("FM: the factory's 10 voices", p.locator("#fmpreset option").count() == 10, p.locator("#fmpreset option").count())
+    check("FM: OP1..OP6 and the voice's values on the tab", p.locator("#fmEd .opgrp").count() == 6 and p.locator("#fmEd .prm").count() > 150,
+          p.locator("#fmEd .prm").count())
+    p.select_option("#fmpreset", "3")
+    p.wait_for_timeout(300)
+    check("FM: voice 4 (DARK BELL) on the FM-1", p.evaluate("() => String.fromCharCode(...window.__dn.mock.fm.voice.slice(145, 154))") == "DARK BELL",
+          p.evaluate("() => String.fromCharCode(...window.__dn.mock.fm.voice.slice(145, 155))"))
+    algo = p.locator("#fmEd .prm").filter(has_text="ALGO").locator("input")
+    algo.evaluate("(r) => { r.value = 21; r.dispatchEvent(new Event('input')); }")
+    p.wait_for_timeout(250)
+    check("FM: ALGO 22 on the FM-1", p.evaluate("() => window.__dn.mock.fm.voice[134]") == 21)
+    check("FM: the tab names the carriers of algorithm 22 (OP1, OP3, OP4, OP5)", "OP1, OP3, OP4, OP5 sound" in p.locator("#fmalg").inner_text(),
+          p.locator("#fmalg").inner_text())
+    p.screenshot(path=str(shots / "editor-fm.png"), full_page=True)
+    bank = bytearray([0xF0, 0x43, 0x00, 0x09, 0x20, 0x00])
+    data = bytearray()
+    for v in range(32):
+        vb = bytearray(128)
+        for op in range(6):
+            o = op * 17
+            vb[o:o + 4] = bytes([99, 99, 99, 99]); vb[o + 4:o + 8] = bytes([99, 99, 99, 0]); vb[o + 8] = 39
+            vb[o + 12] = 7 << 3; vb[o + 14] = 99 if op == 5 else 0; vb[o + 15] = 1 << 1
+        vb[110] = v % 32; vb[111] = 8; vb[112] = 35; vb[116] = 1 | 3 << 4; vb[117] = 24
+        vb[118:128] = f"BANK {v + 1:02d}".ljust(10).encode()
+        data += vb
+    bank += data + bytes([(128 - (sum(data) & 127)) & 127, 0xF7])
+    p.click("[data-tab=files]")
+    p.wait_for_timeout(200)
+    n0 = p.evaluate("() => window.__dn.media.length")
+    p.set_input_files("#mfiles", files=[{"name": "mybank.syx", "mimeType": "application/octet-stream", "buffer": bytes(bank)}])
+    p.wait_for_function(f"window.__dn.media.length === {n0 + 1}")
+    p.wait_for_timeout(100)
+    check("DX7: the bank's 32 voices listed", p.locator(".dx7pick label").count() == 32, p.locator(".dx7pick label").count())
+    boxes = p.locator(".dx7pick input[type=checkbox]")
+    for i in range(5, 32):
+        boxes.nth(i).uncheck()
+    p.wait_for_timeout(100)
+    row = p.locator("#mlist tr").filter(has_text="DX7")
+    check("DX7: 5 of 32 picked, 0.6 KB", "5 of 32 voices" in row.inner_text() and "0.6 KB" in row.inner_text(), row.inner_text())
+    p.screenshot(path=str(shots / "editor-dx7-bank.png"), full_page=True)
+    p.click("#msend")
+    p.wait_for_timeout(3000)
+    names = p.evaluate("() => window.__dn.fmNames")
+    check("DX7: sent, FM's voices now 10 + 5, BANK 01 first of them", len(names) == 15 and names[10] == "BANK 01", names[9:12])
+    check("DX7: not taken for a loop (the breaks' list as it was)", p.evaluate("() => window.__dn.loops.length") == 2)
     check("no page errors", not errs, errs)
     b.close()
 srv.shutdown()

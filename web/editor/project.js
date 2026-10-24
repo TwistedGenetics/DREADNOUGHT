@@ -3,13 +3,14 @@
 // Jamie (TwistedGenetics).
 //
 // A project is everything the FM-1 holds for a piece of music: the sound (REESE, the breaks' settings, the LFOs and
-// their drawn shapes, SAMPLER's pads and zones (0.23)), the tempo, each track's instrument, sends and the FX rack, all 8 patterns of all 8 tracks, the
+// their drawn shapes, SAMPLER's pads and zones (0.23), FM's voice (0.25)), the tempo, each track's instrument, sends and the FX rack, all 8 patterns of all 8 tracks, the
 // samples (the three sample slots, as stored) with their hand-set slices, and, for samples added on this computer, the
 // original files and how they were converted, so a later save can convert them again from the originals.
 //
 // The file is JSON (binary parts in base64). The FM-1 must be stopped to read or write one: its patterns are reached by
 // selecting each in turn, which while playing would only queue.
-import { NLFO_ALL, nLfos, NPAT, TRACKS, parsePattern, serializePattern, PF, setEngines, readSampler, writeSampler } from "./protocol.js";
+import { NLFO_ALL, nLfos, NPAT, TRACKS, parsePattern, serializePattern, PF, setEngines, readSampler, writeSampler, readFm, writeFm } from "./protocol.js";
+import { zoneVoices } from "./dx7.js";
 import { readSlots, writeSlots, slotSamples, sameImage } from "./media.js";
 import { sliceKey, key7, pos7 } from "../breaks/slices.js";
 
@@ -37,6 +38,7 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   const params = await link.params(), proj = await link.proj(), lfo = [];
   for (let k = 0; k < nLfos(params.length); k++) lfo.push(await link.lfoPts(k));   // (0.15: SUB's too)
   const smp = await readSampler(link);                 // (0.23; null before)
+  const fm = await readFm(link);                       // (0.25; null before)
   say("Reading the patterns…");
   const pats = await link.pats(), cur = pats.tracks.map((t) => t.cur), patterns = [];
   try {
@@ -57,7 +59,7 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   onPart(1);
   return {
     format: FORMAT, version: VERSION, saved: new Date().toISOString(), firmware: link.name || "",
-    name: proj.name, params, lfo, smp, proj: { eng: proj.eng, send: proj.send, ret: proj.ret, fx: proj.fx },
+    name: proj.name, params, lfo, smp, fm, proj: { eng: proj.eng, send: proj.send, ret: proj.ret, fx: proj.fx },
     patterns, current: cur, patSize: st.patSize,
     slots: dev.map((im) => (im ? { hdr: b64(im.hdr), data: b64(im.data) } : null)), slices,
     media: media.map((m) => ({ name: m.name, set: m.set, lock: !!m.lock, file: m.orig ? b64(m.orig) : undefined })),
@@ -100,6 +102,7 @@ export async function writeProject(link, o, { onPart = () => {}, say = () => {} 
   const nl = nLfos((await link.params()).length);
   for (let k = 0; k < Math.min(NLFO_ALL, nl) && o.lfo && o.lfo[k]; k++) await link.setLfoPts(k, o.lfo[k].npts, o.lfo[k].pts);
   if (o.smp && (await readSampler(link))) await writeSampler(link, o.smp);   // (an FM-1 before 0.23: no SAMPLER)
+  if (o.fm && (await readFm(link))) await writeFm(link, o.fm);   // (before 0.25: no FM)
   onPart(0.1);
   say("Sending the patterns…");
   for (let p = 0; p < NPAT; p++) {
@@ -127,7 +130,8 @@ export async function writeProject(link, o, { onPart = () => {}, say = () => {} 
 export function mediaOf(o) {
   const dev = (o.slots || []).map((s) => (s ? { hdr: unb64(s.hdr), data: unb64(s.data) } : null));
   return slotSamples(dev).map((s, i) => {
-    const m = (o.media || [])[i];
+    const m = (o.media || [])[i], dx = zoneVoices(s.adpcm);
+    if (dx) return { name: (m && m.name) || "DX7 voices", dx7: dx.map((v) => ({ ...v, on: true })), adpcm: s.adpcm, n: s.n, rate: s.rate, sent: true };
     return { name: (m && m.name) || `Sample ${i + 1}`, adpcm: s.adpcm, n: s.n, rate: s.rate, set: (m && m.set) || { rate: s.rate, fold: "mix" },
       lock: !!(m && m.lock), orig: m && m.file ? unb64(m.file) : null, sent: true };
   });

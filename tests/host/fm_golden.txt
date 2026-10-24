@@ -1,0 +1,10 @@
+DUB FM BS  peak  4133 rms  1140.3 last  14705
+FM REESE   peak  8810 rms  2465.5 last  15227
+HOLLOW STB peak  9295 rms  2128.1 last  19098
+DARK BELL  peak 11281 rms  4468.8 last  23039
+METAL HIT  peak  5735 rms  1109.0 last  22833
+FM PLUCK   peak  6394 rms  1865.4 last  22819
+DARK PAD   peak 11987 rms  4815.6 last  23039
+GROWL BASS peak  5577 rms  1669.5 last  15189
+SINE SUB   peak  4268 rms  1615.3 last  13868
+INIT VOICE peak  4096 rms  2047.7 last  12896

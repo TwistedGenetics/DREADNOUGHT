@@ -11,6 +11,7 @@
 #include "dn_fx.h"
 #include "dn_sub.h"
 #include "dn_smp.h"
+#include "dn_fm.h"
 #include "dn_breaks_builtin.h"   /* (generated: tools/gen_dn_breaks.py) */
 
 void dn_app_init(void);

@@ -471,3 +471,30 @@ zones, mode) and a project carrying SAMPLER from one FM-1 to another.
   toggled and SAVE doesn't save when used this way.
 
 Tested: host scenario `double.txt` (empty track, 1 → 2 → 4 bars, full, one bar in a 4-bar track, SAVE still saving).
+
+## 0.25 — FM: a six-operator DX7-style synth that plays DX7 voices (2026-10-25)
+
+- **FM**, a new instrument (PROJECT: put it on a track). Six operators, the DX7's 32 algorithms, feedback, its
+  envelopes (4 rates, 4 levels) with their real timings, keyboard level and rate scaling, velocity, the LFO with
+  PMD / AMD and its delay, the pitch envelope. The engine is a C port of Dexed's MSFA (Apache-2.0, credited in
+  docs/UPSTREAM.md), so voices sound as they do in Dexed. Up to 6 voices (VOICES 1: mono, legato); the keys play chords.
+- **Pages:** VOICE (ALGO, FEEDBACK, BRIGHT, TIME), OP / OP+ (the operator, its ratio or fixed Hz, level, detune,
+  velocity, mode), EG / its levels, LFO / LFO+, OUT (LEVEL, VOICES, ATTACK, RELEASE). The four macros sit on top of the
+  voice without changing it.
+- **Voices:** 10 factory voices of DREADNOUGHT's own (DUB FM BS, FM REESE, HOLLOW STB, DARK BELL, METAL HIT, FM PLUCK,
+  DARK PAD, GROWL BASS, SINE SUB, INIT VOICE), no Yamaha ROM sounds. Your own DX7 banks go on from the editor: on the
+  Project tab, Add files takes .syx (32-voice banks and single voices); tick the voices you want, and they go on with
+  the samples (128 bytes a voice) and come after the factory voices in PRESETS. They travel with a project file.
+- **Editor:** an FM tab with every value of the voice (the operators as carriers or modulators, their frequencies,
+  each one on or off), the name, LEVEL, VOICES and the macros; hear it on the FM-1 from the page.
+- FM's voice is kept with the slices, names and SAMPLER (saves from 0.24 and before load as they were).
+- Fixed: on a SAMPLER (or FM) page, SELECT round to SETUP switched the track to REESE.
+
+Tested: `fm_test` renders 400 random voices over all 32 algorithms, as notes and chords, through DREADNOUGHT's port and
+through Dexed's own MSFA (built for the tests, `tests/host/ref`): 332 identical to the sample, every one without amp
+mod identical, and all within 0.15 dB in loudness over time (with AMS, Dexed's level step is a double `exp()`, here a
+float one, a few LSB apart). The tables bit for bit as MSFA makes them, packed voices round trip, pitch, velocity,
+an attack's timing against Dexed's, voices freed after release, mono, the factory voices (golden). Host scenario
+`fm.txt` (pages, PRESETS, project voices from a slot, the keys, macros, the editor's frames, kept over a reboot);
+`upgrade.txt` (a 0.24 save); the editor's FM names, ranges and texts against the firmware's; the editor end to end
+(FM tab, a .syx bank, voices picked and sent).

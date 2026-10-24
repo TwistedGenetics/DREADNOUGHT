@@ -62,3 +62,15 @@ expect smmode 1
 expect uname.0.0.0 67
 expect ns.1 5
 expect sl.1.4 15000
+# 0.25: FM's voice went on the end of the SONG object. A 0.24 save (tests/host/saves/v0.24.bin: SAMPLER on track 6 in
+# KEYS, pad 1 on the second loop from 25 %, BREAKS A in 5 hand-set slices) comes up as it was, FM at its first voice.
+storeload tests/host/saves/v0.24.bin
+reboot
+expect eng.6 6
+expect smmode 1
+expect smp.1.0 1
+expect smp.1.1 250
+expect ns.1 5
+expect sl.1.4 15000
+expect fmpreset 0
+expect fmname.0 68

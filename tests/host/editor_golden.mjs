@@ -2,6 +2,7 @@
 // The web editor's decoders (web/editor/protocol.js) on the firmware's own replies (dn_host `golden`): state,
 // parameters, the pattern, names.
 import { readFileSync } from "node:fs";
+import { unpack as fmUnpack, pack as fmPack, vname as fmName, vmax as fmMax, vtext as fmText, isCarrier } from "../../web/editor/dx7.js";
 import { parseSmp, SMP_PAD, SMP_ZONE, SMP_KEYS, parseState, parseParams, parsePattern, parseNames, serializePattern, REESE, NPARAM_15, parseLfoPts, parseLfoNow, COND_NAMES,
   parseProj, fxParams, FX_DEFAULTS, FX_NAMES } from "../../web/editor/protocol.js";
 
@@ -51,5 +52,15 @@ for (const [kind, k, name, min, max, texts] of g.smpdefs) {
   for (const [v, t] of texts) if ((x.text ? x.text(v) : `${v}`) !== t) { bad.push(`${name} ${v}: ${x.text ? x.text(v) : v} vs ${t}`); break; }
 }
 check("SAMPLER's values: names, ranges and texts as the FM-1's", !bad.length, bad.slice(0, 3).join("; ") || "all", "all");
+// 0.25: FM: every value named, topped and read as the FM-1 does; a voice unpacked and packed the same; the carriers
+bad = [];
+for (const [k, name, max, texts] of g.fmdefs) {
+  if (fmName(k) !== name || fmMax(k) !== max) { bad.push(`${k}: ${fmName(k)} ${fmMax(k)} vs ${name} ${max}`); continue; }
+  texts.forEach((t, v) => { if (fmText(k, v) !== t && bad.length < 5) bad.push(`${name} ${v}: ${fmText(k, v)} vs ${t}`); });
+}
+check("FM's values: names, tops and texts as the FM-1's (145)", !bad.length, bad.slice(0, 3).join("; ") || "all", "all");
+const fu = fmUnpack(Uint8Array.from(g.fmpacked)), fp = fmPack(Uint8Array.from(g.fmvoice));
+check("FM: the FM-1's packed voice unpacks to its voice here, and packs back", fu.every((x, i) => x === g.fmvoice[i]) && fp.every((x, i) => x === g.fmpacked[i]), "", "");
+check("FM: the carriers of all 32 algorithms as the FM-1's", g.fmcarriers.every((c, i) => (isCarrier(Math.floor(i / 6), 5 - (i % 6)) ? 1 : 0) === c), "", "");
 console.log(fails ? `EDITOR (page): ${fails} FAILED` : "EDITOR (page): the page reads the firmware's replies");
 process.exit(fails ? 1 : 0);

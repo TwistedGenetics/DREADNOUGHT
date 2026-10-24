@@ -37,6 +37,7 @@
  */
 #include "dn_app.h"
 #include <stddef.h>
+#include "dsp/fastmath.h"
 
 #define DN_SAVE_MAGIC 0x31524E44u                   /* "DNR1" */
 #define DN_NPAGES 5u                                /* REESE's pages; then SEQ, then BRK */
@@ -65,8 +66,8 @@
 #define DN_NBRK 2u                                  /* BREAKS A and B (tracks 2 and 3 unless the project moves them) */
 /* ---- the project's instruments: which one each track plays (0.12). REESE and BREAKS A / B are one each: put on a
  * track that another holds, they swap (dn_eng_set). MIDI on any number of tracks; OFF plays nothing. */
-enum { DN_E_OFF, DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_SUB, DN_E_SMP, DN_E_N };
-static const char *const DN_E_NAME[DN_E_N] = {"OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER"};
+enum { DN_E_OFF, DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_SUB, DN_E_SMP, DN_E_FM, DN_E_N };
+static const char *const DN_E_NAME[DN_E_N] = {"OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM"};
 static uint8_t dn_eng[8] = {DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI};
 #define DN_IS_BRK(t) (dn_eng[t] == DN_E_BRKA || dn_eng[t] == DN_E_BRKB)
 #define DN_BK(t) ((uint32_t)dn_eng[t] - DN_E_BRKA)  /* a break track's voice: 0 A, 1 B */
@@ -76,8 +77,18 @@ static uint8_t dn_eng[8] = {DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_MI
 #define DN_IS_SYN(t) (DN_IS_RS(t) || DN_IS_SUB(t))   /* a synth: REESE or SUB (their sound pages) */
 #define DN_IS_SMP(t) (dn_eng[t] == DN_E_SMP)        /* SAMPLER (0.23) */
 #define DN_IS_PADS(t) (DN_IS_BRK(t) || (DN_IS_SMP(t) && dn_sm.p.mode == DN_SMP_ONESHOT))   /* played as rows: DRUM */
-#define DN_ONE(e) ((e) == DN_E_REESE || (e) == DN_E_BRKA || (e) == DN_E_BRKB || (e) == DN_E_SUB || (e) == DN_E_SMP)
+#define DN_IS_FM(t) (dn_eng[t] == DN_E_FM)          /* FM (0.25) */
+#define DN_IS_OWNPG(t) (DN_IS_SMP(t) || DN_IS_FM(t))   /* its own five pages (no LFO page) */
+#define DN_IS_POLY(t) ((DN_IS_SMP(t) && dn_sm.p.mode == DN_SMP_KEYS) || DN_IS_FM(t))   /* a key a note (no slides) */
+#define DN_ONE(e) ((e) == DN_E_REESE || (e) == DN_E_BRKA || (e) == DN_E_BRKB || (e) == DN_E_SUB || (e) == DN_E_SMP || \
+                   (e) == DN_E_FM)
 #define DN_KEY0 53                                  /* key 0 is F3 */
+/* FM's values (0.25): the voice's own, the macros, the operator shown (DN_PX_FOP) and its values (DN_PX_FO0 + DN_FMO_*) */
+#define DN_PX_FM0 60
+enum { DN_PX_FALG = DN_PX_FM0, DN_PX_FFB, DN_PX_FBRIGHT, DN_PX_FTIME, DN_PX_FATK, DN_PX_FREL, DN_PX_FOP, DN_PX_FLEVEL,
+       DN_PX_FVOICES, DN_PX_FOKS, DN_PX_FLFS, DN_PX_FLFD, DN_PX_FPMD, DN_PX_FAMD, DN_PX_FLFW, DN_PX_FLFKS, DN_PX_FPMS,
+       DN_PX_FTRNSP, DN_PX_FO0 };
+#define DN_IS_FPX(id) ((id) >= DN_PX_FM0 && (id) < DN_PX_FO0 + DN_FMO_N)
 #define DN_PX_BPM 100                               /* the OUT page's two non-engine dials */
 #define DN_PX_OCT 101
 #define DN_PX_OVL 102                               /* OUT: REESE's OVERLAP (SLIDE / CUT) */
@@ -171,6 +182,20 @@ static const uint8_t DN_SMP_PG[2][DN_NPAGES][4] = {
      {DN_PX_SMODE, DN_PX_SZONE, DN_PX_ZN0 + ZN_LEVEL, DN_PX_KY0 + KY_VOICES}}};
 static const char *const DN_SMP_TAB[2][DN_NPAGES] = {{"PAD", "FILTER", "AMP", "MOD", "OUT"},
                                                      {"ZONE", "FILTER", "AMP", "LOOP", "OUT"}};
+/* FM's pages (0.25), in the synths' places; each again: its second view (OP: OP+, EG: its levels, LFO: LFO+) */
+static const uint8_t DN_FM_PG[2][DN_NPAGES][4] = {
+    {{DN_PX_FALG, DN_PX_FFB, DN_PX_FBRIGHT, DN_PX_FTIME},
+     {DN_PX_FOP, DN_PX_FO0 + DN_FMO_COARSE, DN_PX_FO0 + DN_FMO_FINE, DN_PX_FO0 + DN_FMO_OL},
+     {DN_PX_FO0 + DN_FMO_R1, DN_PX_FO0 + DN_FMO_R2, DN_PX_FO0 + DN_FMO_R3, DN_PX_FO0 + DN_FMO_R4},
+     {DN_PX_FLFS, DN_PX_FLFD, DN_PX_FPMD, DN_PX_FAMD},
+     {DN_PX_FLEVEL, DN_PX_FVOICES, DN_PX_FATK, DN_PX_FREL}},
+    {{DN_PX_FALG, DN_PX_FFB, DN_PX_FBRIGHT, DN_PX_FTIME},
+     {DN_PX_FOP, DN_PX_FO0 + DN_FMO_DET, DN_PX_FO0 + DN_FMO_KVS, DN_PX_FO0 + DN_FMO_MODE},
+     {DN_PX_FO0 + DN_FMO_L1, DN_PX_FO0 + DN_FMO_L2, DN_PX_FO0 + DN_FMO_L3, DN_PX_FO0 + DN_FMO_L4},
+     {DN_PX_FLFW, DN_PX_FLFKS, DN_PX_FPMS, DN_PX_FOKS},
+     {DN_PX_FLEVEL, DN_PX_FVOICES, DN_PX_FATK, DN_PX_FREL}}};
+static const char *const DN_FM_TAB[2][DN_NPAGES] = {{"VOICE", "OP", "EG", "LFO", "OUT"},
+                                                    {"VOICE", "OP+", "EG LVL", "LFO+", "OUT"}};
 static const uint8_t DN_SUB_OSC2[4] = {DN_S(SP_PW), DN_S(SP_PWM), DN_S(SP_PWMR), DN_S(SP_SUBM)};
 static const uint8_t DN_SUB_DIRT[4] = {DN_S(SP_DRIVE), DN_S(SP_DTYPE), DN_S(SP_CRUSH), DN_S(SP_TONE)};
 static const uint8_t DN_SET_PAGE[4] = {DN_PX_CLICK, DN_PX_CLKLVL, DN_PX_CIN, DN_PX_VSENS};
@@ -285,6 +310,9 @@ static dn_save_t dn_sv;                             /* (the one copy of the save
 typedef char dn_save_fits[sizeof(dn_save_t) <= PLAT_STORE_MAX ? 1 : -1];
 static dn_sub_t dn_sb;                              /* SUB (0.13) */
 static dn_smp_t dn_sm;                              /* SAMPLER (0.23) */
+static dn_fm_t dn_fmx;                              /* FM (0.25) */
+static uint8_t dn_fm_base[DN_FM_PATCH];             /* FM's voice as loaded and edited (the macros go on top) */
+static dn_fm_macro_t dn_fm_mac;
 #define DN_SMCK 1536u                               /* its samples' decoder checkpoints (one per 256 samples) */
 static uint32_t dn_sm_ck[DN_SMCK];
 static uint32_t dn_sm_key[DN_SMP_NSRC];             /* each pad's / zone's sample by its identity (dn_brk_key) */
@@ -335,6 +363,8 @@ static struct {
     uint8_t store;                                  /* SAVE + PRESETS: the user slot to store into (1-8; 0 none) */
     uint8_t naming, nm_set, nm_slot, nm_len, nm_cur; /* (0.22) the name editor: 1 the project, 2 a user sound */
     uint8_t smp_pad, smp_zone;                      /* (0.23) SAMPLER: the pad and the zone its pages show */
+    uint8_t fm_op, fm_alt;                          /* (0.25) FM: the operator shown (0 = OP1), each page's second view */
+    uint16_t fm_preset;                             /* FM: the voice PRESETS is on (factory, then the project's) */
     char nm[12];
     uint8_t home_chord;                             /* HOME held and SELECT turned: an instrument picked */
     uint8_t fx_exact;                               /* (the editor sets an effect: no skipping past ones that don't fit) */                              /* the editor: the LFO values read set 1 (REESE) / 2 (SUB), 0: by page */
@@ -632,6 +662,8 @@ static void dn_sq_on(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t f
             dn_smp_pad(&dn_sm, note, vel);
         else
             dn_smp_note_on(&dn_sm, note, vel);
+    } else if (DN_IS_FM(t)) {
+        dn_fm_note_on(&dn_fmx, note, (flags & DN_ST_ACC) && vel < 127u ? 127u : vel);
     } else if (DN_IS_MIDI(t))
         plat_midi_out(0x09u | (0x90u | dn_sq.pat.tr[t].chan) << 8 | (uint32_t)note << 16 | (uint32_t)vel << 24);
 }
@@ -642,7 +674,8 @@ static void dn_sq_off(uint32_t t, uint8_t note)
     else if (DN_IS_SMP(t)) {
         if (dn_sm.p.mode == DN_SMP_KEYS)
             dn_smp_note_off(&dn_sm, note);
-    }
+    } else if (DN_IS_FM(t))
+        dn_fm_note_off(&dn_fmx, note);
     else if (DN_IS_MIDI(t))
         plat_midi_out(0x08u | (0x80u | dn_sq.pat.tr[t].chan) << 8 | (uint32_t)note << 16);
     else if (DN_IS_SUB(t)) {
@@ -728,6 +761,8 @@ static void dn_mix_render(int32_t *lr, uint32_t k)
             dn_sub_render(&dn_sb, ib, k);
         else if (e == DN_E_SMP)
             dn_smp_render(&dn_sm, ib, k);
+        else if (e == DN_E_FM)
+            dn_fm_render(&dn_fmx, ib, k);
         else
             dn_brk_render(&dn_bk[e - DN_E_BRKA], ib, k);   /* (a break on no track: only chop mode's loop) */
         t = dn_trk_of(e);
@@ -874,12 +909,55 @@ static uint32_t dn_smp_used(void)
     }
     return used;
 }
+/* (0.25) a zone of a sample slot can hold DX7 voices (the editor's Project tab sends them with the samples): its data
+ * starts "DNFMBNK", then how many, then each packed voice (128 bytes). Not a sample: the loops' list skips it. */
+static const uint8_t *dn_fmz(int k, int z, uint32_t *cnt)
+{
+    static const char M[7] = {'D', 'N', 'F', 'M', 'B', 'N', 'K'};
+    uint32_t n, r, i;
+    char nm[9];
+    const uint8_t *a = plat_slot(k, z, &n, &r, nm);
+    if (!a || n < 16u)
+        return 0;
+    for (i = 0; i < 7u; i++)
+        if (a[i] != (uint8_t)M[i])
+            return 0;
+    if (!a[7] || (n + 1u) / 2u < 8u + (uint32_t)a[7] * DN_FM_PACKED)
+        return 0;
+    *cnt = a[7];
+    return a + 8;
+}
+static uint32_t dn_fmv_count(void)                  /* the project's DX7 voices */
+{
+    uint32_t n = 0, c;
+    int k, z;
+    for (k = 0; k < PLAT_NSLOTS; k++)
+        for (z = 0; z < plat_slot_zones(k); z++)
+            if (dn_fmz(k, z, &c))
+                n += c;
+    return n;
+}
+static const uint8_t *dn_fmv_get(uint32_t i)        /* project voice i, packed */
+{
+    uint32_t c;
+    int k, z;
+    for (k = 0; k < PLAT_NSLOTS; k++)
+        for (z = 0; z < plat_slot_zones(k); z++) {
+            const uint8_t *a = dn_fmz(k, z, &c);
+            if (a && i < c)
+                return a + i * DN_FM_PACKED;
+            if (a)
+                i -= c;
+        }
+    return 0;
+}
 static uint32_t dn_src_count(void)
 {
-    uint32_t n = DN_BRK_BUILTIN;
-    int k;
+    uint32_t n = DN_BRK_BUILTIN, c;
+    int k, z;
     for (k = 0; k < PLAT_NSLOTS; k++)
-        n += (uint32_t)plat_slot_zones(k);
+        for (z = 0; z < plat_slot_zones(k); z++)
+            n += !dn_fmz(k, z, &c);
     return n;
 }
 static int dn_src_get(uint32_t i, dn_loop_t *L)
@@ -899,15 +977,19 @@ static int dn_src_get(uint32_t i, dn_loop_t *L)
     }
     i -= DN_BRK_BUILTIN;
     for (k = 0; k < PLAT_NSLOTS; k++)
-        for (z = 0; z < plat_slot_zones(k); z++, i--)
-            if (i == 0u) {
+        for (z = 0; z < plat_slot_zones(k); z++) {
+            uint32_t c;
+            if (dn_fmz(k, z, &c))                   /* (DX7 voices: not a loop) */
+                continue;
+            if (i-- == 0u) {
                 char nm[9];
                 uint32_t num = 0, d;
+                int zz;
                 L->adpcm = plat_slot(k, z, &L->n, &L->rate, nm);
                 L->bars = dn_brk_bars_of(L->n, L->rate);
-                for (d = 0; d < (uint32_t)k; d++)   /* named as the breaks page numbers them: BR1, BR2 ... */
-                    num += (uint32_t)plat_slot_zones((int)d);
-                num += (uint32_t)z + 1u;
+                for (d = 0; d <= (uint32_t)k; d++)  /* named as the breaks page numbers them: BR1, BR2 ... */
+                    for (zz = 0; zz < (d == (uint32_t)k ? z + 1 : plat_slot_zones((int)d)); zz++)
+                        num += !dn_fmz((int)d, zz, &c);
                 {
                     char t[8];
                     reese_param_text(RP_LEVEL, (int32_t)num, t);
@@ -919,6 +1001,7 @@ static int dn_src_get(uint32_t i, dn_loop_t *L)
                 }
                 return L->adpcm != 0;
             }
+        }
     return 0;
 }
 /* BREAKS k plays loop src (main loop): the audio lets go of it first, the new loop is read, the speed set */
@@ -946,7 +1029,14 @@ typedef struct {
     dn_man_t t[DN_MAN_N];
     char uname[2][DN_NUSER][8];                     /* (0.22) the user sounds' names, REESE's and SUB's ("": USER n) */
     dn_smp_keep_t smp;                              /* (0.23) */
+    struct {                                        /* (0.25) FM: the voice, packed, and its settings */
+        uint8_t packed[DN_FM_PACKED];
+        uint8_t opsw, voices, level, valid;         /* (valid: 0xA5) */
+        int8_t mac[4];
+        uint16_t preset, pad;
+    } fm;
 } dn_mans_t;
+#define DN_MAN2_SIZE ((uint32_t)(sizeof(dn_mans_t) - sizeof(((dn_mans_t *)0)->fm)))   /* (0.23 / 0.24: no FM) */
 static dn_mans_t dn_man X0X_POOL;
 /* the object as 0.22 kept it (and 0.4-0.21, without the names): 24 loops' slices, then the names */
 #define DN_MAN1_T 8u                                /* (where its loops start) */
@@ -1188,6 +1278,7 @@ static uint32_t dn_dial(uint32_t k)
          : dn.page == DN_PG_FENV ? (DN_IS_SUB(dn.trk) ? DN_PX_SFE : DN_PX_RFE) + k
          : dn.page < DN_NPAGES && DN_IS_SUB(dn.trk) ? DN_SUB_PAGE[dn.page][k]
          : dn.page < DN_NPAGES && DN_IS_SMP(dn.trk) ? DN_SMP_PG[dn_sm.p.mode ? 1 : 0][dn.page][k]
+         : dn.page < DN_NPAGES && DN_IS_FM(dn.trk) ? DN_FM_PG[(dn.fm_alt >> dn.page) & 1u][dn.page][k]
          : dn.page == DN_PG_PROJ ? DN_PROJ_PAGE[k]
          : dn.page == DN_PG_FX ? dn_fx_dial(k)
          : DN_PAGE[dn.page % DN_NPAGES][k];
@@ -1564,12 +1655,192 @@ static void dn_sm_set(uint32_t id, int32_t v)
     dn.dirty = 1;
     dn.redraw |= DN_RD_ALL;
 }
+/* FM's values (0.25): the voice's (dn_fm_base: edited, then the macros on top into the voice played), the macros,
+ * the operator shown and its values, LEVEL and VOICES */
+static const uint8_t DN_FM_VIDX[DN_PX_FO0 - DN_PX_FOKS] = {DN_FMV_OKS, DN_FMV_LFS, DN_FMV_LFD, DN_FMV_LPMD,
+                                                           DN_FMV_LAMD, DN_FMV_LFW, DN_FMV_LFKS, DN_FMV_LPMS,
+                                                           DN_FMV_TRNSP};
+static int32_t dn_fm_idx(uint32_t id)                 /* the voice's value under id (-1: not one of the voice's) */
+{
+    if (id >= DN_PX_FO0)
+        return 21 * (5 - (int32_t)(dn.fm_op % 6u)) + (int32_t)(id - DN_PX_FO0);   /* (OP1 is the last) */
+    if (id == DN_PX_FALG)
+        return DN_FMV_ALG;
+    if (id == DN_PX_FFB)
+        return DN_FMV_FB;
+    if (id >= DN_PX_FOKS)
+        return DN_FM_VIDX[id - DN_PX_FOKS];
+    return -1;
+}
+static int8_t *dn_fm_macro(uint32_t id)
+{
+    return id == DN_PX_FBRIGHT ? &dn_fm_mac.bright : id == DN_PX_FTIME ? &dn_fm_mac.time
+         : id == DN_PX_FATK ? &dn_fm_mac.attack : &dn_fm_mac.release;
+}
+static int32_t dn_fm_get(uint32_t id)
+{
+    int32_t i = dn_fm_idx(id);
+    if (i >= 0)
+        return dn_fm_base[i];
+    return id == DN_PX_FOP ? dn.fm_op : id == DN_PX_FLEVEL ? dn_fmx.level : id == DN_PX_FVOICES ? dn_fmx.voices
+         : *dn_fm_macro(id);
+}
+static int32_t dn_fm_lim(uint32_t id, int hi)
+{
+    int32_t i = dn_fm_idx(id);
+    if (i >= 0)
+        return hi ? dn_fm_vmax((uint32_t)i) : 0;
+    return id == DN_PX_FOP ? (hi ? 5 : 0) : id == DN_PX_FLEVEL ? (hi ? 127 : 0) : id == DN_PX_FVOICES ? (hi ? 6 : 1)
+         : hi ? 50 : -50;
+}
+static const char *dn_fm_name(uint32_t id)
+{
+    int32_t i = dn_fm_idx(id);
+    if (id == DN_PX_FALG)
+        return "ALGO";
+    if (i >= 0)
+        return dn_fm_vname((uint32_t)i);
+    return id == DN_PX_FOP ? "OP" : id == DN_PX_FLEVEL ? "LEVEL" : id == DN_PX_FVOICES ? "VOICES"
+         : id == DN_PX_FBRIGHT ? "BRIGHT" : id == DN_PX_FTIME ? "TIME" : id == DN_PX_FATK ? "ATTACK" : "RELEASE";
+}
+/* an operator's frequency: its ratio (COARSE 0 is 0.50) or, FIXED, Hz (10 ^ (COARSE & 3 + FINE / 100)) */
+static void dn_fm_freq_text(char out[8])
+{
+    const uint8_t *o = dn_fm_base + 21u * (5u - dn.fm_op % 6u);
+    int32_t c = o[DN_FMO_COARSE], f = o[DN_FMO_FINE], v, i = 0;
+    char t[8];
+    if (o[DN_FMO_MODE]) {
+        float hz = fm_powf(10.f, (float)(c & 3) + (float)f * 0.01f);
+        v = (int32_t)(hz + 0.5f);
+        if (v >= 1000) {
+            dn_num(t, v / 1000);
+            dn_cat(t, ".");
+            out[0] = 0;
+            dn_cat(out, t);
+            t[0] = (char)('0' + v / 100 % 10), t[1] = 'k', t[2] = 0;
+            dn_cat(out, t);
+        } else {
+            dn_num(out, v);
+            dn_cat(out, "Hz");
+        }
+        return;
+    }
+    v = (c ? c * 2 : 1) * (100 + f);                /* (the ratio x 200) */
+    dn_num(t, v / 200);
+    while (t[i])
+        out[i] = t[i], i++;
+    out[i++] = '.';
+    v = (v % 200) / 2;
+    out[i++] = (char)('0' + v / 10);
+    out[i++] = (char)('0' + v % 10);
+    out[i] = 0;
+}
+static void dn_fm_text(uint32_t id, int32_t v, char out[8])
+{
+    int32_t i = dn_fm_idx(id);
+    if (id == DN_PX_FO0 + DN_FMO_COARSE || id == DN_PX_FO0 + DN_FMO_FINE) {
+        dn_fm_freq_text(out);                       /* (COARSE and FINE: the frequency they make) */
+        return;
+    }
+    if (i >= 0) {
+        dn_fm_vtext((uint32_t)i, v, out);
+        return;
+    }
+    if (id == DN_PX_FOP) {
+        out[0] = 'O', out[1] = 'P', out[2] = (char)('1' + v), out[3] = 0;
+        return;
+    }
+    if (id == DN_PX_FVOICES && v == 1) {
+        out[0] = 0;
+        dn_cat(out, "MONO");
+        return;
+    }
+    out[0] = 0;
+    if (id != DN_PX_FLEVEL && id != DN_PX_FVOICES && v > 0)
+        dn_cat(out, "+");
+    {
+        char t[8];
+        dn_num(t, v);
+        dn_cat(out, t);
+    }
+}
+/* the voice played: the voice with the macros on it (and the LFO set) */
+static void dn_fm_sync(void)
+{
+    static uint8_t eff[DN_FM_PATCH];
+    dn_fm_apply(dn_fm_base, &dn_fm_mac, eff);
+    dn_lock();
+    dn_fm_voice_load(&dn_fmx, eff);
+    dn_unlock();
+}
+static void dn_fm_set(uint32_t id, int32_t v)
+{
+    int32_t i = dn_fm_idx(id);
+    if (id == DN_PX_FOP) {
+        dn.fm_op = (uint8_t)v;
+        dn.redraw |= DN_RD_ALL;
+        return;
+    }
+    if (i >= 0)
+        dn_fm_base[i] = (uint8_t)v;
+    else if (id == DN_PX_FLEVEL)
+        dn_fmx.level = (int16_t)v;
+    else if (id == DN_PX_FVOICES)
+        dn_fmx.voices = (uint8_t)v;
+    else
+        *dn_fm_macro(id) = (int8_t)v;
+    dn_fm_sync();
+    dn.dirty = 1;
+    dn.redraw |= DN_RD_ALL;
+}
+/* FM's voices for PRESETS: the factory's, then the project's (the DX7 voices sent from the editor) */
+static uint32_t dn_fm_presets(void) { return dn_fm_factory_count() + dn_fmv_count(); }
+static void dn_fm_load(uint32_t i)
+{
+    uint32_t nf = dn_fm_factory_count();
+    if (i < nf) {
+        dn_fm_factory(i, dn_fm_base);
+    } else {
+        const uint8_t *pk = dn_fmv_get(i - nf);
+        if (!pk)
+            return;
+        dn_fm_unpack(pk, dn_fm_base);
+    }
+    dn.fm_preset = (uint16_t)i;
+    dn_fm_sync();
+    dn.dirty = 1;
+    dn.redraw |= DN_RD_ALL;
+}
+/* the EG tab names the operator its knobs edit: "OP3 EG", again "OP3 LVL" */
+static const char *dn_fm_egtab(void)
+{
+    static char t[8];
+    t[0] = 'O', t[1] = 'P', t[2] = (char)('1' + dn.fm_op % 6u), t[3] = ' ', t[4] = 0;
+    dn_cat(t, (dn.fm_alt >> 2) & 1u ? "LVL" : "EG");
+    return t;
+}
+/* the voice's name (its 10 characters, trailing spaces gone) */
+static const char *dn_fm_vcname(void)
+{
+    static char nm[11];
+    int32_t i;
+    for (i = 0; i < 10; i++)
+        nm[i] = dn_fm_base[DN_FMV_NAME + i] >= 32u && dn_fm_base[DN_FMV_NAME + i] < 127u
+              ? (char)dn_fm_base[DN_FMV_NAME + i] : ' ';
+    nm[10] = 0;
+    for (i = 9; i >= 0 && nm[i] == ' '; i--)
+        nm[i] = 0;
+    return nm;
+}
+
 /* the filter envelopes' values (0.19): REESE's or SUB's fe[] */
 static int16_t *dn_fe(uint32_t id) { return id >= DN_PX_SFE ? &dn_sb.fe[id - DN_PX_SFE] : &dn_rs.fe[id - DN_PX_RFE]; }
 static int32_t dn_get(uint32_t id)
 {
     if (DN_IS_MPX(id))
         return dn_sm_get(id);
+    if (DN_IS_FPX(id))
+        return dn_fm_get(id);
     if (DN_IS_FEX(id))
         return *dn_fe(id);
     if (DN_IS_SPX(id))
@@ -1626,6 +1897,8 @@ static int32_t dn_min(uint32_t id)
 {
     if (DN_IS_MPX(id))
         return dn_sm_lim(id, 0);
+    if (DN_IS_FPX(id))
+        return dn_fm_lim(id, 0);
     if (DN_IS_FEX(id))
         return 0;
     if (DN_IS_SPX(id))
@@ -1643,6 +1916,8 @@ static int32_t dn_max(uint32_t id)
 {
     if (DN_IS_MPX(id))
         return dn_sm_lim(id, 1);
+    if (DN_IS_FPX(id))
+        return dn_fm_lim(id, 1);
     if (DN_IS_FEX(id))
         return 127;
     if (DN_IS_SPX(id))
@@ -1664,6 +1939,8 @@ static const char *dn_name(uint32_t id)
     static const char *const FN[4] = {"F.ATK", "F.DEC", "F.SUS", "F.REL"};
     if (DN_IS_MPX(id))
         return dn_sm_name(id);
+    if (DN_IS_FPX(id))
+        return dn_fm_name(id);
     if (DN_IS_FEX(id))
         return FN[(id - DN_PX_RFE) % 4u];
     static const char *const BN[8] = {"LOOP", "PITCH", "DECAY", "CRUSH", "CHOKE", "SLICES", "STRETCH", "LEVEL"};
@@ -1704,6 +1981,10 @@ static void dn_text(uint32_t id, int32_t v, char out[8])
     }
     if (DN_IS_MPX(id)) {
         dn_sm_text(id, v, out);
+        return;
+    }
+    if (DN_IS_FPX(id)) {
+        dn_fm_text(id, v, out);
         return;
     }
     if (DN_IS_PPX(id)) {
@@ -1821,6 +2102,10 @@ static void dn_set(uint32_t id, int32_t v)
     }
     if (DN_IS_MPX(id)) {
         dn_sm_set(id, v);
+        return;
+    }
+    if (DN_IS_FPX(id)) {
+        dn_fm_set(id, v);
         return;
     }
     if (DN_IS_FEX(id)) {
@@ -2236,7 +2521,8 @@ static void dn_proj_restore(const dn_save_t *sp)
     uint32_t k, n[DN_E_N] = {0};
     for (k = 0; k < DN_SEQ_TRACKS; k++)
         n[sp->proj.eng[k] < DN_E_N ? sp->proj.eng[k] : 0u]++;
-    if (n[DN_E_REESE] <= 1u && n[DN_E_BRKA] <= 1u && n[DN_E_BRKB] <= 1u && n[DN_E_SUB] <= 1u && n[DN_E_SMP] <= 1u)
+    if (n[DN_E_REESE] <= 1u && n[DN_E_BRKA] <= 1u && n[DN_E_BRKB] <= 1u && n[DN_E_SUB] <= 1u && n[DN_E_SMP] <= 1u &&
+        n[DN_E_FM] <= 1u)
         for (k = 0; k < DN_SEQ_TRACKS; k++)
             dn_eng[k] = sp->proj.eng[k] < DN_E_N ? sp->proj.eng[k] : (uint8_t)DN_E_OFF;
     for (k = 0; k < DN_SEQ_TRACKS; k++) {
@@ -2282,6 +2568,14 @@ static void dn_sm_keep(void)                        /* (0.23) SAMPLER's settings
 static void dn_save(void)
 {
     dn_sm_keep();
+    dn_fm_pack(dn_fm_base, dn_man.fm.packed);       /* (0.25) FM's voice */
+    dn_man.fm.opsw = dn_fm_base[DN_FMV_OPSW];
+    dn_man.fm.voices = dn_fmx.voices;
+    dn_man.fm.level = (uint8_t)dn_fmx.level;
+    dn_man.fm.mac[0] = dn_fm_mac.bright, dn_man.fm.mac[1] = dn_fm_mac.time;
+    dn_man.fm.mac[2] = dn_fm_mac.attack, dn_man.fm.mac[3] = dn_fm_mac.release;
+    dn_man.fm.preset = dn.fm_preset;
+    dn_man.fm.valid = 0xA5u;
     dn_save_t *ps = &dn_sv;
 #define s (*ps)
     dn_save_fill(&s);
@@ -2349,6 +2643,12 @@ void dn_app_init(void)
         dn_man.magic = DN_MAN_MAGIC;
         got = (int)sizeof dn_man;
     }
+    if (got >= (int)DN_MAN2_SIZE && got < (int)sizeof dn_man && dn_man.magic == DN_MAN_MAGIC) {
+        uint8_t *b = (uint8_t *)&dn_man;            /* (0.25) a 0.23 / 0.24 object: no FM yet */
+        for (k = (uint32_t)got; k < sizeof dn_man; k++)
+            b[k] = 0;
+        got = (int)sizeof dn_man;
+    }
     if (got != (int)sizeof dn_man || dn_man.magic != DN_MAN_MAGIC || dn_man.count > DN_MAN_N) {
         uint8_t *z = (uint8_t *)&dn_man;            /* (nothing kept yet) */
         for (k = 0; k < sizeof dn_man; k++)
@@ -2372,6 +2672,22 @@ void dn_app_init(void)
             dn_sm_key[k] = dn_man.smp.src_key[k];
     }
     dn_sm_resolve(1);
+    dn_fm_init(&dn_fmx);                            /* FM's voice, kept or the first factory one */
+    if (dn_man.fm.valid == 0xA5u) {
+        dn_fm_unpack(dn_man.fm.packed, dn_fm_base);
+        dn_fm_base[DN_FMV_OPSW] = dn_man.fm.opsw & 0x3fu;
+        dn_fmx.voices = (uint8_t)dn_clamp(dn_man.fm.voices, 1, DN_FM_NV);
+        dn_fmx.level = (int16_t)dn_clamp(dn_man.fm.level, 0, 127);
+        dn_fm_mac.bright = (int8_t)dn_clamp(dn_man.fm.mac[0], -50, 50);
+        dn_fm_mac.time = (int8_t)dn_clamp(dn_man.fm.mac[1], -50, 50);
+        dn_fm_mac.attack = (int8_t)dn_clamp(dn_man.fm.mac[2], -50, 50);
+        dn_fm_mac.release = (int8_t)dn_clamp(dn_man.fm.mac[3], -50, 50);
+        dn.fm_preset = dn_man.fm.preset;
+    } else {
+        dn_fm_factory(0, dn_fm_base);
+        dn.fm_preset = 0;
+    }
+    dn_fm_sync();
     for (k = 0; k < sizeof dn_man.uname; k++) {    /* (printable, ended) */
         char *c = &dn_man.uname[0][0][0] + k;
         if (*c < 32 || *c > 126)
@@ -2517,6 +2833,8 @@ static void dn_play(uint8_t note, int legato)
         dn_rs_on(note, 100, legato);
     } else if (DN_IS_SUB(dn.trk)) {
         dn_sb_on(note, 100, legato, 0);
+    } else if (DN_IS_FM(dn.trk)) {
+        dn_fm_note_on(&dn_fmx, note, 100);
     } else if (DN_IS_MIDI(dn.trk)) {
         uint32_t ch = dn_sq.pat.tr[dn.trk].chan;
         if (dn.sounding != 0xFF)
@@ -2539,6 +2857,8 @@ static void dn_stop(void)
         dn_sub_note_off(&dn_sb);
     else if (DN_IS_SMP(dn.trk) && dn_sm.p.mode == DN_SMP_KEYS && dn.sounding != 0xFF)
         dn_smp_note_off(&dn_sm, dn.sounding);
+    else if (DN_IS_FM(dn.trk) && dn.sounding != 0xFF)
+        dn_fm_note_off(&dn_fmx, dn.sounding);
     dn_unlock();
     dn.sounding = 0xFF;
 }
@@ -2548,7 +2868,7 @@ static void dn_legato_fix(void)
 {
     uint32_t t, m = 0;
     for (t = 0; t < DN_SEQ_TRACKS; t++)
-        if (!DN_IS_BRK(t) && !DN_IS_SMP(t))         /* (SAMPLER: every note its own: no slides) */
+        if (!DN_IS_BRK(t) && !DN_IS_SMP(t) && !DN_IS_FM(t))   /* (SAMPLER, FM: every note its own: no slides) */
             m |= 1u << t;
     dn_sq.legato = (uint8_t)m;
 }
@@ -2564,6 +2884,8 @@ static void dn_trk_silence(uint32_t t)
         dn_brk_cut(&dn_bk[DN_BK(t)]);
     else if (DN_IS_SMP(t))
         dn_smp_cut(&dn_sm);
+    else if (DN_IS_FM(t))
+        dn_fm_all_off(&dn_fmx);
     else if (DN_IS_MIDI(t))
         plat_midi_out(0x0Bu | (0xB0u | dn_sq.pat.tr[t].chan) << 8 | 123u << 16);   /* all notes off */
 }
@@ -2614,7 +2936,7 @@ static uint32_t dn_rec_note(uint8_t note, int legato)
         dn.rec_cur = (uint8_t)((i + 1u) % tr->len);
     }
     tr->st[i].note = note;
-    tr->st[i].flags = (uint8_t)(DN_ST_ON | (legato && !DN_IS_PADS(dn.trk) && !DN_IS_SMP(dn.trk) ? DN_ST_SLIDE : 0u));
+    tr->st[i].flags = (uint8_t)(DN_ST_ON | (legato && !DN_IS_PADS(dn.trk) && !DN_IS_POLY(dn.trk) ? DN_ST_SLIDE : 0u));
     tr->st[i].len = DN_IS_PADS(dn.trk) ? DN_LEN_STEP : 3;
     tr->st[i].vel = 100;
     tr->last_note = note;
@@ -2648,9 +2970,12 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
                 if (dn.held[i] != k)
                     dn.held[j++] = dn.held[i];
             dn.nheld = (uint8_t)j;
-            if (DN_IS_SMP(dn.trk) && dn_sm.p.mode == DN_SMP_KEYS) {   /* (SAMPLER's keys: each key its own note) */
+            if (DN_IS_POLY(dn.trk)) {               /* (SAMPLER's keys, FM: each key its own note) */
                 dn_lock();
-                dn_smp_note_off(&dn_sm, dn_key_note(k));
+                if (DN_IS_FM(dn.trk))
+                    dn_fm_note_off(&dn_fmx, dn_key_note(k));
+                else
+                    dn_smp_note_off(&dn_sm, dn_key_note(k));
                 dn_unlock();
             }
             if (dn.rec && dn_sq.playing)
@@ -2705,10 +3030,10 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
     }
     if (up && dn.nheld == 0u && !dn.play && dn.sounding != 0xFF)
         dn_stop();
-    else if (up && dn.nheld && !DN_IS_PADS(dn.trk) && !DN_IS_SMP(dn.trk) &&
+    else if (up && dn.nheld && !DN_IS_PADS(dn.trk) && !DN_IS_POLY(dn.trk) &&
              dn.sounding != dn_key_note(dn.held[dn.nheld - 1u]))
         dn_play(dn_key_note(dn.held[dn.nheld - 1u]), 1);       /* back to the last key still held */
-    else if (up && !dn.nheld && dn.play && !DN_IS_PADS(dn.trk) && !DN_IS_SMP(dn.trk))
+    else if (up && !dn.nheld && dn.play && !DN_IS_PADS(dn.trk) && !DN_IS_POLY(dn.trk))
         dn_play(dn_key_note(0), 1);
 }
 
@@ -2936,8 +3261,8 @@ static void dn_trk_go(uint32_t t)
         dn.bk_last = (uint8_t)DN_BK(t);
     if (seq)
         dn_goto(DN_IS_PADS(t) ? DN_PG_DRUM : DN_PG_ROLL);
-    else if (DN_IS_SMP(t))
-        dn_goto(dn.page < DN_NPAGES ? dn.page : 0u);   /* (SAMPLER: its pages) */
+    else if (DN_IS_OWNPG(t))
+        dn_goto(dn.page < DN_NPAGES ? dn.page : 0u);   /* (SAMPLER, FM: their pages) */
     else if (DN_IS_SYN(t)) {
         dn.syn_last = dn_eng[t];
         dn_goto(DN_IS_SNDPG(dn.page) && (DN_IS_SUB(t) || (dn.page != DN_PG_SOSC2 && dn.page != DN_PG_DIRT)) ? dn.page : 0u);
@@ -3276,7 +3601,8 @@ static void dn_goto(uint32_t page)
     if (dn.page != page) {
         dn.page = (uint8_t)page;
         dn.step_held = -1;
-        if (DN_IS_SNDPG(page) && !DN_IS_SYN(dn.trk) && !(DN_IS_SMP(dn.trk) && page < DN_NPAGES)) {
+        if (DN_IS_SNDPG(page) && !DN_IS_SYN(dn.trk) &&
+            !(DN_IS_OWNPG(dn.trk) && (page < DN_NPAGES || page == DN_PG_SET))) {   /* (SETUP: any instrument's) */
             /* a synth's pages: the synth shown last (REESE first); (SAMPLER keeps its own five) */
             uint32_t t = dn_trk_of(dn.syn_last);
             if (t >= 8u)
@@ -3883,7 +4209,10 @@ void dn_app_input(void)
         } else if (k <= 1u && DN_IS_SUB(dn.trk) && (dn.page == k || dn.page == (k ? DN_PG_DIRT : DN_PG_SOSC2))) {
             /* SUB: SEL again OSC <-> OSC2 (PW, PWM, the sub), EDIT again FILTER <-> DIRT */
             dn_goto(dn.page == k ? (k ? DN_PG_DIRT : DN_PG_SOSC2) : k);
-        } else if (k == 3u && !DN_IS_SMP(dn.trk) && (dn.page == 3u || dn.page == DN_PG_LFO)) {   /* LFO again: LFO 1, 2, 3, 4, back to MOD */
+        } else if (DN_IS_FM(dn.trk) && k >= 1u && k <= 3u && dn.page == k) {
+            dn.fm_alt ^= (uint8_t)(1u << k);        /* FM: OP again OP+, EG again its levels, LFO again LFO+ */
+            dn.redraw |= DN_RD_ALL;
+        } else if (k == 3u && !DN_IS_OWNPG(dn.trk) && (dn.page == 3u || dn.page == DN_PG_LFO)) {   /* LFO again: LFO 1, 2, 3, 4, back to MOD */
                 if (dn.page == DN_PG_LFO && dn.lfo_sel + 1u >= DN_NLFO) {
                     dn_goto(3u);
                 } else {
@@ -3917,7 +4246,7 @@ void dn_app_input(void)
             } else {
                 if (dn.page == DN_PG_MIDI && dn_midi_trk(dn.midi_sel) < 8u)
                     dn.trk = (uint8_t)dn_midi_trk(dn.midi_sel);
-                else if (DN_IS_SNDPG(dn.page) && !DN_IS_SYN(dn.trk) && !DN_IS_SMP(dn.trk) &&
+                else if (DN_IS_SNDPG(dn.page) && !DN_IS_SYN(dn.trk) && !DN_IS_OWNPG(dn.trk) &&
                          dn_trk_of(dn.syn_last) < 8u)
                     dn.trk = (uint8_t)dn_trk_of(dn.syn_last);   /* (a synth's pages: that synth's roll) */
                 dn_goto(DN_IS_PADS(dn.trk) ? DN_PG_DRUM : DN_PG_ROLL);
@@ -4076,7 +4405,7 @@ void dn_app_input(void)
                     at = (int32_t)k;
             do                                      /* (SAMPLER: no LFO page) */
                 at = ((at + d) % (int32_t)DN_NSND + (int32_t)DN_NSND) % (int32_t)DN_NSND;
-            while (DN_SND[at] == DN_PG_LFO && DN_IS_SMP(dn.trk));
+            while (DN_SND[at] == DN_PG_LFO && DN_IS_OWNPG(dn.trk));
             dn_goto(DN_SND[at]);
         }
     }
@@ -4087,6 +4416,14 @@ void dn_app_input(void)
             dn_set(DN_PX_SZONE, (int32_t)dn.smp_zone + (d > 0 ? 1 : -1));
         if (dn.page == DN_PG_DRUM)
             dn.drum_row = dn.smp_pad;
+    } else if (d && DN_IS_FM(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {
+        uint32_t np = dn_fm_presets();              /* FM: the factory's voices, then the project's (round) */
+        if (dn.save_held) {
+            dn.save_chord = 1;
+            dn_say("FM: SAVE KEEPS THIS VOICE");
+        } else {
+            dn_fm_load((uint32_t)((((int32_t)dn.fm_preset + d) % (int32_t)np + (int32_t)np) % (int32_t)np));
+        }
     } else if (d && (DN_IS_BRKPG(dn.page) || dn.page == DN_PG_DRUM)) {
         dn_set(DN_PX_BSRC, dn_get(DN_PX_BSRC) + (d > 0 ? 1 : -1));   /* on BRK: the loop */
     } else if (d && dn.save_held) {                 /* SAVE held + PRESETS: the user slot to store this
@@ -4409,6 +4746,9 @@ static void dn_draw_top(void)
             dn_cat(fx, DN_FX_NAME[dn_fxp[1].type % DN_FX_N]);
             pn = fx;
         }
+    } else if (DN_IS_FM(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {   /* FM: its voice */
+        cv_text(29 - text_w(&FONT_T, "FM") / 2, 28, &FONT_T, "FM", DN_C_BAR);
+        pn = dn_fm_vcname();
     } else if (DN_IS_SMP(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {   /* SAMPLER: the pad / zone */
         static char sp[24];
         char v[8];
@@ -5025,11 +5365,14 @@ static uint32_t dn_tabs(uint8_t *ids, const char **nms)
     else if (dn.page != DN_PG_PROJ && dn.page != DN_PG_FX)
         for (k = 0; k < DN_NSND; k++) {
             static const char *const LN[DN_NLFO] = {"LFO1", "LFO2", "LFO3", "LFO4"};
-            if (DN_IS_SMP(dn.trk)) {                /* SAMPLER: its five (by mode), SETUP; no LFO */
+            if (DN_IS_OWNPG(dn.trk)) {              /* SAMPLER, FM: their five (by mode / view), SETUP; no LFO */
                 if (DN_SND[k] == DN_PG_LFO)
                     continue;
                 ids[n] = DN_SND[k];
-                nms[n++] = DN_SND[k] < DN_NPAGES ? DN_SMP_TAB[dn_sm.p.mode & 1u][DN_SND[k]] : DN_SND_NAME[k];
+                nms[n++] = DN_SND[k] >= DN_NPAGES ? DN_SND_NAME[k]
+                         : DN_IS_FM(dn.trk) && DN_SND[k] == 2u ? dn_fm_egtab()
+                         : DN_IS_FM(dn.trk) ? DN_FM_TAB[(dn.fm_alt >> DN_SND[k]) & 1u][DN_SND[k]]
+                         : DN_SMP_TAB[dn_sm.p.mode & 1u][DN_SND[k]];
                 continue;
             }
             ids[n] = DN_SND[k];

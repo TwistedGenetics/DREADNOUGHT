@@ -2,11 +2,29 @@
 // A simulated FM-1 running DREADNOUGHT, for the editor's demo mode and its tests: a Web MIDI access object with one
 // port that answers the editor's commands (src/app/dn_editor.c) the way the firmware does. Copyright (C) 2026 Jamie
 // (TwistedGenetics).
+import { parseSlot, SLOT_HDR_LEN, SLOT_DATA_OFF } from "./media.js";
+import { zoneVoices, unpack as fmUnpack } from "./dx7.js";
 import { SMP_PAD, SMP_ZONE, SMP_KEYS, HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
 
 const PRESETS = ["CLASSIC RS", "OG REESE", "HOLLOW RS", "TECHSTEP", "NEURO RS", "SYNC RS", "DARK RS", "SUB REESE", "HOOVER RS", "INIT"];
 const USERS = Array.from({ length: 8 }, (_, i) => `USER ${i + 1} -`);   // (0.15: the user sounds, empty)
 const LOOPS = ["ROLLER", "STEPPER"];
+const FM_FACTORY = ["DUB FM BS", "FM REESE", "HOLLOW STB", "DARK BELL", "METAL HIT", "FM PLUCK", "DARK PAD", "GROWL BASS",
+  "SINE SUB", "INIT VOICE"];
+// an INIT VOICE (dn_fm_patch_init), named
+function fmInit(name) {
+  const v = new Uint8Array(156);
+  for (let op = 0; op < 6; op++) {
+    const o = op * 21;
+    for (let i = 0; i < 4; i++) { v[o + i] = 99; v[o + 4 + i] = i < 3 ? 99 : 0; }
+    v[o + 8] = 39; v[o + 16] = op === 5 ? 99 : 0; v[o + 18] = 1; v[o + 20] = 7;
+  }
+  for (let i = 0; i < 4; i++) { v[126 + i] = 99; v[130 + i] = 50; }
+  v[136] = 1; v[137] = 35; v[141] = 1; v[143] = 3; v[144] = 24; v[155] = 0x3f;
+  const nm = name.padEnd(10).slice(0, 10);
+  for (let i = 0; i < 10; i++) v[145 + i] = nm.charCodeAt(i);
+  return v;
+}
 const CLASSIC = [0, 70, 0, 80, 68, 18, 24, 0, 0, 70, 120, 30, 0, 36, 0, 0, 100, -24];
 const LIMITS = [[0, 5], [0, 127], [0, 7], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127],
   [0, 127], [0, 127], [-64, 63], [0, 127], [0, 127], [-64, 63], [0, 127], [-36, 36], [60, 200],
@@ -53,6 +71,9 @@ export class MockFM1 {
     // SAMPLER (0.23): its defaults, as dn_smp.c sets them
     this.smp = { mode: 0, pads: Array.from({ length: 16 }, () => [-1, 0, 1000, 0, 0, 0, 100, 0, 0, 127, 64, 0, 127, 0, 0, 0]),
       zones: Array.from({ length: 8 }, () => [-1, 60, 0, 127, 0, 100, 0, 0, 0, 1000]), keys: [0, 64, 127, 30, 127, 0, 0, 0, 4] };
+    // FM (0.25): its voice, LEVEL, VOICES, the macros, where PRESETS is
+    this.fm = { voice: fmInit("DUB FM BS"), level: 100, voices: 6, macros: [0, 0, 0, 0], preset: 0 };
+    this.fmPlayed = 0;
     this.slots = [0, 1, 2].map(() => ({ buf: new Uint8Array(0x14000).fill(0xFF), ok: false }));
     this.log = [];
     const self = this;
@@ -185,6 +206,33 @@ export class MockFM1 {
         this.rev++; this.dirty = 1;
         return [0];
       }
+      case CMD.FM_GET: {
+        const f = this.fm, n = FM_FACTORY.length + this.fmVoices().length;
+        return [...f.voice, f.level, f.voices, ...f.macros.map((m) => m + 64), ...digits(f.preset, 2), ...digits(n, 2)];
+      }
+      case CMD.FM_SET: {
+        const k = a[0] | a[1] << 7, v = (a[2] | a[3] << 7) - 8192, f = this.fm;
+        if (k < 156) f.voice[k] = Math.max(0, Math.min(127, v));
+        else if (k === 156) f.level = Math.max(0, Math.min(127, v));
+        else if (k === 157) f.voices = Math.max(1, Math.min(6, v));
+        else if (k <= 161) f.macros[k - 158] = Math.max(-50, Math.min(50, v));
+        else return [1];
+        this.rev++; this.dirty = 1;
+        return [0];
+      }
+      case CMD.FM_LOAD: {
+        const f = this.fm, pv = this.fmVoices();
+        if (a.length >= 156) { f.voice = Uint8Array.from(a.slice(0, 156)); }
+        else {
+          const i = a[0] | a[1] << 7;
+          if (i >= FM_FACTORY.length + pv.length) return [1];
+          f.voice = i < FM_FACTORY.length ? fmInit(FM_FACTORY[i]) : fmUnpack(pv[i - FM_FACTORY.length].packed);
+          f.preset = i;
+        }
+        this.rev++; this.dirty = 1;
+        return [0];
+      }
+      case CMD.FM_PLAY: this.fmPlayed += a[1] ? 1 : 0; return [0];
       case CMD.SMP_PLAY: this.smpPlayed = (this.smpPlayed || 0) + (a[1] ? 1 : 0); return [0];
       case CMD.SUB_PRESET: this.subPreset = a[0]; this.rev++; return [0];
       case CMD.PROJ: {
@@ -192,7 +240,7 @@ export class MockFM1 {
         const used = this.slots.reduce((acc, sl) => acc + (sl.ok ? 512 + new DataView(sl.buf.buffer).getUint32(16, true) : 0), 0);
         const fxk = fxMem(P.fx[0][0], P.fx[1][0]);
         return [...nm, ...P.eng, ...P.send[0], ...P.send[1], ...P.ret, ...P.fx[0].slice(0, 4), ...P.fx[1].slice(0, 4), ...digits(used, 3),
-          ...digits(3 * (0x14000 - 512), 3), ...digits(fxk, 2), ...digits(FX_ARENA_KB, 2), 12, 7, FX_NAMES.length,
+          ...digits(3 * (0x14000 - 512), 3), ...digits(fxk, 2), ...digits(FX_ARENA_KB, 2), 12, 8, FX_NAMES.length,
           ...P.fx[0].slice(4, 8), ...P.fx[1].slice(4, 8)];
       }
       case CMD.PROJ_SET: {
@@ -260,14 +308,25 @@ export class MockFM1 {
         return [...a.slice(0, 5), 0];
       }
       case CMD.NAMES: {
-        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER"], FX_NAMES,
-          ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], [...SUB_PRESETS, ...USERS]][a[0]] || [];
+        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM"], FX_NAMES,
+          ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], [...SUB_PRESETS, ...USERS],
+          [...FM_FACTORY, ...this.fmVoices().map((v) => v.name)]][a[0]] || [];
         const out = [list.length, a[1]];
         for (let i = a[1]; i < list.length; i++) out.push(...list[i].split("").map((c) => c.charCodeAt(0)), 0);
         return out;
       }
       default: return null;
     }
+  }
+  // the project's DX7 voices: the zones of the slots marked DNFMBNK
+  fmVoices() {
+    const out = [];
+    for (const sl of this.slots) {
+      if (!sl.ok) continue;
+      const h = parseSlot(sl.buf.subarray(0, SLOT_HDR_LEN));
+      if (h) for (const z of h.zones) { const v = zoneVoices(sl.buf.subarray(SLOT_DATA_OFF + z.off, SLOT_DATA_OFF + z.off + ((z.n + 1) >> 1))); if (v) out.push(...v); }
+    }
+    return out;
   }
   close() { clearInterval(this.timer); }
 }

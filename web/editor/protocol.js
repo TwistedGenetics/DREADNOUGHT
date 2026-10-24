@@ -9,7 +9,7 @@
 export const HDR = [0x7D, 0x46, 0x4C];
 export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, PATS: 73, PAT_SEL: 74, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
   TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77, SUB_PRESET: 78, PARAMS_HI: 79,
-  SMP_GET: 80, SMP_SET: 81, SMP_PLAY: 82 };
+  SMP_GET: 80, SMP_SET: 81, SMP_PLAY: 82, FM_GET: 83, FM_SET: 84, FM_LOAD: 85, FM_PLAY: 86 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
 export const digits = (v, n) => { const o = []; for (let i = 0; i < n; i++) { o.push(v & 127); v = Math.floor(v / 128); } return o; };
@@ -166,13 +166,13 @@ export function parseNames(r) {
 export const TRACKS = 8, STEPS = 64, LEN_STEP = 4, LEN_MAX = 255;
 export const ST_ON = 1, ST_SLIDE = 2, ST_ACC = 4;
 // what each track plays (0.12: the project says; before it, REESE / BREAKS A / B / MIDI x5)
-export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER"];
-export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4, SUB: 5, SMP: 6 };
+export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM"];
+export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4, SUB: 5, SMP: 6, FM: 7 };
 let ENG = [1, 2, 3, 4, 4, 4, 4, 4];
 export function setEngines(e) { ENG = e.slice(0, 8); }
 export const engines = () => ENG.slice();
 export const KIND = (t) => (ENG[t] === E.REESE ? "REESE" : ENG[t] === E.BRKA || ENG[t] === E.BRKB ? "BREAKS" : ENG[t] === E.MIDI ? "MIDI"
-  : ENG[t] === E.SUB ? "SUB" : ENG[t] === E.SMP ? "SAMPLER" : "OFF");
+  : ENG[t] === E.SUB ? "SUB" : ENG[t] === E.SMP ? "SAMPLER" : ENG[t] === E.FM ? "FM" : "OFF");
 export const brkOf = (t) => (ENG[t] === E.BRKB ? 1 : 0);   // a break track's voice: 0 A, 1 B
 export const midiNo = (t) => ENG.slice(0, t).filter((e) => e === E.MIDI).length + 1;   // "MIDI n"
 export const ST_RTRG = 8;
@@ -392,6 +392,10 @@ export class Link {
   async smpGet(kind, i) { return parseSmp(await this.req(CMD.SMP_GET, [kind, i])); }
   async smpSet(kind, i, k, v) { return (await this.req(CMD.SMP_SET, [kind, i, k, ...digits(v + 8192, 2)]))[0]; }
   async smpPlay(note, on) { return (await this.req(CMD.SMP_PLAY, [note & 127, on ? 1 : 0]))[0]; }
+  async fmGet() { return parseFm(await this.req(CMD.FM_GET)); }
+  async fmSet(k, v) { return (await this.req(CMD.FM_SET, [...digits(k, 2), ...digits(v + 8192, 2)]))[0]; }
+  async fmLoad(x) { return (await this.req(CMD.FM_LOAD, typeof x === "number" ? digits(x, 2) : [...x].map((b) => b & 127)))[0]; }
+  async fmPlay(note, on) { return (await this.req(CMD.FM_PLAY, [note & 127, on ? 1 : 0]))[0]; }
   async subPreset(i) { return (await this.req(CMD.SUB_PRESET, [i]))[0]; }
   async preset(i) { return (await this.req(CMD.PRESET, [i]))[0]; }
   async proj() { return parseProj(await this.req(CMD.PROJ)); }
@@ -483,4 +487,22 @@ export async function writeSampler(link, o) {
   for (let j = 0; j < SMP_NZONES && o.zones && o.zones[j]; j++) for (let k = 0; k < o.zones[j].length; k++) await link.smpSet(1, j, k, o.zones[j][k]);
   for (let k = 0; o.keys && k < o.keys.length; k++) await link.smpSet(2, 0, k, o.keys[k]);
   await link.smpSet(3, 0, 0, o.mode || 0);
+}
+
+// ---- FM (0.25): the voice (dx7.js: 156 values, OP6 first), LEVEL, VOICES, the macros, where PRESETS is -----------
+export const FM_MACROS = ["BRIGHT", "TIME", "ATTACK", "RELEASE"];
+export function parseFm(r) {
+  return { voice: Uint8Array.from(r.slice(0, 156)), level: r[156], voices: r[157], macros: r.slice(158, 162).map((v) => v - 64),
+    preset: num(r, 162, 2), presets: num(r, 164, 2) };
+}
+// FM as a project keeps it: the voice and its settings (null: an FM-1 before 0.25)
+export async function readFm(link) {
+  try { const f = await link.fmGet(); return { voice: [...f.voice], level: f.level, voices: f.voices, macros: f.macros, preset: f.preset }; } catch (_) { return null; }
+}
+export async function writeFm(link, o) {
+  if (!o) return;
+  await link.fmLoad(Uint8Array.from(o.voice));
+  await link.fmSet(156, o.level);
+  await link.fmSet(157, o.voices);
+  for (let i = 0; i < 4; i++) await link.fmSet(158 + i, o.macros[i] || 0);
 }

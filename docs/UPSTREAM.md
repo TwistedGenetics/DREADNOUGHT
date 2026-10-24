@@ -30,6 +30,8 @@ M-UPGRADE update entry and the update loader, the package maker and the build ch
 | Web flasher's update-protocol modules (`web/flasher/vendor/`) | SLOOP / Felucca `web/fm1ota.js`, `web/fm1pkg.js` | SLOOP v2.8.1 | GPL-3.0-only |
 | FX: TAPE, BBD, SPRING, TOMB, MOD, CELESTIAL, DOLMEN, TUMULUS and the send limiter (`src/dsp/dn_fxc.c`, `dn_fx.c`) | Carnac OS `src/dsp/fx.c` (its ROOM after Felucca's `fx.c` `rev_room`); made per-instance, one core, tempo-synced times, a LOW CUT, float high-passes in the tape (what changed: the file's header) | `6387a21` | GPL-3.0-only |
 | FX: MASSIVE (`src/dsp/dn_fxm.c`) | Jamie's own Horizon / Super-Massive (`core/horizon_engine.h`, `horizon_modes.h`, `horizon_sync.h`), ported to C at half rate | TwistedGenetics/Super-Massive | Jamie's (GPL-3.0-only here) |
+| FM engine (`src/dsp/dn_fm.c`, tables in `tools/gen_dn_tables.py`) | Dexed's MSFA (`source/msfa`: env, dx7note, fm_core, fm_op_kernel, lfo, pitchenv, sin, exp2, freqlut), Copyright 2012 Google Inc., Pascal Gauthier and the Dexed authors; ported to C, the same integer maths (what changed: the file's header) | Dexed `fea2f0f` | Apache-2.0 (compatible with GPL-3.0; the port is GPL-3.0-only here) |
+| FM reference for the tests (`tests/host/ref/msfa/`, host only, not in the firmware) | the same MSFA files, unchanged, with stand-ins for Dexed's tuning, MTS and logger (`tests/host/ref/README.md`) | Dexed `fea2f0f` | Apache-2.0 |
 
 ## What the build changes on the way through
 

@@ -98,11 +98,18 @@ int plat_store_save(uint32_t obj, const void *src, uint32_t len)
 uint32_t plat_cpu_pct(void) { return 0; }         /* (the simulator does not measure the FM-1's load) */
 uint32_t plat_cpu_peak_pct(void) { return 0; }
 uint32_t plat_xruns(void) { return 0; }
-int plat_slot_zones(int k) { (void)k; return 0; }   /* the simulator: no uploaded loops (the built-in ones play) */
+/* the simulator's sample slots: none, unless a scenario puts DX7 voices in slot 1 (fmbank, 0.25) */
+static uint8_t sim_fmz[8 + 32 * 128];
+static uint32_t sim_fmz_n;
+int plat_slot_zones(int k) { return k == 0 && sim_fmz_n ? 1 : 0; }
 const uint8_t *plat_slot(int k, int z, uint32_t *n, uint32_t *rate, char name[9])
 {
-    (void)k, (void)z, (void)n, (void)rate, (void)name;
-    return 0;
+    if (k != 0 || z != 0 || !sim_fmz_n)
+        return 0;
+    *n = 2u * (8u + sim_fmz_n * 128u);
+    *rate = 22050;
+    memcpy(name, "DX7", 4);
+    return sim_fmz;
 }
 static void dn_lock(void) {}
 static void dn_unlock(void) {}
@@ -464,6 +471,29 @@ int main(int argc, char **argv)
                 ed(79, 0, 0);
                 for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
                 fprintf(g, "],\"rfe\":[%d,%d,%d,%d", dn_rs.fe[0], dn_rs.fe[1], dn_rs.fe[2], dn_rs.fe[3]);
+                fprintf(g, "],\"fmdefs\":[");    /* 0.25: FM: every value's name, top, texts; a voice packed and not */
+                for (uint32_t k = 0; k < 145u; k++) {
+                    fprintf(g, "%s[%u,\"%s\",%d,[", k ? "," : "", k, dn_fm_vname(k), dn_fm_vmax(k));
+                    for (int32_t v = 0; v <= dn_fm_vmax(k); v++) {
+                        char tx[8];
+                        dn_fm_vtext(k, v, tx);
+                        fprintf(g, "%s\"%s\"", v ? "," : "", tx);
+                    }
+                    fprintf(g, "]]");
+                }
+                {
+                    uint8_t pt[DN_FM_PATCH], pk[DN_FM_PACKED];
+                    dn_fm_factory(1, pt);
+                    dn_fm_pack(pt, pk);
+                    fprintf(g, "],\"fmpacked\":[");
+                    for (uint32_t i = 0; i < DN_FM_PACKED; i++) fprintf(g, "%s%u", i ? "," : "", pk[i]);
+                    fprintf(g, "],\"fmvoice\":[");
+                    for (uint32_t i = 0; i < DN_FM_PATCH; i++) fprintf(g, "%s%u", i ? "," : "", pt[i]);
+                    fprintf(g, "],\"fmcarriers\":[");
+                    for (uint32_t al = 0; al < 32u; al++)
+                        for (uint32_t op = 0; op < 6u; op++)
+                            fprintf(g, "%s%u", al || op ? "," : "", dn_fm_is_carrier(al, op));
+                }
                 fprintf(g, "],\"smpget\":[");    /* 0.23: SAMPLER: pad 1's values, and every value's name, range, texts */
                 {
                     uint8_t q[2] = {0, 0};
@@ -507,6 +537,24 @@ int main(int argc, char **argv)
             FILE *f = fopen(b, "rb");
             if (!f || fread(store_len, sizeof store_len, 1, f) != 1 || fread(store, sizeof store, 1, f) != 1) { printf("  FAIL storeload\n"); return 1; }
             fclose(f);
+        } else if (!strcmp(a, "fmbank") && n >= 2) {   /* fmbank N: N DX7 voices in slot 1, as the editor sends
+                                                     * them (each a factory voice named PROJ n) */
+            uint32_t v, j;
+            dn_app_slots_changed(0);
+            sim_fmz_n = (uint32_t)atoi(b) > 32u ? 32u : (uint32_t)atoi(b);
+            memcpy(sim_fmz, "DNFMBNK", 7);
+            sim_fmz[7] = (uint8_t)sim_fmz_n;
+            for (v = 0; v < sim_fmz_n; v++) {
+                uint8_t pt[DN_FM_PATCH];
+                char nm[24];
+                dn_fm_factory(v % dn_fm_factory_count(), pt);
+                snprintf(nm, sizeof nm, "PROJ %-5u", (v + 1u) % 100u);
+                for (j = 0; j < 10; j++)
+                    pt[DN_FMV_NAME + j] = (uint8_t)nm[j];
+                dn_fm_pack(pt, sim_fmz + 8 + 128 * v);
+            }
+            dn_app_slots_changed(1);
+            run(5);
         } else if (!strcmp(a, "set") && n >= 3) {   /* set ID V: a value as the knobs set it (0.23) */
             dn_set((uint32_t)atoi(b), atoi(c));
             run(5);
@@ -616,6 +664,16 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "dly")) {           /* the delay's output now, both sides */
                 got = labs((long)dn_fxs[0].u.d.o_l) + labs((long)dn_fxs[0].u.d.o_r);
             } else if (!strcmp(b, "legato")) got = dn_sq.legato;
+            else if (!strcmp(b, "fmv")) got = (long)dn_fm_sounding(&dn_fmx);   /* FM (0.25): voices sounding */
+            else if (!strcmp(b, "fmpreset")) got = dn.fm_preset;
+            else if (!strcmp(b, "fmop")) got = dn.fm_op + 1;
+            else if (!strncmp(b, "fmname.", 7)) got = dn_fm_base[DN_FMV_NAME + atoi(b + 7)];
+            else if (!strncmp(b, "fmb.", 4)) got = dn_fm_base[atoi(b + 4)];   /* fmb.K: the voice's value K */
+            else if (!strncmp(b, "fme.", 4)) got = dn_fmx.patch[atoi(b + 4)];   /* fme.K: as played (macros on) */
+            else if (!strcmp(b, "fmlevel")) got = dn_fmx.level;
+            else if (!strcmp(b, "fmvoices")) got = dn_fmx.voices;
+            else if (!strcmp(b, "srccount")) got = (long)dn_src_count();
+            else if (!strcmp(b, "fmcount")) got = (long)dn_fm_presets();
             else if (!strcmp(b, "smv")) {           /* SAMPLER (0.23): voices sounding */
                 got = 0;
                 for (uint32_t k = 0; k < DN_SMP_VOICES; k++)

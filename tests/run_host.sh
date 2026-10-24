@@ -37,6 +37,22 @@ build/host/fx2_test build/host tests/host/fx_golden.txt
 # shellcheck disable=SC2086
 $CC $W -D_DEFAULT_SOURCE tests/host/sub_test.c src/dsp/dn_sub.c -o build/host/sub_test -lm
 build/host/sub_test build/host
+# FM (0.25) against Dexed's own MSFA (tests/host/ref: built only here)
+CXX=${CXX:-c++}
+mkdir -p build/host/ref
+for f in env exp2 sin freqlut lfo pitchenv fm_core fm_op_kernel dx7note; do
+    $CXX -O2 -std=c++17 -w -c tests/host/ref/msfa/$f.cc -o build/host/ref/$f.o -Itests/host/ref/msfa
+done
+$CXX -O2 -std=c++17 -w -c tests/host/ref/msfa/porta.cpp -o build/host/ref/porta.o -Itests/host/ref/msfa
+$CXX -O2 -std=c++17 -w -c tests/host/ref/ref_fm.cc -o build/host/ref/ref_fm.o -Itests/host/ref -Itests/host/ref/msfa
+# shellcheck disable=SC2086
+$CC $W -D_DEFAULT_SOURCE -c tests/host/fm_test.c -o build/host/fm_test.o
+# shellcheck disable=SC2086
+$CC $W -c src/dsp/dn_fm.c -o build/host/dn_fm.o
+# shellcheck disable=SC2086
+$CC $W -c src/dsp/reese.c -o build/host/reese_fm.o
+$CXX build/host/fm_test.o build/host/dn_fm.o build/host/reese_fm.o build/host/ref/*.o -o build/host/fm_test -lm
+build/host/fm_test build/host tests/host/fm_golden.txt
 # shellcheck disable=SC2086
 $CC $W -D_DEFAULT_SOURCE tests/host/smp_test.c src/dsp/dn_smp.c -o build/host/smp_test -lm
 build/host/smp_test
@@ -44,7 +60,7 @@ build/host/smp_test
 $CC $W tests/host/slices_xcheck.c src/dsp/dn_breaks.c -o build/host/slices_xcheck
 build/host/slices_xcheck | node tests/host/slices_xcheck.mjs
 # shellcheck disable=SC2086
-$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_sub.c src/dsp/dn_smp.c -o build/host/dn_host
+$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c -o build/host/dn_host
 for s in tests/host/scenarios/*.txt; do
     build/host/dn_host "$s" build/host
 done
