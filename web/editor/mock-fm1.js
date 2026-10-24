@@ -186,6 +186,9 @@ export class MockFM1 {
             P.fx[k] = [v, ...FX_DEFAULTS[v]];
           } else {
             const pr = fxParams(P.fx[k][0], P.fx[k].slice(1)).find((x) => x.i === i - 1);
+            if (P.fx[k][0] === 10 && i === 1 && v % 6 !== P.fx[k][1] % 6)   // QUADRA: a new CONFIG, its own values
+              P.fx[k].splice(3, 5, ...[[7, 40, 40, 64, 0], [20, 0, 0, 64, 0], [64, 64, 64, 64, 64], [7, 40, 60, 64, 0],
+                [7, 30, 50, 64, 0], [7, 50, 64, 64, 0]][v % 6]);
             P.fx[k][i] = Math.min(pr ? pr.max : 0, v);
           }
           return [0];

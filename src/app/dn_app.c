@@ -670,6 +670,36 @@ static void dn_mix_render(int32_t *lr, uint32_t k)
     dn_fx_run(&dn_fxs[1], &dn_fxp[1], sb, lr, k, dn_sq.bpm, dn_ret[1]);
 }
 
+/* The master limiter (0.16.1): with the reverbs' and MASSIVE's returns on top of the engines a mix went past full
+ * scale, and the soft knee below clipped it (Jamie: "a buzz sometimes, like it's distorting"). Carnac OS's law: the
+ * envelope jumps to a peak over the ceiling (no sample passes it) and comes back with tau ~0.15 s; the gain is ceiling /
+ * envelope, the same both sides (the stereo image holds). The ceiling sits just under the knee, so the knee only
+ * catches what slips through the float's rounding. */
+#define DN_LIM_TOP 24000.f
+static float dn_lim_env = DN_LIM_TOP;
+static uint32_t dn_knee;
+static void dn_master_limit(int32_t *lr, uint32_t n)
+{
+    float env = dn_lim_env;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        int32_t l = lr[2u * i], r = lr[2u * i + 1u];
+        float a = (float)(l < 0 ? -l : l), b = (float)(r < 0 ? -r : r);
+        if (b > a)
+            a = b;
+        if (env > DN_LIM_TOP)
+            env = DN_LIM_TOP + (env - DN_LIM_TOP) * 0.99985f;
+        if (a > env)
+            env = a;
+        if (env > DN_LIM_TOP) {
+            float g = DN_LIM_TOP / env;
+            lr[2u * i] = (int32_t)((float)l * g);
+            lr[2u * i + 1u] = (int32_t)((float)r * g);
+        }
+    }
+    dn_lim_env = env;
+}
+
 void dn_app_render(int32_t *lr, uint32_t n)
 {
     uint32_t i, w = dn_scope_w, off = 0;
@@ -718,8 +748,13 @@ void dn_app_render(int32_t *lr, uint32_t n)
         }
         off += k;
     }
-    for (i = 0; i < 2u * n; i++)                    /* the master: a soft knee at the top, nothing ever wraps */
-        lr[i] = lr[i] > 24576 || lr[i] < -24576 ? (dn_softclip(lr[i] * 4 / 3) * 3) / 4 : lr[i];
+    dn_master_limit(lr, n);                         /* (0.16.1: peaks turned down, not clipped) */
+    for (i = 0; i < 2u * n; i++) {                  /* the master: a soft knee at the top, nothing ever wraps */
+        if (lr[i] > 24576 || lr[i] < -24576) {
+            lr[i] = (dn_softclip(lr[i] * 4 / 3) * 3) / 4;
+            dn_knee++;                              /* (the host tests: how often the knee bends a sample) */
+        }
+    }
     for (i = 0; i < n; i += 8u)
         dn_scope[w++ & (DN_SCOPE - 1u)] = (int16_t)dn_clamp(lr[2u * i], -32768, 32767);
     dn_scope_w = w;
@@ -1275,7 +1310,7 @@ static void dn_pj_set(uint32_t id, int32_t v)
             dn_fx_layout();
             dn_unlock();
         } else {
-            f->p[i] = (uint8_t)v;
+            dn_fx_value(f, (uint32_t)i, (uint32_t)v);
         }
     }
     dn_mark();
@@ -4543,14 +4578,17 @@ static void dn_draw_bottom(void)
         dn_cat(c, "/");
         dn_num(v, (int32_t)cap);
         dn_cat(c, v);
-        dn_cat(c, "K  FX ");
+        dn_cat(c, "K FX ");
         dn_num(v, (int32_t)((dn_fxs[0].bytes + dn_fxs[1].bytes) / 1024u));
         dn_cat(c, v);
         dn_cat(c, "/");
         dn_num(v, (int32_t)(DN_FX_ARENA / 1024u));
         dn_cat(c, v);
-        dn_cat(c, "K  CPU ");
+        dn_cat(c, "K CPU ");
         dn_num(v, (int32_t)plat_cpu_pct());
+        dn_cat(c, v);
+        dn_cat(c, " PK ");                          /* (0.16.1: the peak since the last look) */
+        dn_num(v, (int32_t)plat_cpu_peak_pct());
         dn_cat(c, v);
         dn_cat(c, "%");
         cv_rect(0, 121, 240, 23, DN_C_BAR);
@@ -4591,6 +4629,20 @@ void dn_app_draw(int force)
     if (DN_IS_SEQPG(dn.page) && dn_sq.playing && dn_sq.pos != shown_pos)
         dn.redraw |= DN_RD_BOTTOM;                  /* the playhead moved */
     shown_pos = dn_sq.pos;
+    {                                               /* (0.16.1) the audio ran late (out of CPU): say so; PROJECT's
+                                                     * load line kept fresh */
+        static uint32_t xr_seen, proj_t;
+        uint32_t xr = plat_xruns();
+        if (xr != xr_seen) {
+            if (xr_seen || xr > 2u)                 /* (the start-up's own aside) */
+                dn_say("AUDIO LATE: CPU FULL");
+            xr_seen = xr;
+        }
+        if (dn.page == DN_PG_PROJ && plat_ms() - proj_t >= 500u) {
+            proj_t = plat_ms();
+            dn.redraw |= DN_RD_BOTTOM;
+        }
+    }
     if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) <= 0) {
         dn.msg = 0;                                 /* a status-line word ran out */
         dn.redraw |= DN_RD_BOTTOM;

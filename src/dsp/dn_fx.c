@@ -54,6 +54,21 @@ void dn_fx_default(dn_fx_p_t *p, uint32_t type)
         p->p[i] = D[p->type][i];
 }
 
+void dn_fx_value(dn_fx_p_t *p, uint32_t i, uint32_t v)
+{
+    /* QUADRA: a new CONFIG starts from its own values (a 5EQ>REV from the CHORUS's TIME and FEEDBACK as EQ bands was
+     * a quiet, lopsided plate) */
+    static const uint8_t QD[DN_FXQ_NCFG][5] = {{7, 40, 40, 64, 0}, {20, 0, 0, 64, 0}, {64, 64, 64, 64, 64},
+                                               {7, 40, 60, 64, 0}, {7, 30, 50, 64, 0}, {7, 50, 64, 64, 0}};
+    uint32_t k;
+    if (i >= DN_FX_NP)
+        return;
+    if (p->type == DN_FX_QUADRA && i == 0u && v % DN_FXQ_NCFG != p->p[0] % DN_FXQ_NCFG)
+        for (k = 0; k < 5u; k++)
+            p->p[2u + k] = QD[v % DN_FXQ_NCFG][k];
+    p->p[i] = (uint8_t)v;
+}
+
 const char *dn_fx_pname(const dn_fx_p_t *p, uint32_t i)
 {
     static const char *const DL[3] = {"TIME", "FEEDBACK", "TONE"};

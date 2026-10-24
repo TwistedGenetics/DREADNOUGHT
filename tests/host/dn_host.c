@@ -95,6 +95,8 @@ int plat_store_save(uint32_t obj, const void *src, uint32_t len)
     return 0;
 }
 uint32_t plat_cpu_pct(void) { return 0; }         /* (the simulator does not measure the FM-1's load) */
+uint32_t plat_cpu_peak_pct(void) { return 0; }
+uint32_t plat_xruns(void) { return 0; }
 int plat_slot_zones(int k) { (void)k; return 0; }   /* the simulator: no uploaded loops (the built-in ones play) */
 const uint8_t *plat_slot(int k, int z, uint32_t *n, uint32_t *rate, char name[9])
 {
@@ -561,6 +563,7 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "fxb")) got = dn_fxp[1].type;
             else if (!strncmp(b, "fxap.", 5)) got = dn_fxp[0].p[atoi(b + 5) % DN_FX_NP];   /* (0.16) */
             else if (!strncmp(b, "fxbp.", 5)) got = dn_fxp[1].p[atoi(b + 5) % DN_FX_NP];
+            else if (!strcmp(b, "knee")) { got = (long)dn_knee; dn_knee = 0; }   /* samples the master knee bent (0.16.1) */
             else if (!strcmp(b, "fxbkb")) got = (long)(dn_fxs[1].bytes / 1024u);   /* FX B's memory, KB */
             else if (!strcmp(b, "fxbout")) got = dn_fxs[1].u.m.y_l * 32768.f > 4.f || dn_fxs[1].u.m.y_l * 32768.f < -4.f;   /* (MASSIVE sounding) */
             else if (!strncmp(b, "senda.", 6)) got = dn_send[0][(atoi(b + 6) - 1) & 7];

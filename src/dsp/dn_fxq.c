@@ -100,12 +100,13 @@ void dn_fxq_run(dn_fx_s_t *s, const dn_fx_p_t *p, const int32_t *mono, int32_t *
         dtgt >>= 1;                                 /* (too long at this tempo: half, on the beat) */
     float dfb = del ? (float)p->p[3] * (0.95f / 127.f) : 0.f;
     float mod = (float)p->p[4] * (1.f / 127.f);
-    float rlvl = cfg == QC_DLYREV ? mod * 1.5f : 1.f;
+    float rlvl = cfg == QC_DLYREV ? mod * 1.5f : cfg == QC_REVERB || cfg == QC_5EQ ? 1.6f : 0.8f;   /* (the plate's level) */
     float det = cfg == QC_DETUNE ? mod * 0.0173f : 0.f;   /* up to 30 cents */
     if (!q->d_q8)
         q->d_q8 = dtgt;
     for (i = 0; i < n; i++) {
-        float x = (float)mono[i], e, cl = 0.f, cr = 0.f, dout, u, y[4], lp, outl, outr;
+        float x = (float)mono[i] * 0.5f, e, cl = 0.f, cr = 0.f, dout, u, y[4], lp, outl, outr;   /* (0.16.1: in at
+                                                     * half, headroom for the chain: it summed to 4x full scale) */
         /* EQ */
         if (cfg == QC_5EQ) {
             static const float C[4] = {0.01415f, 0.05540f, 0.19253f, 0.51060f};   /* 100, 400, 1500, 5000 Hz */
@@ -136,7 +137,7 @@ void dn_fxq_run(dn_fx_s_t *s, const dn_fx_p_t *p, const int32_t *mono, int32_t *
             float dep = 44.f + mod * 220.f;
             cl = fxq_rd(q->ch, QC_LEN - 1u, q->cw, (uint32_t)((2.f + dep * sw) * 256.f));
             cr = fxq_rd(q->ch, QC_LEN - 1u, q->cw, (uint32_t)((2.f + dep * sw2) * 256.f));
-            q->cfb = (int32_t)(cl * 0.55f);
+            q->cfb = (int32_t)(cl * 0.45f);
         } else if (cfg == QC_DETUNE) {              /* a shifter a side: two heads in a 1024-sample window */
             float ofs = (float)(q->sh_c & 0xFFFFFFu) * (1024.f / 16777216.f);
             uint32_t step = (uint32_t)(det * 16384.f);   /* (window fraction a sample, Q24 of 1024 samples) */
@@ -155,7 +156,7 @@ void dn_fxq_run(dn_fx_s_t *s, const dn_fx_p_t *p, const int32_t *mono, int32_t *
             q->cfb = 0;
         }
         q->cw = (q->cw + 1u) & (QC_LEN - 1u);
-        float m = e + (cl + cr) * 0.5f;
+        float m = e + (cl + cr) * 0.35f;
         /* the delay (half rate) */
         dout = 0.f;
         if (dtgt) {
@@ -169,7 +170,12 @@ void dn_fxq_run(dn_fx_s_t *s, const dn_fx_p_t *p, const int32_t *mono, int32_t *
                 float yd = fxq_rd(q->dl, QD_LEN - 1u, q->dw, q->d_q8);
                 float wv = ((float)q->din + m) * 0.5f + yd * dfb;
                 q->dy += (int32_t)((wv - (float)q->dy) * 0.6f);   /* darker each repeat */
-                q->dl[q->dw] = (int16_t)dn_fx_c16(q->dy);
+                {                           /* (written through a soft clip: a high FEEDBACK saturates, never
+                                                     * clamps: 0.16.1) */
+                    float c = (float)q->dy * (1.f / 21845.f);
+                    c = c > 1.5f ? 1.5f : c < -1.5f ? -1.5f : c;
+                    q->dl[q->dw] = (int16_t)((c - 0.148148148f * c * c * c) * 21845.f);
+                }
                 q->dw = (q->dw + 1u) & (QD_LEN - 1u);
                 q->dyo = (int32_t)yd;
             }
@@ -177,7 +183,7 @@ void dn_fxq_run(dn_fx_s_t *s, const dn_fx_p_t *p, const int32_t *mono, int32_t *
             dout = (float)q->dyo;
         }
         /* the plate: (a REVERB: the predelayed send only; otherwise all so far) */
-        u = (cfg == QC_REVERB ? dout : m + dout) * 0.25f;
+        u = cfg == QC_REVERB ? dout * 0.25f : cfg == QC_5EQ ? m * 0.25f : (m + dout) * 0.15f;
         {
             uint32_t pp = q->rp;
             int16_t *rg = q->rv;
@@ -200,11 +206,13 @@ void dn_fxq_run(dn_fx_s_t *s, const dn_fx_p_t *p, const int32_t *mono, int32_t *
             rg[(pp + QR_S_L2) & QR_MASK] = (int16_t)dn_fx_c16((int32_t)(u + h2));
             rg[(pp + QR_S_L3) & QR_MASK] = (int16_t)dn_fx_c16((int32_t)(-u + h3));
             q->rp = (pp - 1u) & QR_MASK;
-            outl = (y[0] - y[2] + y[1]) * 1.4f * rlvl;
-            outr = (y[1] - y[3] + y[2]) * 1.4f * rlvl;
+            outl = (y[0] - y[2] + y[1]) * rlvl;
+            outr = (y[1] - y[3] + y[2]) * rlvl;
         }
-        outl += cl + dout;
-        outr += cr + dout;
+        if (cfg != QC_REVERB) {                     /* (REVERB: its predelayed send is the plate's alone) */
+            outl += cl * 0.5f + dout;
+            outr += cr * 0.5f + dout;
+        }
         if (grit) {                                 /* 16-BIT: held over pairs, cut to 12 bits */
             if (!q->gph)
                 q->gh_l = (int32_t)outl & ~15, q->gh_r = (int32_t)outr & ~15;

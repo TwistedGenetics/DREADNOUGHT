@@ -149,6 +149,7 @@ const char *dn_fx_pname(const dn_fx_p_t *p, uint32_t i);           /* "-": not u
 int32_t dn_fx_pmax(const dn_fx_p_t *p, uint32_t i);
 void dn_fx_ptext(const dn_fx_s_t *s, const dn_fx_p_t *p, uint32_t i, uint32_t bpm, char out[8]);
 uint32_t dn_fx_sync_samples(uint32_t div, uint32_t bpm);           /* a DN_FX_DIV at the tempo, full-rate samples */
+void dn_fx_value(dn_fx_p_t *p, uint32_t i, uint32_t v);            /* set value i (QUADRA's CONFIG: its values too) */
 
 /* the parts (dn_fxc.c, dn_fxq.c, dn_fxm.c): mono = the limited send (L + R) / 2 where they take mono; out (stereo)
  * gets the wet (Q15-ish, before the return) */
@@ -173,7 +174,17 @@ extern const char *const DN_FXM_MODE[DN_FXM_NMODE];
 extern const float DN_FXM_BEATS[13];                /* TIME 0..12: the synced divisions, in beats */
 
 /* shared helpers */
+#ifdef DN_FX_CLIPS                                  /* (tests: how often a line clamps) */
+extern uint32_t dn_fx_clips;
+static inline int32_t dn_fx_c16(int32_t v)
+{
+    if (v > 32767 || v < -32768)
+        dn_fx_clips++;
+    return v > 32767 ? 32767 : v < -32768 ? -32768 : v;
+}
+#else
 static inline int32_t dn_fx_c16(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : v; }
+#endif
 /* Q15 multiply rounding toward zero (Carnac: a feedback gain under 1 then always shrinks a value, so tails die) */
 static inline int32_t dn_fx_mz(int32_t a, int32_t b)
 {

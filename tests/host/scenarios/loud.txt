@@ -1,0 +1,40 @@
+# DREADNOUGHT host scenario (0.16.1): a loud mix never clips. The pattern playing (REESE, both breaks) with every
+# track sent hard to two reverbs at full return: the master limiter turns the peaks down, so the soft knee after it
+# (which clipped them before: "a buzz sometimes, like it's distorting") hardly bends a sample.
+tap GLO
+tap GLO
+expect page 14
+# FX A: CELESTIAL (from DELAY up 6), FX B: MASSIVE
+tap FX
+turn K1 6
+expect fxa 7
+tap FX
+expect fxview 2
+tap FX
+expect fxview 3
+turn K1 11
+expect fxb 11
+tap FX
+tap FX
+expect fxview 0
+# returns up full (KNOBS 3, 4), the sends of tracks 1-3 (REESE, both breaks) full (the editor's PROJ_SET: fields
+# 8-15 send A, 16-23 send B)
+turn K3 40
+turn K4 40
+sysex 76 8 127 0
+sysex 76 9 127 0
+sysex 76 10 127 0
+sysex 76 16 127 0
+sysex 76 17 127 0
+sysex 76 18 127 0
+expect senda.1 127
+expect senda.3 127
+tap PLAY
+wait 200
+expect knee 0
+wav loud-mix.wav
+wait 6000
+wavstop
+expect peak <24577
+expect knee <50
+tap PLAY

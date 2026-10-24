@@ -357,3 +357,18 @@ no harsher than a quiet one, TAPE / BBD / QUADRA echoes and MASSIVE's ORBIT on t
 memory and changing mode without a click, ABYSS held at FEEDBACK 127, CELESTIAL's octaves climbing), host scenario
 `fx.txt` (the panel, memory refusals, kept over a reboot), the editor against the firmware's names and texts for every
 value. Not yet measured: the CPU load on the FM-1 (the PROJECT page shows it).
+
+## 0.17 — the buzz: QUADRA's levels, a master limiter, the load on show (2026-10-24)
+
+- **QUADRA was far too loud** (Jamie: "a buzz sometimes, like it's distorting"): its chain summed to 2–4x full scale
+  on a busy mix (FLANGE worst, its regeneration clamping), and the master's soft knee clipped it. Now it takes its send
+  at half, the chorus / flange / detune sit under the dry, the plate's level suits each configuration, the delay
+  saturates softly instead of clamping, and a new CONFIG starts from its own values (5EQ>REV flat).
+- **A master limiter** before the soft knee: loud peaks are turned down (Carnac's law: instant on a peak, back in
+  ~0.15 s), not clipped.
+- **AUDIO LATE: CPU FULL** on the status line whenever the audio misses its time (a buzz of its own); the PROJECT page
+  shows the CPU load's peak beside it.
+
+Tested: every QUADRA configuration's peak on a loud mix (the 0.4 demo +3.5 dB, full return: 95 000 → under 30 000 at
+the defaults; no clamps), host scenario `loud.txt` (REESE and both breaks sent full to CELESTIAL and MASSIVE at full
+return: peaks held at the limiter's ceiling, the knee untouched), QUADRA's golden render renewed.
