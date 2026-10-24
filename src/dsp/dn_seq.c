@@ -115,6 +115,7 @@ void dn_seq_init(dn_seq_t *s)
         b[t] = 0;
     dn_pattern_clear(&s->pat);
     s->bpm = 172;
+    s->legato = 0xFF;
     for (t = 0; t < DN_SEQ_TRACKS; t++)
         s->sounding[t] = 0xFF;
 }
@@ -125,6 +126,7 @@ static void release(dn_seq_t *s, uint32_t t, const dn_seq_cb_t *cb)
         cb->note_off(t, s->sounding[t]);
     s->sounding[t] = 0xFF;
     s->gate[t] = 0;
+    s->ovl &= (uint8_t)~(1u << t);
 }
 
 void dn_seq_start(dn_seq_t *s, const dn_seq_cb_t *cb)
@@ -183,7 +185,8 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
         }
         if (!(st->flags & DN_ST_ON))
             continue;                               /* a long note sounds on through steps that are off */
-        slide = (st->flags & DN_ST_SLIDE) && s->sounding[t] != 0xFF;
+        slide = ((st->flags & DN_ST_SLIDE) || (s->ovl >> t & 1u)) && s->sounding[t] != 0xFF;
+        s->ovl &= (uint8_t)~(1u << t);
         if (s->sounding[t] != 0xFF && !slide)
             release(s, t, cb);
         cb->note_on(t, st->note, (st->flags & DN_ST_ACC) ? 127u : st->vel, slide, st->flags);
@@ -201,6 +204,10 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
                 if (nx->flags & DN_ST_ON) {
                     if (nx->flags & DN_ST_SLIDE)
                         g = (int32_t)dist + 64;     /* it slides from this note: hold on into it (just past it) */
+                    else if (st->len > j * DN_LEN_STEP && (s->legato & ~DN_PAT_CUT(&s->pat)) >> t & 1u) {
+                        g = (int32_t)dist + 64;     /* this note reaches past the next one: it slides there too */
+                        s->ovl |= (uint8_t)(1u << t);
+                    }
                     break;
                 }
             }

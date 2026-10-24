@@ -91,6 +91,47 @@ int main(int argc, char **argv)
         snprintf(path, sizeof path, "%s/reese-%02u-%s.wav", out, pi, name);
         wav(path, lr, frames);
     }
+    {   /* 0.8: GLIDE is the slide time: how long a legato note takes to reach its pitch (to 1/8 semitone), an octave up */
+        static const int G[] = {0, 20, 40, 64, 90, 110, 127};
+        double prev = -1;
+        uint32_t gi;
+        {   /* the text the FM-1 (and the web editor, protocol.js glideText) shows */
+            static const struct { int v; const char *t; } T[] = {{0, "OFF"}, {64, "104ms"}, {90, "685ms"}, {127, "10.0s"}};
+            char t[8];
+            for (gi = 0; gi < 4u; gi++) {
+                reese_param_text(RP_GLIDE, T[gi].v, t);
+                if (strcmp(t, T[gi].t)) {
+                    printf("  FAIL: GLIDE %d reads %s (want %s)\n", T[gi].v, t, T[gi].t);
+                    fails++;
+                }
+            }
+        }
+        printf("GLIDE  ms to the new pitch (an octave)\n");
+        for (gi = 0; gi < sizeof G / sizeof G[0]; gi++) {
+            uint32_t n = 0;
+            double ms;
+            reese_init(&R);
+            R.bpm = 172;
+            R.p[RP_GLIDE] = (int16_t)G[gi];
+            reese_note_on(&R, 41, 100, 0);
+            reese_render(&R, lr, FS / 4u);
+            reese_note_on(&R, 53, 100, 1);
+            while (n < FS * 4u) {
+                int32_t d = R.target256 - R.pitch256;
+                if (d > -32 && d < 32)
+                    break;
+                reese_render(&R, lr, RS_CTL);
+                n += RS_CTL;
+            }
+            ms = n * 1000.0 / FS;
+            printf("  %3d  %7.1f\n", G[gi], ms);
+            if (!(G[gi] ? ms > prev : ms < 1.0)) {
+                printf("  FAIL: GLIDE %d should take longer than the one before (or none at 0)\n", G[gi]);
+                fails++;
+            }
+            prev = ms;
+        }
+    }
     printf(fails ? "REESE: %u FAILED\n" : "REESE: all presets bounded, no DC, silent after release\n", fails);
     return fails ? 1 : 0;
 }

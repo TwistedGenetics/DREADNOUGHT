@@ -2,7 +2,7 @@
 // DREADNOUGHT web editor: the page. Copyright (C) 2026 Jamie (TwistedGenetics).
 import {
   connect, REESE, BPM_INDEX, brkParams, brkIndex, KIND, ST_ON, ST_SLIDE, ST_ACC, LEN_STEP, LEN_MAX, noteEnd, lenText,
-  noteName, parsePattern, serializePattern,
+  noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide,
 } from "./protocol.js";
 
 const $ = (id) => document.getElementById(id);
@@ -132,6 +132,7 @@ function renderTracks() {
     box.appendChild(b);
   });
 }
+$("overlap").onchange = () => { setOverlapCut(S.pat, S.sel, $("overlap").value === "cut"); patternChanged(); };
 $("trklen").onchange = () => { S.pat.tracks[S.sel].len = Math.max(1, Math.min(64, +$("trklen").value || 16)); patternChanged(); };
 $("swing").oninput = () => { S.pat.swing = +$("swing").value; $("swingv").textContent = S.pat.swing; patternChanged(); };
 $("up").onclick = () => { S.lo = Math.min(S.lo + 6, isBrk() ? 0 : 127 - ROWS + 1); render(); };
@@ -209,8 +210,8 @@ function drawRoll() {
       c.fillStyle = "#2f7fc1";
       c.fillRect(x0, r < 0 ? 0 : g.H - 3, Math.max(3, x1 - x0), 3);
     }
-    if ((st.flags & ST_SLIDE) && !isBrk() && prev && prev.end === i) {   // a slide: a ramp from the note before
-      c.strokeStyle = "#d0402a"; c.lineWidth = 2;
+    if (!isBrk() && prev && prev.end === i && ((st.flags & ST_SLIDE) || overlapSlide(S.pat, S.sel, i))) {
+      c.strokeStyle = "#d0402a"; c.lineWidth = 2;      // a slide (flagged, or the note before reaches past): a ramp
       c.beginPath(); c.moveTo(g.x(i) - 6, prev.r * g.rh + g.rh / 2); c.lineTo(g.x(i) + 6, r * g.rh + g.rh / 2); c.stroke();
     }
     prev = { end, r };
@@ -495,15 +496,17 @@ function render() {
   $("swing").value = S.pat.swing;
   $("swingv").textContent = S.pat.swing;
   $("up").hidden = $("down").hidden = isBrk();
+  $("ovlbox").hidden = isBrk();
+  $("overlap").value = overlapCut(S.pat, S.sel) ? "cut" : "slide";
   $("hint").textContent = isBrk()
     ? "Click a slice's row to play it on that step, drag to move it, drag its right end to hold it longer. Shift-click: accent. Double-click: reverse. Right-click or Alt-click: delete."
-    : "Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent. Double-click: slide. Right-click or Alt-click: delete. Scroll for higher or lower notes.";
+    : "Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent. Double-click: slide. A note that reaches past the next one slides into it (Overlap: Slide). Right-click or Alt-click: delete. Scroll for higher or lower notes.";
   if ($("pattern").classList.contains("on")) { drawRoll(); drawVel(); }
   if (S.selNote >= 0 && tr.steps[S.selNote] && (tr.steps[S.selNote].flags & ST_ON)) {
     const st = tr.steps[S.selNote];
     $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `slice ${st.note + 1}` : noteName(st.note + (S.sel === 0 ? S.params[17] : 0))}, `
       + `${lenText(st.len)} step${st.len === 4 ? "" : "s"}, velocity ${st.flags & ST_ACC ? "accent" : st.vel}`
-      + `${st.flags & ST_SLIDE ? (isBrk() ? ", reversed" : ", slides in") : ""}.`;
+      + `${st.flags & ST_SLIDE ? (isBrk() ? ", reversed" : ", slides in") : !isBrk() && overlapSlide(S.pat, S.sel, S.selNote) ? ", slides in (the note before overlaps it)" : ""}.`;
   }
 }
 window.addEventListener("resize", render);

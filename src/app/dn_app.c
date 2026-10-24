@@ -55,6 +55,7 @@
 #define DN_KEY0 53                                  /* key 0 is F3 */
 #define DN_PX_BPM 100                               /* the OUT page's two non-engine dials */
 #define DN_PX_OCT 101
+#define DN_PX_OVL 102                               /* OUT: REESE's OVERLAP (SLIDE / CUT) */
 #define DN_PX_BSRC 110                              /* the BRK page: the loop, pitch, decay, crush of BREAKS A / B */
 #define DN_PX_BPITCH 111
 #define DN_PX_BDECAY 112
@@ -77,7 +78,7 @@ static const uint8_t DN_PAGE[DN_NPAGES][4] = {
     {RP_CUT, RP_RES, RP_DRV, RP_NTCH},
     {RP_ATK, RP_DEC, RP_SUS, RP_REL},
     {RP_FENV, RP_GLIDE, RP_LRATE, RP_LFLT},
-    {RP_LEVEL, RP_TRANS, DN_PX_BPM, DN_PX_OCT},
+    {RP_LEVEL, RP_TRANS, DN_PX_BPM, DN_PX_OVL},
 };
 static const uint8_t DN_PAGE_BTN[DN_NPAGES] = {B_SEL, B_EDIT, B_ENV, B_LFO, B_GLO};
 
@@ -434,6 +435,8 @@ static int32_t dn_get(uint32_t id)
         return dn_rs.bpm;
     if (id == DN_PX_OCT)
         return dn.oct;
+    if (id == DN_PX_OVL)
+        return DN_PAT_CUT(&dn_sq.pat) & 1u;
     if (id == DN_PX_BSRC)
         return dn_bk_src[dn_bsel()];
     if (id == DN_PX_BPITCH)
@@ -462,7 +465,7 @@ static int32_t dn_min(uint32_t id)
 {
     if (id >= DN_PX_SLSEL)
         return 0;
-    return id == DN_PX_BPM ? 60 : id == DN_PX_OCT ? -3 : id == DN_PX_BPITCH ? -24 : id >= DN_PX_BSRC ? 0
+    return id == DN_PX_BPM ? 60 : id == DN_PX_OVL ? 0 : id == DN_PX_OCT ? -3 : id == DN_PX_BPITCH ? -24 : id >= DN_PX_BSRC ? 0
          : reese_param_min(id);
 }
 static int32_t dn_max(uint32_t id)
@@ -470,7 +473,7 @@ static int32_t dn_max(uint32_t id)
     if (id >= DN_PX_SLSEL)
         return id == DN_PX_SLSEL ? (int32_t)dn_bk[dn_bsel()].nslices - 1 : id == DN_PX_SLADD ? 6
              : (int32_t)dn_bk[dn_bsel()].loop.n;
-    return id == DN_PX_BPM ? 200 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (int32_t)dn_src_count() - 1
+    return id == DN_PX_BPM ? 200 : id == DN_PX_OVL ? 1 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (int32_t)dn_src_count() - 1
          : id == DN_PX_BPITCH ? 24 : id == DN_PX_BCHOKE ? 4 : id == DN_PX_BSMODE || id == DN_PX_BSTRETCH ? 2
          : id >= DN_PX_BDECAY ? 127 : reese_param_max(id);
 }
@@ -480,7 +483,7 @@ static const char *dn_name(uint32_t id)
     static const char *const SN[4] = {"CHOP", "CURSOR", "FINE", "ZOOM"};
     if (id >= DN_PX_SLSEL)
         return SN[id - DN_PX_SLSEL];
-    return id == DN_PX_BPM ? "BPM" : id == DN_PX_OCT ? "OCT" : id >= DN_PX_BSRC ? BN[id - DN_PX_BSRC]
+    return id == DN_PX_BPM ? "BPM" : id == DN_PX_OVL ? "OVERLAP" : id == DN_PX_OCT ? "OCT" : id >= DN_PX_BSRC ? BN[id - DN_PX_BSRC]
          : reese_param_name(id);
 }
 static void dn_text(uint32_t id, int32_t v, char out[8])
@@ -536,6 +539,14 @@ static void dn_text(uint32_t id, int32_t v, char out[8])
     }
     if (id == DN_PX_BDECAY && v >= 127) {
         out[0] = 'H', out[1] = 'O', out[2] = 'L', out[3] = 'D', out[4] = 0;
+        return;
+    }
+    if (id == DN_PX_OVL) {
+        const char *w = v ? "CUT" : "SLIDE";
+        uint32_t i;
+        for (i = 0; w[i]; i++)
+            out[i] = w[i];
+        out[i] = 0;
         return;
     }
     if (id == DN_PX_BPM || id == DN_PX_OCT || id == DN_PX_BPITCH) {
@@ -594,6 +605,8 @@ static void dn_set(uint32_t id, int32_t v)
         dn_rs.bpm = dn_sq.bpm = (uint16_t)v;
     else if (id == DN_PX_OCT)
         dn.oct = (int8_t)v;
+    else if (id == DN_PX_OVL)
+        DN_PAT_CUT(&dn_sq.pat) = (uint8_t)((DN_PAT_CUT(&dn_sq.pat) & ~1u) | (v ? 1u : 0u));
     else
         dn_rs.p[id] = (int16_t)v;
     dn_unlock();
@@ -664,6 +677,7 @@ void dn_app_init(void)
         dn_bk[k].choke = 1;                         /* A and B choke each other: one sampler voice, as a break is */
     }
     dn_seq_init(&dn_sq);
+    dn_sq.legato = 0xF9u;                           /* overlaps slide on REESE and MIDI, not on the breaks */
     dn.sounding = dn.midi_note = 0xFF;
     dn.step_held = -1;
     dn.entry_len = DN_LEN_STEP;
@@ -1954,7 +1968,8 @@ static void dn_draw_roll(void)
 {
     const dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
     uint32_t i, r, v0 = 16u * dn.view, L = tr->len;
-    int32_t trans = dn.trk == 0u ? dn_rs.p[RP_TRANS] : 0, prev_y = -1, prev_end = -1;
+    int32_t trans = dn.trk == 0u ? dn_rs.p[RP_TRANS] : 0, prev_y = -1, prev_end = -1, prev_i = 0;
+    uint32_t prev_len = 0, legato = (dn_sq.legato & ~DN_PAT_CUT(&dn_sq.pat)) >> dn.trk & 1u;
     char line[48], v[8];
     cv_rect(0, 17, 240, 104, DN_C_PANEL);
     for (r = 0; r < DN_ROLL_ROWS; r++) {            /* the rows: a keyboard down the side, black keys' rows darker */
@@ -1983,10 +1998,14 @@ static void dn_draw_roll(void)
         x1 = 30 + 13 * ((int32_t)end - (int32_t)v0) - 1;
         if (st->len < DN_LEN_STEP && end == i + 1u)
             x1 = x0 + (int32_t)(13u * st->len / DN_LEN_STEP) - 1;
-        if ((st->flags & DN_ST_SLIDE) && prev_y >= 0 && prev_end == (int32_t)i && x0 >= 30 && x0 < 238)
-            cv_line(x0 - 4, prev_y + 2, x0 + 2, y + 2, C_WHITE);   /* the slide: a ramp from the note before */
+        if (((st->flags & DN_ST_SLIDE) || (legato && prev_len > (i - (uint32_t)prev_i) * DN_LEN_STEP)) &&
+            prev_y >= 0 && prev_end == (int32_t)i && x0 >= 30 && x0 < 238)
+            cv_line(x0 - 4, prev_y + 2, x0 + 2, y + 2, C_WHITE);   /* the slide (flagged, or the note before
+                                                                     * reaches past this one): a ramp from it */
         prev_y = y;
         prev_end = (int32_t)end;
+        prev_i = (int32_t)i;
+        prev_len = st->len;
         if (x1 < 30 || x0 > 237)
             continue;
         x0 = x0 < 30 ? 30 : x0;

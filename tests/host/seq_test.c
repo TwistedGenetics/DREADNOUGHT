@@ -175,13 +175,14 @@ int main(void)
         dn_seq_init(&s);
         s.pat.tr[0].st[0] = (dn_step_t){53, DN_ST_ON, 32, 100};
         s.pat.tr[0].st[2] = (dn_step_t){56, DN_ST_ON, 4, 100};
+        DN_PAT_CUT(&s.pat) = 1;                     /* OVERLAP CUT on track 1 */
         dn_seq_start(&s, &CB);
         run(&s, (uint64_t)(spb * 3));
         for (i = 0; i < nev; i++) {
             if (ev[i].kind == 'O' && ev[i].note == 53 && !off_at) off_at = ev[i].at;
             if (ev[i].kind == 'N' && ev[i].note == 56 && !on2) on2 = ev[i].at;
         }
-        check("a later step cuts the long note at its own time", off_at && on2 && off_at <= on2 && on2 - off_at < 2,
+        check("OVERLAP CUT: a later step cuts the long note at its own time", off_at && on2 && off_at <= on2 && on2 - off_at < 2,
               (double)off_at, (double)on2);
         nev = 0; now = 0;
         dn_seq_init(&s);
@@ -195,6 +196,54 @@ int main(void)
                 if (ev[i].kind == 'N' && ev[i].note == 56)
                     ok = ev[i].slide && ev[i + 1].kind == 'O' && ev[i + 1].note == 53;
             check("a slide two steps on glides from the long note (no gap)", ok, ok, 1);
+        }
+    }
+    /* 0.8: a note reaching past the next one slides into it (OVERLAP SLIDE, the default); one that ends on time, an
+     * OVERLAP CUT track and a drum track (not legato) retrigger */
+    {
+        static const struct { uint8_t len, cut, legato; int slide; const char *what; } C[] = {
+            {9, 0, 0xFF, 1, "overlap (2 1/4 steps, the next note at 2): one note-on with slide, old off just after"},
+            {32, 0, 0xFF, 1, "overlap (8 steps): slides too"},
+            {8, 0, 0xFF, 0, "a note that ends where the next starts: retriggers"},
+            {9, 1, 0xFF, 0, "overlap on an OVERLAP CUT track: retriggers"},
+            {9, 0, 0xFE, 0, "overlap on a track that isn't legato (a drum track): retriggers"},
+        };
+        uint32_t c;
+        for (c = 0; c < sizeof C / sizeof C[0]; c++) {
+            int ok = 0, offs_before = 0, seen = 0;
+            nev = 0; now = 0;
+            dn_seq_init(&s);
+            s.legato = C[c].legato;
+            DN_PAT_CUT(&s.pat) = C[c].cut;
+            s.pat.tr[0].st[0] = (dn_step_t){53, DN_ST_ON, C[c].len, 100};
+            s.pat.tr[0].st[2] = (dn_step_t){58, DN_ST_ON, 4, 100};
+            dn_seq_start(&s, &CB);
+            run(&s, (uint64_t)(spb * 3));
+            for (i = 0; i < nev; i++) {
+                if (ev[i].kind == 'O' && ev[i].note == 53 && !seen)
+                    offs_before++;
+                if (ev[i].kind == 'N' && ev[i].note == 58 && !seen) {
+                    seen = 1;
+                    ok = C[c].slide ? ev[i].slide && !offs_before && i + 1 < nev && ev[i + 1].kind == 'O' &&
+                                      ev[i + 1].note == 53
+                                    : !ev[i].slide && offs_before == 1;
+                }
+            }
+            check(C[c].what, ok, ok, 1);
+        }
+        /* and the slide holds on the second time round (the pattern loops: the overlap is found again) */
+        {
+            int slides = 0;
+            nev = 0; now = 0;
+            dn_seq_init(&s);
+            s.pat.tr[0].len = 4;
+            s.pat.tr[0].st[0] = (dn_step_t){53, DN_ST_ON, 12, 100};
+            s.pat.tr[0].st[2] = (dn_step_t){58, DN_ST_ON, 4, 100};
+            dn_seq_start(&s, &CB);
+            run(&s, (uint64_t)(spb * 8));
+            for (i = 0; i < nev; i++)
+                slides += ev[i].kind == 'N' && ev[i].note == 58 && ev[i].slide;
+            check("overlap slides every time round", slides == 2, slides, 2);
         }
     }
     /* a 0.5 pattern (DNQ1, lengths in sixteenths of a step) comes up to date */

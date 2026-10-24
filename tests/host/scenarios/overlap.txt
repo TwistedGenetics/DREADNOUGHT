@@ -1,0 +1,57 @@
+# DREADNOUGHT host scenario: overlapping notes slide (0.8). A note whose length reaches past the next one glides into
+# it (REESE's GLIDE is the slide time); OUT's OVERLAP CUT makes them retrigger instead.
+# White keys (steps 1..16): 0 2 4 6 7 9 11 12 14 16 18 19 21 23 24 26.
+tap SEQ
+tap SEQ
+expect page 7
+# step 11 (key 18) and 13 (key 21): 1 3/4 steps -> 2 1/2 steps, past the next note
+key 18 down
+turn K2 3
+key 18 up
+key 21 down
+turn K2 3
+key 21 up
+expect ln.1.11 12
+expect ln.1.13 12
+shot overlap-01-roll.png
+# GLIDE (MOD page, KNOB 2) short, two bars
+tap LFO
+expect p.GLIDE 36
+wav overlap-glide-short.wav
+tap PLAY
+wait 2800
+tap PLAY
+wavstop
+# GLIDE long
+turn K2 4
+wait 300
+turn K2 4
+wait 300
+turn K2 4
+wait 300
+turn K2 4
+wait 300
+expect p.GLIDE 84
+wav overlap-glide-long.wav
+tap PLAY
+# 20 ms into step 13: still gliding down from step 11's note (2 semitones = 16 eighths to go, a few gone)
+wait 966
+expect glide <-4
+wait 1834
+tap PLAY
+wavstop
+# OUT: OVERLAP CUT, the same two bars retrigger
+tap GLO
+turn K4 1
+expect cut 1
+shot overlap-02-out-cut.png
+wav overlap-cut.wav
+tap PLAY
+# CUT: step 13 starts on its own pitch
+wait 966
+expect glide 0
+wait 1834
+tap PLAY
+wavstop
+turn K4 -1
+expect cut 0

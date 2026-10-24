@@ -43,12 +43,19 @@ const OSC = ["2SAW", "3SAW", "5SAW", "7SAW", "SAWSQ", "2SIN"];
 const BEAT = ["OFF", "1/1", "1/2", "1/4", "1/8", "1/16", "1/4T", "1/8T"];
 // the order of PARAMS (dn_editor.c DN_ED_PARAM): REESE (reese.c RP_*), BPM, BREAKS A, BREAKS B
 const R = (name, min, max, group, text) => ({ name, min, max, group, text });
+// GLIDE is the slide time (a SLIDE step, or a note that reaches past the next one): as the FM-1 shows it
+export function glideText(v) {
+  if (v <= 0) return "OFF";
+  let ms = 1;
+  for (let i = 0; i < v && i < 127; i++) ms *= 1.075254;
+  return ms < 1000 ? `${Math.floor(ms + 0.5)}ms` : `${(Math.floor(ms / 100 + 0.5) / 10).toFixed(1)}s`;
+}
 export const REESE = [
   R("OSC", 0, 5, "OSC", (v) => OSC[v]), R("DTN", 0, 127, "OSC", (v) => `${Math.floor(v * v * 100 / (127 * 127))}c`),
   R("BEAT", 0, 7, "OSC", (v) => BEAT[v]), R("SUB", 0, 127, "OSC"),
   R("CUT", 0, 127, "FILTER"), R("RES", 0, 127, "FILTER"), R("DRV", 0, 127, "FILTER"), R("NTCH", 0, 127, "FILTER"),
   R("ATK", 0, 127, "AMP"), R("DEC", 0, 127, "AMP"), R("SUS", 0, 127, "AMP"), R("REL", 0, 127, "AMP"),
-  R("FENV", -64, 63, "MOD"), R("GLIDE", 0, 127, "MOD"), R("LRATE", 0, 127, "MOD"), R("LFLT", -64, 63, "MOD"),
+  R("FENV", -64, 63, "MOD"), R("GLIDE", 0, 127, "MOD", glideText), R("LRATE", 0, 127, "MOD"), R("LFLT", -64, 63, "MOD"),
   R("LEVEL", 0, 127, "OUT"), R("TRANS", -36, 36, "OUT", (v) => (v > 0 ? `+${v}` : `${v}`)),
 ];
 export const BPM_INDEX = REESE.length;
@@ -97,6 +104,7 @@ export function serializePattern(p) {
   const b = new Uint8Array(PAT_BYTES);
   b[0] = p.magic & 255; b[1] = (p.magic >>> 8) & 255; b[2] = (p.magic >>> 16) & 255; b[3] = (p.magic >>> 24) & 255;
   b[4] = p.swing;
+  if (p.pad) b.set(p.pad.slice(0, 3).map((x) => x & 255), 5);   // pad[0]: OVERLAP CUT, a bit a track (0.8)
   for (let t = 0; t < TRACKS; t++) {
     const o = 8 + t * TR_BYTES, tr = p.tracks[t];
     tr.steps.forEach((s, i) => { b.set([s.note, s.flags, s.len, s.vel], o + 4 * i); });
@@ -105,6 +113,19 @@ export function serializePattern(p) {
   return b;
 }
 // where a note on step i stops, in steps (exclusive): its length, cut by the next note on the track (dn_note_end)
+// OVERLAP (pattern pad[0], a bit a track): set = CUT. Overlaps slide on REESE and the MIDI tracks, never on the breaks
+export const overlapCut = (pat, t) => ((pat.pad[0] >> t) & 1) === 1;
+export function setOverlapCut(pat, t, cut) { pat.pad[0] = cut ? pat.pad[0] | (1 << t) : pat.pad[0] & ~(1 << t); }
+// does the note on step i slide in because the one before it reaches past its start (dn_seq.c fire_step)?
+export function overlapSlide(pat, t, i) {
+  const tr = pat.tracks[t];
+  if (KIND(t) === "BREAKS" || overlapCut(pat, t)) return false;
+  for (let j = i - 1; j >= 0; j--) {
+    const st = tr.steps[j];
+    if (st.flags & ST_ON) return st.len > (i - j) * LEN_STEP;
+  }
+  return false;
+}
 export function noteEnd(tr, i) {
   const span = Math.ceil(tr.steps[i].len / LEN_STEP);
   for (let j = 1; j < span; j++) if (tr.steps[(i + j) % tr.len].flags & ST_ON) return i + j;

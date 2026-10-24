@@ -78,6 +78,30 @@ void reese_param_text(uint32_t k, int32_t v, char out[8])
         out[i] = 'c', out[i + 1] = 0;
         break;
     }
+    case RP_GLIDE: {                                     /* the slide time (~99 % of the way there), as the
+                                                          * tables make it: 1 ms .. 10 s, log; 0 no slide */
+        float ms = 1.0f;
+        int32_t i, n;
+        if (v <= 0) {
+            put_str(out, "OFF");
+            break;
+        }
+        for (i = 0; i < v && i < 127; i++)
+            ms *= 1.075254f;                             /* 10000 ^ (1 / 127) */
+        if (ms < 1000.0f) {
+            put_int(out, (int32_t)(ms + 0.5f));
+            for (i = 0; out[i]; i++)
+                ;
+            out[i] = 'm', out[i + 1] = 's', out[i + 2] = 0;
+        } else {
+            n = (int32_t)(ms / 100.0f + 0.5f);           /* tenths of a second */
+            put_int(out, n / 10);
+            for (i = 0; out[i]; i++)
+                ;
+            out[i] = '.', out[i + 1] = (char)('0' + n % 10), out[i + 2] = 's', out[i + 3] = 0;
+        }
+        break;
+    }
     default: put_int(out, v); break;
     }
 }

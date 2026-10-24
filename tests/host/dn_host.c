@@ -464,6 +464,8 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "reclen")) got = dn_sq.pat.tr[dn.trk].st[dn.rec_last].len;
             else if (!strcmp(b, "rollkeys")) got = dn.roll_keys;
             else if (!strcmp(b, "row")) got = dn.drum_row;
+            else if (!strcmp(b, "glide")) got = (dn_rs.target256 - dn_rs.pitch256) / 32;   /* eighths of a semitone to go */
+            else if (!strcmp(b, "cut")) got = DN_PAT_CUT(&dn_sq.pat);
             else if (!strcmp(b, "slsel")) got = dn.sl_sel;
             else if (!strcmp(b, "cursor")) got = (long)dn.sl_cur;
             else if (!strncmp(b, "bon.", 4)) got = dn_bk[atoi(b + 4) - 1].on;   /* BREAKS A (1) / B (2) sounding */

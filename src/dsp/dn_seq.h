@@ -64,7 +64,13 @@ typedef struct {
     int32_t gate[DN_SEQ_TRACKS];                    /* samples the note sounds on (0: none) */
     uint8_t sounding[DN_SEQ_TRACKS];                /* the note each track holds (0xFF: none) */
     uint8_t cur[DN_SEQ_TRACKS];                     /* each track's step now */
+    uint8_t legato;                                 /* the tracks whose overlapping notes may slide (the app's:
+                                                     * synth and MIDI tracks; not the drum tracks) */
+    uint8_t ovl;                                    /* the tracks whose next note slides (the one before overlaps) */
 } dn_seq_t;
+
+/* the pattern's pad[0]: OVERLAP CUT, one bit a track (a note reaching past the next one retriggers it, not slides) */
+#define DN_PAT_CUT(p) ((p)->pad[0])
 
 void dn_seq_init(dn_seq_t *s);
 void dn_pattern_clear(dn_pattern_t *p);
