@@ -36,5 +36,8 @@ for (const [t, i, name, max, text] of g.fxp) {
     bad.push(`${FX_NAMES[t]} ${i}: ${x ? `${x.name} ${x.max} ${x.text(d[i])}` : "none"} vs ${name} ${max} ${text}`);
 }
 check("every effect's values: names, tops and texts as the FM-1's", !bad.length, bad.slice(0, 3).join("; ") || "all", "all");
+const hi = parseParams(g.hi);
+check("PARAMS_HI: 8 values, REESE's filter envelope first", hi.length === 8 && hi.slice(0, 4).join() === g.rfe.join(),
+  hi.slice(0, 4).join(), g.rfe.join());
 console.log(fails ? `EDITOR (page): ${fails} FAILED` : "EDITOR (page): the page reads the firmware's replies");
 process.exit(fails ? 1 : 0);

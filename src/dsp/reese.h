@@ -37,12 +37,15 @@ typedef struct {
     int32_t mod[RP_COUNT];                  /* the LFOs (the app): added to each value, 1/256 of a step */
     int32_t mod_pitch;                      /* the LFOs on the pitch, 1/256 semitone */
     uint8_t esync;                          /* 1: ATK DEC REL are note lengths at the tempo (0.13) */
+    int16_t fe[4];                          /* the filter envelope (0.19): ATK DEC SUS REL, 0..127 (a preset: the amp's
+                                             * ATK DEC, sustain 0, REL: the attack-decay it always had) */
     uint8_t vel, vsens;                     /* the note's velocity; how much it counts (0: not at all .. 127: all) */
 } reese_t;
 
 void reese_init(reese_t *r);
 uint32_t reese_preset_count(void);
 const char *reese_preset_name(uint32_t i);
+void reese_fe_default(reese_t *r);                 /* (0.19) the filter envelope from the amp's */
 void reese_load_preset(reese_t *r, uint32_t i);
 void reese_note_on(reese_t *r, uint8_t note, uint8_t vel, int legato);
 void reese_note_off(reese_t *r);

@@ -157,6 +157,13 @@ export class MockFM1 {
       case CMD.TRANSPORT: this.playing = a[0] ? 1 : 0; if (this.playing) this.step = 0; return [this.playing];
       case CMD.SAVE: this.dirty = 0; this.saved++; return [0];
       case CMD.PRESET: this.preset = a[0]; this.rev++; return [0];
+      case CMD.PARAMS_HI: {                         // (0.19: the filter envelopes)
+        this.hi = this.hi || [0, 70, 0, 30, 0, 70, 110, 30];
+        if (!a.length) return [8, ...this.hi.flatMap((v) => digits(v + 8192, 2))];
+        if (a[0] >= 8) return null;
+        this.hi[a[0]] = Math.max(0, Math.min(127, (a[1] | a[2] << 7) - 8192)); this.rev++; this.dirty = 1;
+        return [0];
+      }
       case CMD.SUB_PRESET: this.subPreset = a[0]; this.rev++; return [0];
       case CMD.PROJ: {
         const P = this.proj, nm = P.name.padEnd(12, "\0").slice(0, 12).split("").map((c) => c.charCodeAt(0) & 127);

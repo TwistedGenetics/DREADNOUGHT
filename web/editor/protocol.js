@@ -8,7 +8,7 @@
 
 export const HDR = [0x7D, 0x46, 0x4C];
 export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, PATS: 73, PAT_SEL: 74, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
-  TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77, SUB_PRESET: 78 };
+  TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77, SUB_PRESET: 78, PARAMS_HI: 79 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
 export const digits = (v, n) => { const o = []; for (let i = 0; i < n; i++) { o.push(v & 127); v = Math.floor(v / 128); } return o; };
@@ -112,6 +112,11 @@ export const SUB = [
 export const subIndex = (i) => NPARAM + i;
 export const NPARAM_13 = NPARAM + SUB.length;
 export const NPARAM_15 = NPARAM_13 + NLFO * 8;     // (0.15: SUB's LFOs)
+// 0.19: the values past PARAMS' 7-bit index (PARAMS_HI, 79), after them in the page's list: the filter envelopes,
+// REESE's then SUB's (ATK DEC SUS REL)
+export const FENV = ["F.ATK", "F.DEC", "F.SUS", "F.REL"].map((n) => R(n, 0, 127, "FILT ENV"));
+export const NPARAM_19 = NPARAM_15 + 8;
+export const feIndex = (set, k) => NPARAM_15 + 4 * set + k;
 export const nLfos = (nparams) => (nparams >= NPARAM_15 ? NLFO_ALL : nparams >= NPARAM ? NLFO : 0);
 export function parseLfoPts(r) {
   const pts = [];
@@ -336,8 +341,17 @@ export class Link {
     return p;
   }
   async state() { return parseState(await this.req(CMD.STATE)); }
-  async params() { return parseParams(await this.req(CMD.PARAMS)); }
-  async setParam(i, v) { return (await this.req(CMD.PARAM_SET, [i, ...digits(v + 8192, 2)]))[0]; }
+  async params() {
+    const p = parseParams(await this.req(CMD.PARAMS));
+    if (p.length === NPARAM_15 && this.hi !== false) {   // (0.19: the rest, if the FM-1 has them)
+      try { p.push(...parseParams(await this.req(CMD.PARAMS_HI, [], 800))); this.hi = true; } catch (_) { this.hi = false; }
+    }
+    return p;
+  }
+  async setParam(i, v) {
+    if (i >= NPARAM_15) return (await this.req(CMD.PARAMS_HI, [i - NPARAM_15, ...digits(v + 8192, 2)]))[0];
+    return (await this.req(CMD.PARAM_SET, [i, ...digits(v + 8192, 2)]))[0];
+  }
   async names(kind) {
     let out = [], from = 0, count = 1;
     while (from < count) {

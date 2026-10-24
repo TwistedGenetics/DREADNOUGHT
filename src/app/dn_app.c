@@ -51,12 +51,14 @@
 #define DN_IS_BRKPG(p) ((p) == DN_PG_BRK || (p) == DN_PG_BRK2 || (p) == DN_PG_SLICE)
 #define DN_PG_SET (DN_NPAGES + 6u)                  /* OUT's second page (GLO again): click, count-in, octave */
 #define DN_PG_LFO (DN_NPAGES + 7u)                  /* the LFOs (LFO again from MOD: 1, 2, 3, 4, back to MOD) */
-#define DN_IS_SNDPG(p) ((p) < DN_NPAGES || (p) == DN_PG_SET || (p) == DN_PG_LFO || (p) == DN_PG_SOSC2 || (p) == DN_PG_DIRT)
+#define DN_IS_SNDPG(p) ((p) < DN_NPAGES || (p) == DN_PG_SET || (p) == DN_PG_LFO || (p) == DN_PG_SOSC2 || (p) == DN_PG_DIRT || \
+                        (p) == DN_PG_FENV)
 #define DN_PG_MIDI (DN_NPAGES + 8u)                 /* the MIDI instruments' page (GLO: OUT, SETUP, MIDI) */
 #define DN_PG_FX (DN_NPAGES + 9u)                   /* the FX rack: MIX (the track's sends), FX A, FX B (FX: the next) */
 #define DN_PG_PROJ (DN_NPAGES + 10u)                /* the project: each track's instrument, memory, CPU (0.12) */
 #define DN_PG_SOSC2 (DN_NPAGES + 11u)               /* SUB: OSC's second page (SEL again): PW, PWM, its rate, the sub */
 #define DN_PG_DIRT (DN_NPAGES + 12u)                /* SUB: FILTER's second page (EDIT again): the dirt */
+#define DN_PG_FENV (DN_NPAGES + 13u)                /* AMP's second page (ENV again): the filter envelope (0.19) */
 #define DN_IS_GLOPG(p) ((p) == 4u || (p) == DN_PG_FX || (p) == DN_PG_SET || (p) == DN_PG_MIDI || (p) == DN_PG_PROJ)
 #define DN_ROLL_ROWS 12                             /* the piano roll's pitches in view (an octave) */
 #define DN_DRUM_ROWS 8                              /* the drum grid's slices in view */
@@ -110,6 +112,9 @@ static uint8_t dn_eng[8] = {DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_MI
 #define DN_PX_L1RATE 140                            /* MOD's KNOB 3 / 4: LFO 1's rate and depth (where LRATE and LFLT
                                                      * were: a 0.8 sound's filter LFO is LFO 1 now) */
 #define DN_PX_L1DEPTH 141
+#define DN_PX_RFE 142                               /* 0.19: REESE's filter envelope ATK DEC SUS REL (142..145) */
+#define DN_PX_SFE 146                               /* SUB's (146..149) */
+#define DN_IS_FEX(id) ((id) >= DN_PX_RFE && (id) < DN_PX_SFE + 4u)
 #define DN_PX_BSRC 110                              /* the BRK page: the loop, pitch, decay, crush of BREAKS A / B */
 #define DN_PX_BPITCH 111
 #define DN_PX_BDECAY 112
@@ -226,7 +231,10 @@ typedef struct {
     dn_lfo_p_t sublfo[DN_NLFO];                                                 /* SUB's own LFOs (from 0.15) */
     dn_patch_t user[2][DN_NUSER];                                               /* the user sounds (from 0.15) */
     uint8_t fx_more[2][4];                                                      /* FX A / B's 4th..7th values (0.16) */
+    int16_t fe[2][4];                                                           /* REESE's, SUB's filter envelopes (0.19) */
+    int8_t user_fe[2][DN_NUSER][4];                                             /* ... and each user sound's */
 } dn_save_t;
+#define DN_SAVE_V016 (offsetof(dn_save_t, fe))
 #define DN_SAVE_V015 (offsetof(dn_save_t, fx_more))
 #define DN_SAVE_V014 (offsetof(dn_save_t, sublfo))
 #define DN_SAVE_V012 (offsetof(dn_save_t, sub))
@@ -237,6 +245,7 @@ typedef struct {
 
 static reese_t dn_rs;
 static dn_patch_t dn_user[2][DN_NUSER];             /* the user sounds: REESE's, SUB's (kept with the sound) */
+static int8_t dn_user_fe[2][DN_NUSER][4];           /* (0.19) each one's filter envelope */
 static dn_save_t dn_sv;                             /* (the one copy of the saved sound in RAM: 3.7 KB, off the stack; in .bss,
                                                      * 0.16: the pool keeps its headroom for the FX) */
 typedef char dn_save_fits[sizeof(dn_save_t) <= PLAT_STORE_MAX ? 1 : -1];
@@ -428,6 +437,13 @@ static void dn_lfo_fix(dn_lfo_p_t *l)               /* an LFO from storage, chec
 /* ---- user sounds (0.15): a synth's sound (set 0 REESE, 1 SUB) into a slot, and back ----------------------------- */
 static void dn_patch_store(uint32_t set, dn_patch_t *u)
 {
+    {                                               /* (0.19: its filter envelope, beside it) */
+        int8_t *fe = dn_user_fe[set][u - dn_user[set]];
+        const int16_t *src = set ? dn_sb.fe : dn_rs.fe;
+        uint32_t j;
+        for (j = 0; j < 4u; j++)
+            fe[j] = (int8_t)dn_clamp(src[j], 0, 127);
+    }
     uint32_t k, n = set ? SP_COUNT : RP_COUNT;
     for (k = 0; k < sizeof u->p; k++)
         u->p[k] = (int8_t)(k < n ? (set ? dn_sb.p[k] : dn_rs.p[k]) : 0);
@@ -446,6 +462,13 @@ static void dn_patch_store(uint32_t set, dn_patch_t *u)
 }
 static void dn_patch_load(uint32_t set, const dn_patch_t *u)   /* (inside the lock) */
 {
+    {
+        const int8_t *fe = dn_user_fe[set][u - dn_user[set]];
+        int16_t *dst = set ? dn_sb.fe : dn_rs.fe;
+        uint32_t j;
+        for (j = 0; j < 4u; j++)
+            dst[j] = (int16_t)dn_clamp(fe[j], 0, 127);
+    }
     uint32_t k, n = set ? SP_COUNT : RP_COUNT;
     for (k = 0; k < n; k++) {
         int32_t v = u->p[k];
@@ -1035,6 +1058,7 @@ static uint32_t dn_dial(uint32_t k)
          : dn.page == DN_PG_SLICE ? DN_SLICE_PAGE[k] : dn.page == DN_PG_SET ? DN_SET_PAGE[k]
          : dn.page == DN_PG_LFO ? DN_LFO_PAGE[dn.lfo_view & 1u][k] : dn.page == DN_PG_MIDI ? DN_MIDI_PAGE[k]
          : dn.page == DN_PG_SOSC2 ? DN_SUB_OSC2[k] : dn.page == DN_PG_DIRT ? DN_SUB_DIRT[k]
+         : dn.page == DN_PG_FENV ? (DN_IS_SUB(dn.trk) ? DN_PX_SFE : DN_PX_RFE) + k
          : dn.page < DN_NPAGES && DN_IS_SUB(dn.trk) ? DN_SUB_PAGE[dn.page][k]
          : dn.page == DN_PG_PROJ ? DN_PROJ_PAGE[k]
          : dn.page == DN_PG_FX ? dn_fx_dial(k)
@@ -1326,8 +1350,12 @@ static void dn_pj_set(uint32_t id, int32_t v)
     dn_mark();
 }
 
+/* the filter envelopes' values (0.19): REESE's or SUB's fe[] */
+static int16_t *dn_fe(uint32_t id) { return id >= DN_PX_SFE ? &dn_sb.fe[id - DN_PX_SFE] : &dn_rs.fe[id - DN_PX_RFE]; }
 static int32_t dn_get(uint32_t id)
 {
+    if (DN_IS_FEX(id))
+        return *dn_fe(id);
     if (DN_IS_SPX(id))
         return dn_sb.p[id - DN_PX_SUB0];
     if (DN_IS_PPX(id))
@@ -1380,6 +1408,8 @@ static int32_t dn_get(uint32_t id)
 }
 static int32_t dn_min(uint32_t id)
 {
+    if (DN_IS_FEX(id))
+        return 0;
     if (DN_IS_SPX(id))
         return dn_sub_param_min(id - DN_PX_SUB0);
     if (DN_IS_PPX(id))
@@ -1393,6 +1423,8 @@ static int32_t dn_min(uint32_t id)
 }
 static int32_t dn_max(uint32_t id)
 {
+    if (DN_IS_FEX(id))
+        return 127;
     if (DN_IS_SPX(id))
         return dn_sub_param_max(id - DN_PX_SUB0);
     if (DN_IS_PPX(id))
@@ -1409,6 +1441,9 @@ static int32_t dn_max(uint32_t id)
 }
 static const char *dn_name(uint32_t id)
 {
+    static const char *const FN[4] = {"F.ATK", "F.DEC", "F.SUS", "F.REL"};
+    if (DN_IS_FEX(id))
+        return FN[(id - DN_PX_RFE) % 4u];
     static const char *const BN[8] = {"LOOP", "PITCH", "DECAY", "CRUSH", "CHOKE", "SLICES", "STRETCH", "LEVEL"};
     static const char *const SN[4] = {"CHOP", "CURSOR", "FINE", "ZOOM"};
     static const char *const LN[8] = {"SHAPE", "RATE", "DEST", "DEPTH", "SYNC", "MODE", "PHASE", "SMOOTH"};
@@ -1432,7 +1467,8 @@ static void dn_text(uint32_t id, int32_t v, char out[8])
     static const char *const ES[DN_ESYNC_N] = {"1/64", "1/32T", "1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4",
                                                "1/2T", "1/2", "1 BAR", "2 BARS", "4 BARS", "8 BARS"};
     if (((id == RP_ATK || id == RP_DEC || id == RP_REL) && dn_rs.esync) ||
-        ((id == DN_S(SP_ATK) || id == DN_S(SP_DEC) || id == DN_S(SP_REL)) && dn_sb.esync)) {
+        ((id == DN_S(SP_ATK) || id == DN_S(SP_DEC) || id == DN_S(SP_REL)) && dn_sb.esync) ||
+        (DN_IS_FEX(id) && (id - DN_PX_RFE) % 4u != 2u && (id >= DN_PX_SFE ? dn_sb.esync : dn_rs.esync))) {
         const char *w = ES[dn_esync_idx(v)];        /* synced: the note length */
         uint32_t i;
         for (i = 0; w[i] && i < 7u; i++)
@@ -1555,6 +1591,14 @@ static void dn_set(uint32_t id, int32_t v)
     dn_rev++;
     if (DN_IS_PPX(id)) {
         dn_pj_set(id, v);
+        return;
+    }
+    if (DN_IS_FEX(id)) {
+        dn_lock();
+        *dn_fe(id) = (int16_t)v;
+        dn_unlock();
+        dn.dirty = 1;
+        dn.redraw |= DN_RD_ALL;
         return;
     }
     if (DN_IS_SPX(id)) {
@@ -1753,6 +1797,10 @@ static void dn_save_fill(dn_save_t *sp)
         for (j = 0; j < 4u; j++)
             s.fx_more[k][j] = dn_fxp[k].p[3u + j];
     }
+    for (k = 0; k < 4u; k++)                        /* (0.19: the filter envelopes) */
+        s.fe[0][k] = dn_rs.fe[k], s.fe[1][k] = dn_sb.fe[k];
+    for (k = 0; k < 2u * DN_NUSER * 4u; k++)
+        s.user_fe[k / (DN_NUSER * 4u)][k / 4u % DN_NUSER][k % 4u] = dn_user_fe[k / (DN_NUSER * 4u)][k / 4u % DN_NUSER][k % 4u];
     s.sub.preset = dn.sb_preset;                    /* (0.13: SUB) */
     s.sub.pad[0] = dn_rs.esync;                     /* (the envelopes synced) */
     s.sub.pad[1] = dn_sb.esync;
@@ -2034,7 +2082,7 @@ void dn_app_init(void)
         dn_man.count > DN_MAN_N)
         dn_man.magic = dn_man.count = 0;            /* (no manual slices yet) */
     got = plat_store_load(OBJ_SOUND, &s, sizeof s);
-    if ((got == (int)sizeof s || got == (int)DN_SAVE_V015 || got == (int)DN_SAVE_V014 || got == (int)DN_SAVE_V012 || got == (int)DN_SAVE_V011 || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 ||
+    if ((got == (int)sizeof s || got == (int)DN_SAVE_V016 || got == (int)DN_SAVE_V015 || got == (int)DN_SAVE_V014 || got == (int)DN_SAVE_V012 || got == (int)DN_SAVE_V011 || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 ||
          got == (int)DN_SAVE_V04) &&
         s.magic == DN_SAVE_MAGIC) {
         dn.preset = (uint8_t)(s.preset % (reese_preset_count() + DN_NUSER));
@@ -2057,13 +2105,30 @@ void dn_app_init(void)
         if (got >= (int)DN_SAVE_V015)               /* 0.15: the user sounds */
             for (k = 0; k < 2u * DN_NUSER; k++)
                 dn_user[k / DN_NUSER][k % DN_NUSER] = s.user[k / DN_NUSER][k % DN_NUSER];
-        if (got == (int)sizeof s)                   /* 0.16: the effects' other values */
+        if (got >= (int)DN_SAVE_V016)               /* 0.16: the effects' other values */
             for (k = 0; k < 2u; k++) {
                 uint32_t j;
                 for (j = 0; j < 4u; j++)
                     dn_fxp[k].p[3u + j] = s.fx_more[k][j];
                 dn_fx_check(k);
             }
+        reese_fe_default(&dn_rs);                   /* 0.19: the filter envelopes (older saves: as they sounded, from
+                                                     * the amp's settings) */
+        dn_sub_fe_default(&dn_sb);
+        for (k = 0; k < DN_NUSER; k++) {
+            const int8_t *r = dn_user[0][k].p, *b = dn_user[1][k].p;
+            dn_user_fe[0][k][0] = r[RP_ATK], dn_user_fe[0][k][1] = r[RP_DEC], dn_user_fe[0][k][2] = 0;
+            dn_user_fe[0][k][3] = r[RP_REL];
+            dn_user_fe[1][k][0] = b[SP_ATK], dn_user_fe[1][k][1] = b[SP_DEC], dn_user_fe[1][k][2] = b[SP_SUS];
+            dn_user_fe[1][k][3] = b[SP_REL];
+        }
+        if (got == (int)sizeof s) {
+            for (k = 0; k < 4u; k++)
+                dn_rs.fe[k] = (int16_t)dn_clamp(s.fe[0][k], 0, 127), dn_sb.fe[k] = (int16_t)dn_clamp(s.fe[1][k], 0, 127);
+            for (k = 0; k < 2u * DN_NUSER * 4u; k++)
+                dn_user_fe[k / (DN_NUSER * 4u)][k / 4u % DN_NUSER][k % 4u] =
+                    (int8_t)dn_clamp(s.user_fe[k / (DN_NUSER * 4u)][k / 4u % DN_NUSER][k % 4u], 0, 127);
+        }
         if (got >= (int)DN_SAVE_V011) {
             for (k = 0; k < DN_NLFO; k++) {         /* 0.9: the LFOs, checked */
                 dn_lp[k] = s.lfo[k];
@@ -3331,7 +3396,9 @@ void dn_app_input(void)
     for (k = 0; k < DN_NPAGES; k++) {
         if (!(press & (1u << DN_PAGE_BTN[k])))
             continue;
-        if (k <= 1u && DN_IS_SUB(dn.trk) && (dn.page == k || dn.page == (k ? DN_PG_DIRT : DN_PG_SOSC2))) {
+        if (k == 2u && DN_IS_SYN(dn.trk) && (dn.page == 2u || dn.page == DN_PG_FENV)) {
+            dn_goto(dn.page == 2u ? DN_PG_FENV : 2u);   /* ENV again: AMP <-> FILT ENV (0.19) */
+        } else if (k <= 1u && DN_IS_SUB(dn.trk) && (dn.page == k || dn.page == (k ? DN_PG_DIRT : DN_PG_SOSC2))) {
             /* SUB: SEL again OSC <-> OSC2 (PW, PWM, the sub), EDIT again FILTER <-> DIRT */
             dn_goto(dn.page == k ? (k ? DN_PG_DIRT : DN_PG_SOSC2) : k);
         } else if (k == 3u && (dn.page == 3u || dn.page == DN_PG_LFO)) {   /* LFO again: LFO 1, 2, 3, 4, back to MOD */
@@ -3375,7 +3442,7 @@ void dn_app_input(void)
             dn.back_page = (uint8_t)back;
         }
     }
-    if ((press & (1u << B_FX)) && dn.page == 2u && DN_IS_SYN(dn.trk)) {   /* AMP: FX locks the envelope's times to the
+    if ((press & (1u << B_FX)) && (dn.page == 2u || dn.page == DN_PG_FENV) && DN_IS_SYN(dn.trk)) {   /* AMP: FX locks the envelope's times to the
                                                      * tempo (ATK DEC REL as note lengths) or frees them */
         uint8_t *e = DN_IS_SUB(dn.trk) ? &dn_sb.esync : &dn_rs.esync;
         dn_lock();
@@ -4452,6 +4519,8 @@ static uint32_t dn_tabs(uint8_t *ids, const char **nms)
                 ids[n] = DN_PG_SOSC2, nms[n] = "OSC2";
             if (DN_SND[k] == 1u && dn.page == DN_PG_DIRT)
                 ids[n] = DN_PG_DIRT, nms[n] = "DIRT";
+            if (DN_SND[k] == 2u && dn.page == DN_PG_FENV)
+                ids[n] = DN_PG_FENV, nms[n] = "F.ENV";
             n++;
         }
     return n;
@@ -4663,10 +4732,11 @@ void dn_app_draw(int force)
     dn.redraw = 0;
     lit |= 1u << (DN_IS_SEQPG(dn.page) ? B_SEQ : DN_IS_BRKPG(dn.page) ? B_ARP : DN_IS_GLOPG(dn.page) ? B_GLO
                   : dn.page == DN_PG_LFO ? B_LFO : dn.page == DN_PG_SOSC2 ? B_SEL : dn.page == DN_PG_DIRT ? B_EDIT
+                  : dn.page == DN_PG_FENV ? B_ENV
                   : DN_PAGE_BTN[dn.page % DN_NPAGES]);
     if ((dn.page == DN_PG_LFO && dn.lfo_view) || (dn.page == DN_PG_FX && dn.fx_view))
         lit |= 1u << B_FX;
-    if (dn.page == 2u && DN_IS_SYN(dn.trk) && (DN_IS_SUB(dn.trk) ? dn_sb.esync : dn_rs.esync))
+    if ((dn.page == 2u || dn.page == DN_PG_FENV) && DN_IS_SYN(dn.trk) && (DN_IS_SUB(dn.trk) ? dn_sb.esync : dn_rs.esync))
         lit |= 1u << B_FX;                          /* (AMP: the envelope synced) */
     if (dn.page == DN_PG_PROJ && dn.peng != 0xFFu && (plat_ms() / 250u) % 2u)
         lit |= 1u << B_FX;                          /* (an instrument chosen: FX blinks to put it in) */

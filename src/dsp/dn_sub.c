@@ -150,6 +150,11 @@ void dn_sub_load_preset(dn_sub_t *s, uint32_t i)
     uint32_t k;
     for (k = 0; k < SP_COUNT; k++)
         s->p[k] = SB_PRESETS[i % SB_NPRESETS].v[k];
+    dn_sub_fe_default(s);
+}
+void dn_sub_fe_default(dn_sub_t *s)
+{
+    s->fe[0] = s->p[SP_ATK], s->fe[1] = s->p[SP_DEC], s->fe[2] = s->p[SP_SUS], s->fe[3] = s->p[SP_REL];
 }
 
 void dn_sub_init(dn_sub_t *s)
@@ -230,12 +235,15 @@ void dn_sub_note_on(dn_sub_t *s, uint8_t note, uint8_t vel, int legato, int acce
     s->gate = 1;
     s->active = 1;
     s->stage = 1;
+    s->fstage = 1;
 }
 void dn_sub_note_off(dn_sub_t *s)
 {
     s->gate = 0;
     if (s->stage)
         s->stage = 3;
+    if (s->fstage)
+        s->fstage = 3;
 }
 
 #define SB_M(s, k, lo, hi) dn_clamp((s)->p[k] + ((s)->mod[k] >> 8), lo, hi)
@@ -263,6 +271,30 @@ static void sb_control(dn_sub_t *s)
         if (s->env < SB_FULL / 4096) s->env = 0, s->stage = 0;
         break;
     default: break;
+    }
+    {                                               /* the filter envelope (0.19): its own ADSR, the same curves
+                                                     * (as the amp's settings: the one 101 envelope, to the bit) */
+        int32_t fa, fd, fr, fs = dn_clamp(s->fe[2], 0, 127) * (SB_FULL / 127);
+        if (s->esync) {
+            fa = s->fstage == 1 ? dn_esync_k(s->fe[0], s->bpm, 14) : 0;
+            fd = s->fstage == 2 ? dn_esync_k(s->fe[1], s->bpm, 0) : 0;
+            fr = s->fstage == 3 ? dn_esync_k(s->fe[3], s->bpm, 0) : 0;
+        } else {
+            fa = DN_ENV_K[dn_clamp(s->fe[0], 14, 127)], fd = DN_ENV_K[dn_clamp(s->fe[1], 0, 127)];
+            fr = DN_ENV_K[dn_clamp(s->fe[3], 0, 127)];
+        }
+        switch (s->fstage) {
+        case 1:
+            s->fenv += dn_mulq16((SB_FULL + SB_FULL / 4) - s->fenv, (uint32_t)fa);
+            if (s->fenv >= SB_FULL) s->fenv = SB_FULL, s->fstage = 2;
+            break;
+        case 2: s->fenv += dn_mulq16(fs - s->fenv, (uint32_t)fd); break;
+        case 3:
+            s->fenv -= dn_mulq16(s->fenv, (uint32_t)fr);
+            if (s->fenv < SB_FULL / 4096) s->fenv = 0, s->fstage = 0;
+            break;
+        default: break;
+        }
     }
     /* GATE: the amp follows the gate, declicked (~2 ms); ENV: the envelope */
     s->gamp += dn_mulq16((s->gate ? SB_FULL : 0) - s->gamp, DN_ENV_K[14]);   /* (~3 ms: a declick, no click) */
@@ -354,7 +386,7 @@ void dn_sub_render(dn_sub_t *s, int32_t *lr, uint32_t n)
             s->sph = sq + sinc;
         }
         cut = (p[SP_CUT] << 8) + s->mod[SP_CUT]
-              + (int32_t)(((int64_t)(s->env >> 8) * (SB_M(s, SP_ENV, -64, 63) + (s->acc ? p[SP_ACC] / 6 : 0))) >> 8)   /* ENV 63:
+              + (int32_t)(((int64_t)(s->fenv >> 8) * (SB_M(s, SP_ENV, -64, 63) + (s->acc ? p[SP_ACC] / 6 : 0))) >> 8)   /* ENV 63:
                                                      * +63 steps (4.5 octaves) at the envelope's top */
               + ((s->note - 60) * SB_SEMI * SB_M(s, SP_KEY, 0, 127)) / 127 + (s->acc ? p[SP_ACC] * 8 : 0);
         sb_ladder_coef(&lc, cut, SB_M(s, SP_RES, 0, 127));

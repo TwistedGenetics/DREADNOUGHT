@@ -26,6 +26,10 @@ typedef struct {
     int32_t pitch256, target256;
     int32_t env;                                    /* Q24: one envelope, for the filter and the amp (the 101's) */
     uint8_t stage;                                  /* 0 off, 1 attack, 2 decay / sustain, 3 release */
+    int16_t fe[4];                                  /* the filter envelope (0.19): ATK DEC SUS REL, 0..127 (a preset:
+                                                     * the amp's, so it moves as the one 101 envelope did) */
+    int32_t fenv;                                   /* Q24 */
+    uint8_t fstage;
     int32_t gamp;                                   /* GATE mode's amp, Q24 (declicked) */
     uint32_t ph, sph, pwph;                         /* the oscillator, the sub (half its rate), the PWM triangle */
     int32_t lad[4];
@@ -43,6 +47,7 @@ void dn_sub_init(dn_sub_t *s);
 uint32_t dn_sub_preset_count(void);
 const char *dn_sub_preset_name(uint32_t i);
 void dn_sub_load_preset(dn_sub_t *s, uint32_t i);
+void dn_sub_fe_default(dn_sub_t *s);               /* (0.19) the filter envelope = the amp's */
 void dn_sub_note_on(dn_sub_t *s, uint8_t note, uint8_t vel, int legato, int accent);
 void dn_sub_note_off(dn_sub_t *s);
 void dn_sub_render(dn_sub_t *s, int32_t *lr, uint32_t n);   /* adds n stereo frames (mono on both sides) */

@@ -35,6 +35,9 @@
  *   77 PROJ_NAME chars...      -> rc (0)                             up to 11 characters, 32-126
  * NAMES kinds from 0.12: 2 the instruments, 3 the effects, 4 the delay's times; 5 SUB's factory sounds (0.13).
  *   78 SUB_PRESET i            -> rc                                 SUB's factory sound i (0.13)
+ *   79 PARAMS_HI               -> n, n x value (2, +8192)           the values past PARAMS' 7-bit index (0.19):
+ *      PARAMS_HI i v(2)        -> rc (0 set)                         0-3 REESE's filter envelope ATK DEC SUS REL,
+ *                                                                    4-7 SUB's
  * From 0.13 PARAMS ends with SUB's values (dn_sub.h SP_*, 27 of them).
  * From 0.11 a step in the pattern is 8 bytes {note, flags, len, vel, cond, rtim, rlen, rvel}: dn_seq.h.
  * From 0.9 PARAMS also has the LFOs, 8 each after BREAKS B: SHAPE SYNC RATE DEST DEPTH PHASE MODE SMOOTH (SYNC
@@ -42,7 +45,8 @@
  */
 enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT_COMMIT, ED_TRANSPORT, ED_SAVE,
        ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL, ED_PROJ, ED_PROJ_SET,
-       ED_PROJ_NAME, ED_SUB_PRESET };
+       ED_PROJ_NAME, ED_SUB_PRESET, ED_PARAMS_HI };
+#define DN_ED_NHI 8u
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
                                      DN_PX_BCHOKE, DN_PX_BSMODE, DN_PX_BSTRETCH, DN_PX_BLEVEL};
@@ -333,6 +337,19 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         dn.redraw |= DN_RD_ALL;
         return 1;
     }
+    case ED_PARAMS_HI:
+        if (!na) {
+            put(DN_ED_NHI);
+            for (i = 0; i < DN_ED_NHI; i++)
+                dn_ed_num(put, (uint32_t)(dn_get(DN_PX_RFE + i) + 8192), 2);
+            return 1;
+        }
+        if (na < 3u || a[0] >= DN_ED_NHI)
+            return 0;
+        dn_set(DN_PX_RFE + a[0], (int32_t)(a[1] | a[2] << 7) - 8192);
+        dn_rev++;
+        put(0);
+        return 1;
     case ED_SUB_PRESET:
         if (na < 1u || a[0] >= dn_sub_preset_count() + DN_NUSER)
             return 0;

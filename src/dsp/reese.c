@@ -20,7 +20,8 @@
  *   DRV   0..127 drive before the ladder, above the crossover only
  *   NTCH  0..127 a notch comb swept slowly; 0 off
  *   ATK DEC SUS REL 0..127  the amplitude envelope (times 1 ms .. 10 s)
- *   FENV  -64..63 the envelope on the cutoff (an attack-decay with the amp's attack and decay)
+ *   FENV  -64..63 the filter envelope's amount on the cutoff. The filter envelope (fe[], 0.19) has its own ATK DEC
+ *         SUS REL; a preset starts it as the amp's attack and decay, no sustain, the amp's release
  *   GLIDE 0..127 the slide between legato notes (0 none)
  *   LRATE 0..127 the filter LFO's rate (0.05 .. 20 Hz); LFLT -64..63 its depth on the cutoff (0 off)
  *   LEVEL 0..127 (100 = unity); TRANS -36..36 semitones (the presets play an octave or two down) */
@@ -139,6 +140,12 @@ void reese_load_preset(reese_t *r, uint32_t i)
     uint32_t k;
     for (k = 0; k < RP_COUNT; k++)
         r->p[k] = PRESETS[i % NPRESETS].v[k];
+    reese_fe_default(r);
+}
+void reese_fe_default(reese_t *r)                   /* the filter envelope as it always was: the amp's attack, decay
+                                                     * and release, no sustain */
+{
+    r->fe[0] = r->p[RP_ATK], r->fe[1] = r->p[RP_DEC], r->fe[2] = 0, r->fe[3] = r->p[RP_REL];
 }
 
 void reese_init(reese_t *r)
@@ -261,14 +268,19 @@ static void rs_control(reese_t *r)
 {
     const int16_t *p = r->p;
     int32_t ka, kd, kr, sus = dn_clamp(p[RP_SUS], 0, 127) * (RS_FULL / 127);
-    if (r->esync) {                                       /* (the stage running decides which time is needed) */
-        int32_t st = r->astage > r->fstage ? r->astage : r->fstage;
-        ka = st == 1 ? dn_esync_k(p[RP_ATK], r->bpm, 0) : 0;
-        kd = st >= 1 ? dn_esync_k(p[RP_DEC], r->bpm, 0) : 0;
-        kr = st == 3 ? dn_esync_k(p[RP_REL], r->bpm, 0) : 0;
+    int32_t fa, fd, fr, fs = dn_clamp(r->fe[2], 0, 127) * (RS_FULL / 127);
+    if (r->esync) {                                       /* (only the stage running needs its time worked out) */
+        ka = r->astage == 1 ? dn_esync_k(p[RP_ATK], r->bpm, 0) : 0;
+        kd = r->astage == 2 ? dn_esync_k(p[RP_DEC], r->bpm, 0) : 0;
+        kr = r->astage == 3 ? dn_esync_k(p[RP_REL], r->bpm, 0) : 0;
+        fa = r->fstage == 1 ? dn_esync_k(r->fe[0], r->bpm, 0) : 0;
+        fd = r->fstage == 2 ? dn_esync_k(r->fe[1], r->bpm, 0) : 0;
+        fr = r->fstage == 3 ? dn_esync_k(r->fe[3], r->bpm, 0) : 0;
     } else {
         ka = DN_ENV_K[dn_clamp(p[RP_ATK], 0, 127)], kd = DN_ENV_K[dn_clamp(p[RP_DEC], 0, 127)];
         kr = DN_ENV_K[dn_clamp(p[RP_REL], 0, 127)];
+        fa = DN_ENV_K[dn_clamp(r->fe[0], 0, 127)], fd = DN_ENV_K[dn_clamp(r->fe[1], 0, 127)];
+        fr = DN_ENV_K[dn_clamp(r->fe[3], 0, 127)];
     }
     /* amplitude: attack to an overshoot target (an analog curve), decay to sustain, release to zero */
     switch (r->astage) {
@@ -283,14 +295,15 @@ static void rs_control(reese_t *r)
         break;
     default: break;
     }
-    /* the filter envelope: an attack-decay to zero with the amp's times, then its release */
+    /* the filter envelope (0.19: its own ATK DEC SUS REL; with the amp's attack and decay, sustain 0 and the amp's
+     * release it is the attack-decay it was, to the bit) */
     switch (r->fstage) {
     case 1:
-        r->fenv += dn_mulq16((RS_FULL + RS_FULL / 4) - r->fenv, (uint32_t)ka);
+        r->fenv += dn_mulq16((RS_FULL + RS_FULL / 4) - r->fenv, (uint32_t)fa);
         if (r->fenv >= RS_FULL) r->fenv = RS_FULL, r->fstage = 2;
         break;
-    case 2: r->fenv -= dn_mulq16(r->fenv, (uint32_t)kd); break;
-    case 3: r->fenv -= dn_mulq16(r->fenv, (uint32_t)kr); break;
+    case 2: r->fenv -= dn_mulq16(r->fenv - fs, (uint32_t)fd); break;
+    case 3: r->fenv -= dn_mulq16(r->fenv, (uint32_t)fr); break;
     default: break;
     }
     /* the glide */

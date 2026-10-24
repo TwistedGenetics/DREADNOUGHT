@@ -392,3 +392,18 @@ refusal unchanged.
 
 Tested: host scenario `project.txt` (FX B up from OFF beside DELAY lands on TAPE, down again on OFF), the editor's
 refusal unchanged.
+
+## 0.19 — a filter envelope for REESE and SUB (2026-10-24)
+
+- **F.ENV**: press ENV on the AMP page again for the filter envelope, F.ATK, F.DEC, F.SUS, F.REL, its own from the
+  amp's (ENV again: back to AMP). Its amount stays where it was: FENV on REESE's MOD page, ENV on SUB's FILTER page.
+  A plucky filter on a held note, or a slow filter swell under a fast amp. ENV SYNC (FX) syncs its times too.
+- A factory sound, an older save and the user sounds from 0.15–0.18 start it as they always sounded: REESE's as the
+  amp's attack and decay with no sustain and the amp's release, SUB's as the amp's (the 101's one envelope). The
+  factory sounds render bit for bit as before.
+- Kept by SAVE and in the user sounds; on the editor's REESE and SUB tabs (FILT ENV), through a new command (79) for
+  the values past the old 7-bit list.
+
+Tested: SUB with the amp held and F.SUS 0 (the 8th harmonic falls 36 dB, the fundamental within 2.3 dB) and F.SUS 127
+(it stays); every REESE and SUB factory render identical to 0.18's; host scenario `fenv.txt` (the page, a factory
+sound's values, USER 1 and a reboot keeping them, SUB's apart); the editor against the firmware's PARAMS_HI.

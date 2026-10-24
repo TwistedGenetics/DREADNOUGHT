@@ -4,7 +4,7 @@ import {
   connect, REESE, BPM_INDEX, brkParams, brkIndex, KIND, ST_ON, ST_SLIDE, ST_ACC, LEN_STEP, LEN_MAX, noteEnd, lenText,
   noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
   lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
-  PF, FX_NAMES, fxParams, E, SUB, subIndex, NPARAM_13, nLfos,
+  PF, FX_NAMES, fxParams, E, SUB, subIndex, NPARAM_13, nLfos, FENV, NPARAM_19, feIndex,
 } from "./protocol.js";
 import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
@@ -528,11 +528,21 @@ function buildSound() {
     }
     slider(groups[p.group], i, p);
   });
+  feGroup(box, 0);
   const ps = $("preset");
   ps.textContent = "";
   S.presets.forEach((n, k) => { const o = document.createElement("option"); o.value = k; o.textContent = n; ps.appendChild(o); });
   ps.value = S.st.preset;
   ps.onchange = () => guard(async () => { await S.link.preset(+ps.value); S.params = await S.link.params(); refreshValues(); });
+}
+// the filter envelope's own group (0.19: an FM-1 from before has none)
+function feGroup(box, set) {
+  if (S.params.length < NPARAM_19) return;
+  const g = document.createElement("div");
+  g.className = "grp";
+  g.innerHTML = "<h3>FILT ENV</h3>";
+  box.appendChild(g);
+  FENV.forEach((p, k) => slider(g, feIndex(set, k), p));
 }
 function buildSub() {                                // (0.13: SUB's values follow the LFOs)
   const has = !!(S.st && S.st.nparams >= NPARAM_13);
@@ -550,6 +560,7 @@ function buildSub() {                                // (0.13: SUB's values foll
     }
     slider(groups[p.group], subIndex(i), p);
   });
+  feGroup(box, 1);
   const ps = $("subpreset");
   ps.textContent = "";
   (S.subPresets || []).forEach((n, k) => { const o = document.createElement("option"); o.value = k; o.textContent = n; ps.appendChild(o); });

@@ -1,0 +1,55 @@
+# DREADNOUGHT host scenario (0.19): the filter envelope. ENV on AMP again: F.ENV (F.ATK F.DEC F.SUS F.REL), ENV again
+# back to AMP; REESE's and SUB's their own; a factory sound sets it from its amp's; kept by SAVE and in a user sound.
+# REESE (track 1): AMP, then F.ENV
+press SEQ
+tapkey 0 40
+release SEQ
+tap ENV
+expect page 2
+tap ENV
+expect page 18
+shot fenv-01-reese.png
+turn K3 40
+expect rfe.2 >0
+turn K2 -20
+tap ENV
+expect page 2
+# a factory sound: the filter envelope from its amp (CLASSIC RS: ATK 0, DEC 70, sustain 0, REL 30)
+turn PRESET 1
+turn PRESET -1
+expect preset 0
+expect rfe.0 0
+expect rfe.1 70
+expect rfe.2 0
+expect rfe.3 30
+# set F.SUS, keep it in USER 1 and over a reboot
+tap ENV
+expect page 18
+turn K3 50
+expect rfe.2 >30
+press SAVE
+turn PRESET 1
+release SAVE
+wait 50
+expect preset 10
+reboot
+expect rfe.2 >30
+turn PRESET -1
+expect rfe.2 0
+turn PRESET 1
+expect preset 10
+expect rfe.2 >30
+# SUB on track 5 (the editor's PROJ_SET, field 4): its own
+sysex 76 4 5 0
+expect eng.5 5
+press SEQ
+tapkey 7 40
+release SEQ
+expect trk 5
+tap ENV
+tap ENV
+expect page 18
+shot fenv-02-sub.png
+turn K1 10
+expect sfe.0 >13
+expect rfe.2 >30

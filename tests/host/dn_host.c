@@ -459,6 +459,10 @@ int main(int argc, char **argv)
                 fprintf(g, "],\"proj\":[");
                 ed(75, 0, 0);
                 for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                fprintf(g, "],\"hi\":[");          /* 0.19: PARAMS_HI, and REESE's filter envelope as set */
+                ed(79, 0, 0);
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                fprintf(g, "],\"rfe\":[%d,%d,%d,%d", dn_rs.fe[0], dn_rs.fe[1], dn_rs.fe[2], dn_rs.fe[3]);
                 fprintf(g, "],\"fxp\":[");
                 for (uint32_t t = 1; t < DN_FX_N; t++)
                     for (uint32_t i = 0; i < DN_FX_NP; i++) {
@@ -564,6 +568,8 @@ int main(int argc, char **argv)
             else if (!strncmp(b, "fxap.", 5)) got = dn_fxp[0].p[atoi(b + 5) % DN_FX_NP];   /* (0.16) */
             else if (!strncmp(b, "fxbp.", 5)) got = dn_fxp[1].p[atoi(b + 5) % DN_FX_NP];
             else if (!strcmp(b, "knee")) { got = (long)dn_knee; dn_knee = 0; }   /* samples the master knee bent (0.16.1) */
+            else if (!strncmp(b, "rfe.", 4)) got = dn_rs.fe[atoi(b + 4) & 3];   /* the filter envelopes (0.19) */
+            else if (!strncmp(b, "sfe.", 4)) got = dn_sb.fe[atoi(b + 4) & 3];
             else if (!strcmp(b, "fxbkb")) got = (long)(dn_fxs[1].bytes / 1024u);   /* FX B's memory, KB */
             else if (!strcmp(b, "fxbout")) got = dn_fxs[1].u.m.y_l * 32768.f > 4.f || dn_fxs[1].u.m.y_l * 32768.f < -4.f;   /* (MASSIVE sounding) */
             else if (!strncmp(b, "senda.", 6)) got = dn_send[0][(atoi(b + 6) - 1) & 7];

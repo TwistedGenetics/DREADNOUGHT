@@ -252,6 +252,33 @@ int main(int argc, char **argv)
         }
         if (w) fclose(w);
     }
+    /* 0.19: the filter envelope on its own: the amp held (SUS 127), the filter's decaying to F.SUS 0. A low cutoff opened
+     * by ENV: bright at the note's start, dark later, the level held; with F.SUS 127 it stays open */
+    {
+        dn_sub_t s;
+        double h0, h1, a0, a1;
+        for (int sus = 0; sus < 2; sus++) {
+            zero_all(&s);
+            s.p[SP_SAW] = 100, s.p[SP_CUT] = 50, s.p[SP_ENV] = 63, s.p[SP_DEC] = 0;
+            s.fe[0] = 14, s.fe[1] = 85, s.fe[2] = sus ? 127 : 0, s.fe[3] = 40;
+            dn_sub_note_on(&s, 48, 100, 0, 0);
+            render(&s, FS);
+            h0 = amp_at(130.81 * 8, 1000, 3000), h1 = amp_at(130.81 * 8, 40000, 44000);   /* the 8th harmonic */
+            a0 = amp_at(130.81, 1000, 3000), a1 = amp_at(130.81, 40000, 44000);           /* the fundamental */
+            if (!sus) {
+                check("filter env F.SUS 0: the 8th harmonic falls >20 dB over the note", 20 * log10(h0 / h1) > 20,
+                      20 * log10(h0 / h1), 20);
+                check("... while the amp holds the fundamental (within 3 dB)", fabs(20 * log10(a0 / a1)) < 3,
+                      20 * log10(a0 / a1), 0);
+            } else {
+                check("filter env F.SUS 127: the 8th harmonic stays (within 3 dB)", fabs(20 * log10(h0 / h1)) < 3,
+                      20 * log10(h0 / h1), 0);
+            }
+        }
+        dn_sub_load_preset(&s, 0);
+        check("a factory sound: the filter envelope is the amp's (as the one 101 envelope)",
+              s.fe[0] == s.p[SP_ATK] && s.fe[1] == s.p[SP_DEC] && s.fe[2] == s.p[SP_SUS] && s.fe[3] == s.p[SP_REL], 0, 0);
+    }
     printf(fails ? "SUB: %d FAILED\n" : "SUB: pitches, the filter in tune, the split, accent, gate, glide, presets all ok\n", fails);
     return fails ? 1 : 0;
 }

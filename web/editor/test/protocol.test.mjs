@@ -70,7 +70,9 @@ test("a session with the simulated FM-1: state, params, pattern write and commit
     assert.equal(st.bpm, 172);
     assert.equal(st.patSize, 4136);
     const pr = await link.params();
-    assert.equal(pr.length, st.nparams);
+    assert.equal(pr.length, st.nparams + 8, "PARAMS and, from 0.19, the 8 values of PARAMS_HI (the filter envelopes)");
+    assert.equal(await link.setParam(127, 99), 0, "a PARAMS_HI value set (REESE F.DEC)");
+    assert.equal((await link.params())[127], 99);
     assert.equal(pr[17], -24);
     assert.equal(await link.setParam(1, 90), 0);
     assert.equal((await link.params())[1], 90);
