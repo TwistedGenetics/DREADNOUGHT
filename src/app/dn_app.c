@@ -42,6 +42,11 @@
 #define DN_PG_SEQ DN_NPAGES
 #define DN_PG_BRK (DN_NPAGES + 1u)
 #define DN_NTABS (DN_NPAGES + 2u)
+#define DN_PG_ROLL (DN_NPAGES + 2u)                 /* the sequencer's editors: their tab is SEQ's */
+#define DN_PG_DRUM (DN_NPAGES + 3u)
+#define DN_IS_SEQPG(p) ((p) == DN_PG_SEQ || (p) == DN_PG_ROLL || (p) == DN_PG_DRUM)
+#define DN_ROLL_ROWS 12                             /* the piano roll's pitches in view (an octave) */
+#define DN_DRUM_ROWS 8                              /* the drum grid's slices in view */
 #define DN_NBRK 2u                                  /* BREAKS A and B: tracks 2 and 3 */
 #define DN_IS_BRK(t) ((t) == 1u || (t) == 2u)
 #define DN_KEY0 53                                  /* key 0 is F3 */
@@ -85,7 +90,19 @@ static struct {
     uint8_t rec_cur;                                /* the step-record cursor */
     int8_t step_held;                               /* the step key held on the SEQ page (-1: none) */
     uint8_t step_edited;                            /* a knob moved it (or it was just turned on): no toggle off */
-    uint8_t key_page_seq;                           /* the keys down belong to the SEQ page (steps, not notes) */
+    uint8_t key_page;                               /* the page the keys down were pressed on (they act for it) */
+    uint8_t key_mode;                               /* ... and ROLL's mode then */
+    uint8_t roll_lo;                                /* ROLL: the lowest pitch in view */
+    uint8_t roll_keys;                              /* ROLL: 0 STEP mode (white keys = steps), 1 KEYS mode (notes) */
+    uint8_t roll_cur;                               /* ROLL KEYS: the cursor (a step) */
+    uint8_t entry_len;                              /* ROLL KEYS: the length a key writes (quarter steps) */
+    uint8_t drum_row, drum_top;                     /* DRUM: the slice row selected, the first in view */
+    uint8_t save_held, save_chord;                  /* SAVE down; it was used with OCT (copy / paste): no save */
+    uint8_t clip_ok;
+    dn_step_t clip[16];                             /* copy / paste: one bar of one track */
+    uint8_t rec_step[NKEYS];                        /* REC: where each key's note went, and when it went down */
+    uint32_t rec_tick[NKEYS];
+    uint8_t rec_last;                               /* the step the last held note was written to (the host test) */
     uint32_t clear_t0;                              /* black key 9 went down (0: not held) */
     int8_t oct;
     uint8_t held[NKEYS], nheld;                     /* the keys down, oldest first */
@@ -401,6 +418,9 @@ void dn_app_init(void)
     dn_seq_init(&dn_sq);
     dn.sounding = dn.midi_note = 0xFF;
     dn.step_held = -1;
+    dn.entry_len = DN_LEN_STEP;
+    for (k = 0; k < NKEYS; k++)
+        dn.rec_step[k] = 0xFF;
     if (plat_store_load(OBJ_PAT0, &dn_sq.pat, sizeof dn_sq.pat) != (int)sizeof dn_sq.pat || !dn_pattern_valid(&dn_sq.pat))
         dn_pattern_demo(&dn_sq.pat);                /* first boot (or a pattern from another firmware): the demo */
     dn.redraw = DN_RD_ALL;
@@ -486,9 +506,17 @@ static void dn_stop(void)
     dn.sounding = 0xFF;
 }
 
+/* where the playhead is, in quarter steps since PLAY (under the lock: the audio moves it) */
+static uint32_t dn_tick_now(void)
+{
+    uint32_t st = dn_sq.pos ? dn_sq.pos - 1u : 0u;
+    int32_t q = dn_seq_step_q8(&dn_sq, st), into = q - dn_sq.until_step;
+    return st * DN_LEN_STEP + (uint32_t)dn_clamp(into / (q / (int32_t)DN_LEN_STEP + 1), 0, (int32_t)DN_LEN_STEP - 1);
+}
+
 /* REC: a played note into the selected track. Playing: the step now, or the next one if the note came in its second
  * half (the nearest). Stopped: at the cursor, which moves on. Played under another key: a slide. */
-static void dn_rec_note(uint8_t note, int legato)
+static uint32_t dn_rec_note(uint8_t note, int legato)
 {
     dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
     uint32_t i;
@@ -508,6 +536,23 @@ static void dn_rec_note(uint8_t note, int legato)
     tr->last_note = note;
     dn_unlock();
     dn_mark();
+    return i;
+}
+/* REC while playing: the key came up, so the note it wrote gets the length it was held (to the nearest quarter step) */
+static void dn_rec_release(uint32_t k)
+{
+    dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    uint32_t i = dn.rec_step[k], held;
+    if (i == 0xFFu || i >= DN_SEQ_STEPS)
+        return;
+    dn_lock();
+    held = dn_tick_now() - dn.rec_tick[k];
+    if (!DN_IS_BRK(dn.trk) && (tr->st[i].flags & DN_ST_ON))
+        tr->st[i].len = (uint8_t)dn_clamp((int32_t)held, 1, DN_LEN_MAX);
+    dn_unlock();
+    dn.rec_last = (uint8_t)i;
+    dn.rec_step[k] = 0xFF;
+    dn_mark();
 }
 
 static void dn_keys_play(uint32_t keys)             /* the sound's pages: the keys are notes */
@@ -519,12 +564,22 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
                 if (dn.held[i] != k)
                     dn.held[j++] = dn.held[i];
             dn.nheld = (uint8_t)j;
+            if (dn.rec && dn_sq.playing)
+                dn_rec_release(k);
         }
         if ((down & (1u << k)) && dn.nheld < NKEYS) {
             int legato = dn.nheld > 0u;             /* under a held key: a slide */
             dn_play(dn_key_note(k), legato || dn.play);
-            if (dn.rec)
-                dn_rec_note(dn_key_note(k), legato);
+            dn.rec_step[k] = 0xFF;
+            if (dn.rec) {
+                uint32_t at = dn_rec_note(dn_key_note(k), legato);
+                if (dn_sq.playing) {                /* (its length: when the key comes up) */
+                    dn.rec_step[k] = (uint8_t)at;
+                    dn_lock();
+                    dn.rec_tick[k] = dn_tick_now();
+                    dn_unlock();
+                }
+            }
             dn.held[dn.nheld++] = (uint8_t)k;
         }
     }
@@ -536,10 +591,13 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
         dn_play(dn_key_note(0), 1);
 }
 
-static void dn_keys_seq(uint32_t keys)              /* the SEQ page: white keys are steps, black keys functions */
+/* SEQ, ROLL (STEP mode) and DRUM: white keys are steps, black keys functions. On DRUM a step plays the selected slice
+ * row: a tap on an empty step puts that slice there, on a step with another slice moves it to this one */
+static void dn_keys_seq(uint32_t keys)
 {
     uint32_t down = keys & ~dn.keys_prev, up = dn.keys_prev & ~keys, k;
     dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    int drum = dn.key_page == DN_PG_DRUM;
     for (k = 0; k < NKEYS; k++) {
         int32_t o = dn_key_ord(k);
         if (dn_is_white(k)) {
@@ -547,12 +605,18 @@ static void dn_keys_seq(uint32_t keys)              /* the SEQ page: white keys 
             if ((down & (1u << k)) && i < tr->len) {
                 dn.step_held = (int8_t)i;
                 dn.step_edited = 0;
-                if (!(tr->st[i].flags & DN_ST_ON)) {
+                if (drum && (tr->st[i].flags & DN_ST_ON) && tr->st[i].note != dn.drum_row) {
+                    dn_lock();
+                    tr->st[i].note = dn.drum_row;
+                    dn_unlock();
+                    dn.step_edited = 1;
+                    dn_mark();
+                } else if (!(tr->st[i].flags & DN_ST_ON)) {
                     dn_lock();
                     tr->st[i].flags |= DN_ST_ON;
                     tr->st[i].len = 3;              /* a fresh step: three quarters of a step (breaks: a whole one) */
-                    if (DN_IS_BRK(dn.trk)) {         /* a break: the slice that belongs on this step, whole */
-                        tr->st[i].note = (uint8_t)(i % dn_slices(dn.trk));
+                    if (DN_IS_BRK(dn.trk)) {         /* a break: the slice that belongs on this step (DRUM: the row's) */
+                        tr->st[i].note = (uint8_t)(drum ? dn.drum_row : i % dn_slices(dn.trk));
                         tr->st[i].len = DN_LEN_STEP;
                     } else {
                         tr->st[i].note = tr->last_note;
@@ -592,11 +656,43 @@ static void dn_keys_seq(uint32_t keys)              /* the SEQ page: white keys 
     }
 }
 
+/* ROLL in KEYS mode: the keys are notes. A key writes its note at the cursor with the entry length and the cursor
+ * moves past it; a key pressed under a held one writes a slide; the key sounds as it goes in */
+static void dn_keys_entry(uint32_t keys)
+{
+    uint32_t down = keys & ~dn.keys_prev, up = dn.keys_prev & ~keys, k;
+    dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    for (k = 0; k < NKEYS; k++) {
+        if (down & (1u << k)) {
+            uint32_t i = dn.roll_cur % tr->len, adv = (dn.entry_len + DN_LEN_STEP - 1u) / DN_LEN_STEP;
+            uint8_t note = dn_key_note(k);
+            int legato = (dn.keys_prev & ~(1u << k)) != 0u || (keys & ~down) != 0u;
+            dn_lock();
+            tr->st[i].note = note;
+            tr->st[i].len = dn.entry_len;
+            tr->st[i].vel = 100;
+            tr->st[i].flags = (uint8_t)(DN_ST_ON | (legato ? DN_ST_SLIDE : 0u));
+            tr->last_note = note;
+            dn_unlock();
+            dn_play(note, legato);
+            dn.roll_cur = (uint8_t)((i + (adv ? adv : 1u)) % tr->len);
+            dn.view = (uint8_t)(dn.roll_cur / 16u);
+            dn_mark();
+        }
+    }
+    if (up && !(keys & ((1u << NKEYS) - 1u)))
+        dn_stop();
+}
+
 static void dn_keys(uint32_t keys)
 {
-    if (!dn.keys_prev)                              /* the keys follow the page they were pressed on */
-        dn.key_page_seq = dn.page == DN_PG_SEQ;
-    if (dn.key_page_seq)
+    if (!dn.keys_prev) {                            /* the keys follow the page they were pressed on */
+        dn.key_page = dn.page;
+        dn.key_mode = dn.roll_keys;
+    }
+    if (dn.key_page == DN_PG_ROLL && dn.key_mode)
+        dn_keys_entry(keys);
+    else if (DN_IS_SEQPG(dn.key_page))
         dn_keys_seq(keys);
     else
         dn_keys_play(keys);
@@ -616,9 +712,12 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
     if (dn.step_held >= 0) {                        /* a step held: its note, length, accent, slide */
         dn_step_t *st = &tr->st[dn.step_held];
         dn_lock();
-        if (k == 0u)
-            st->note = (uint8_t)dn_clamp(st->note + d, 0, DN_IS_BRK(dn.trk) ? (int32_t)dn_slices(dn.trk) - 1 : 127),
+        if (k == 0u) {
+            st->note = (uint8_t)dn_clamp(st->note + d, 0, DN_IS_BRK(dn.trk) ? (int32_t)dn_slices(dn.trk) - 1 : 127);
             tr->last_note = st->note;
+            if (dn.page == DN_PG_DRUM)
+                dn.drum_row = st->note;             /* the row follows the slice */
+        }
         else if (k == 1u)
         {                                           /* a quarter step at a time while short, coarser when long */
             int32_t l = st->len, n = d < 0 ? -d : d;
@@ -633,6 +732,53 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
         dn_unlock();
         dn.step_edited = 1;
         dn_mark();
+        return;
+    }
+    if (dn.page == DN_PG_ROLL) {                    /* ROLL: scroll, transpose (STEP) or entry length (KEYS), length,
+                                                     * the bar in view (STEP) or the cursor (KEYS) */
+        if (k == 0u) {
+            dn.roll_lo = (uint8_t)dn_clamp(dn.roll_lo + d, 0, 127 - DN_ROLL_ROWS + 1);
+        } else if (k == 1u && !dn.roll_keys) {
+            uint32_t i;
+            dn_lock();
+            for (i = 0; i < DN_SEQ_STEPS; i++)
+                tr->st[i].note = (uint8_t)dn_clamp(tr->st[i].note + d, 0, 127);
+            tr->last_note = (uint8_t)dn_clamp(tr->last_note + d, 0, 127);
+            dn_unlock();
+            dn.roll_lo = (uint8_t)dn_clamp(dn.roll_lo + d, 0, 127 - DN_ROLL_ROWS + 1);
+            dn_mark();
+        } else if (k == 1u) {
+            int32_t l = dn.entry_len, n = d < 0 ? -d : d;
+            while (n--)
+                l = dn_clamp(l + (d < 0 ? -1 : 1) * (l < 8 ? 1 : l < 32 ? 2 : 4), 1, DN_LEN_MAX);
+            dn.entry_len = (uint8_t)l;
+        } else if (k == 2u) {
+            dn_lock();
+            tr->len = (uint8_t)dn_clamp(tr->len + dn_accel(63, d), 1, DN_SEQ_STEPS);
+            dn_unlock();
+            dn_mark();
+        } else if (dn.roll_keys) {
+            dn.roll_cur = (uint8_t)(((int32_t)dn.roll_cur + d % (int32_t)tr->len + (int32_t)tr->len) % (int32_t)tr->len);
+            dn.view = (uint8_t)(dn.roll_cur / 16u);
+        } else {
+            dn.view = (uint8_t)dn_clamp(dn.view + d, 0, (tr->len + 15) / 16 - 1);
+        }
+        dn.view = (uint8_t)dn_clamp(dn.view, 0, (tr->len + 15) / 16 - 1);
+        dn.redraw |= DN_RD_ALL;
+        return;
+    }
+    if (dn.page == DN_PG_DRUM && k != 1u && k != 2u) {   /* DRUM: K1 the slice row, K4 the bar (K2 length, K3 swing) */
+        if (k == 0u) {
+            int32_t n = (int32_t)dn_slices(dn.trk);
+            dn.drum_row = (uint8_t)dn_clamp(dn.drum_row + d, 0, n - 1);
+            if (dn.drum_row < dn.drum_top)
+                dn.drum_top = dn.drum_row;
+            if (dn.drum_row >= dn.drum_top + DN_DRUM_ROWS)
+                dn.drum_top = (uint8_t)(dn.drum_row - DN_DRUM_ROWS + 1);
+        } else {
+            dn.view = (uint8_t)dn_clamp(dn.view + d, 0, (tr->len + 15) / 16 - 1);
+        }
+        dn.redraw |= DN_RD_ALL;
         return;
     }
     if (k == 0u) {
@@ -656,13 +802,62 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
     }
 }
 
+/* the roll's pitch window: the octave holding the most of the track's notes (or around the last note played) */
+static void dn_roll_fit(void)
+{
+    const dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    uint32_t lo, i, best = 0, best_lo = 0;
+    for (lo = 0; lo + DN_ROLL_ROWS <= 128u; lo++) {
+        uint32_t n = 0;
+        for (i = 0; i < tr->len; i++)
+            n += (tr->st[i].flags & DN_ST_ON) && tr->st[i].note >= lo && tr->st[i].note < lo + DN_ROLL_ROWS;
+        if (n > best)
+            best = n, best_lo = lo;
+    }
+    if (!best)
+        best_lo = (uint32_t)dn_clamp((int32_t)tr->last_note - DN_ROLL_ROWS / 2, 0, 128 - DN_ROLL_ROWS);
+    else
+        best_lo = (uint32_t)dn_clamp((int32_t)best_lo - 1, 0, 128 - DN_ROLL_ROWS);   /* a row under the lowest */
+    dn.roll_lo = (uint8_t)best_lo;
+}
+
 static void dn_goto(uint32_t page)
 {
     if (dn.page != page) {
         dn.page = (uint8_t)page;
         dn.step_held = -1;
-        dn.redraw |= DN_RD_BOTTOM;
+        if (page == DN_PG_ROLL) {                   /* ROLL edits a synth or MIDI track; DRUM a break track */
+            if (DN_IS_BRK(dn.trk))
+                dn.trk = 0;
+            dn_roll_fit();
+        } else if (page == DN_PG_DRUM && !DN_IS_BRK(dn.trk)) {
+            dn.trk = 1;
+        }
+        if (page == DN_PG_DRUM)
+            dn.drum_row = (uint8_t)dn_clamp(dn.drum_row, 0, (int32_t)dn_slices(dn.trk) - 1);
+        dn.view = (uint8_t)dn_clamp(dn.view, 0, (dn_sq.pat.tr[dn.trk].len + 15) / 16 - 1);   /* (another track) */
+        dn.redraw |= DN_RD_ALL;
     }
+}
+
+/* copy / paste: SAVE held with OCT- copies the bar in view of the selected track, with OCT+ pastes it there */
+static void dn_copy_paste(int paste)
+{
+    dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    uint32_t i, at = 16u * dn.view;
+    if (!paste) {
+        for (i = 0; i < 16u; i++)
+            dn.clip[i] = tr->st[(at + i) % DN_SEQ_STEPS];
+        dn.clip_ok = 1;
+        return;
+    }
+    if (!dn.clip_ok)
+        return;
+    dn_lock();
+    for (i = 0; i < 16u && at + i < DN_SEQ_STEPS; i++)
+        tr->st[at + i] = dn.clip[i];
+    dn_unlock();
+    dn_mark();
 }
 
 void dn_app_input(void)
@@ -681,6 +876,20 @@ void dn_app_input(void)
         dn.clear_t0 = 0;
         dn_mark();
     }
+    if (press & (1u << B_SAVE)) {                   /* SAVE acts when it comes up, unless OCT was used with it */
+        dn.save_held = 1;
+        dn.save_chord = 0;
+    }
+    if (dn.save_held && (press & ((1u << B_OCTDN) | (1u << B_OCTUP)))) {
+        dn_copy_paste((press & (1u << B_OCTUP)) != 0u);
+        dn.save_chord = 1;
+        press &= ~((1u << B_OCTDN) | (1u << B_OCTUP));
+    }
+    if (dn.save_held && !(btn & (1u << B_SAVE))) {
+        dn.save_held = 0;
+        if (!dn.save_chord)
+            dn_save();
+    }
     if ((btn & (1u << B_OCTDN)) && (btn & (1u << B_OCTUP)))
         press &= ~((1u << B_OCTDN) | (1u << B_OCTUP));          /* both: the update-mode hold, not an octave */
     else if (press & (1u << B_OCTDN))
@@ -690,16 +899,19 @@ void dn_app_input(void)
     for (k = 0; k < DN_NPAGES; k++)
         if (press & (1u << DN_PAGE_BTN[k]))
             dn_goto(k);
-    if (press & (1u << B_SEQ))
-        dn_goto(DN_PG_SEQ);
+    if (press & (1u << B_SEQ))                      /* SEQ: the overview, then ROLL, then DRUM, then round again */
+        dn_goto(dn.page == DN_PG_SEQ ? DN_PG_ROLL : dn.page == DN_PG_ROLL ? DN_PG_DRUM : DN_PG_SEQ);
+    if ((press & (1u << B_FX)) && dn.page == DN_PG_ROLL) {
+        dn.roll_keys = (uint8_t)!dn.roll_keys;      /* ROLL: STEP <-> KEYS */
+        dn.roll_cur = (uint8_t)(16u * dn.view);
+        dn.redraw |= DN_RD_ALL;
+    }
     if (press & (1u << B_ARP)) {                    /* BRK: BREAKS A (or B, with track 3 selected) */
         if (!DN_IS_BRK(dn.trk))
             dn.trk = 1;
         dn_goto(DN_PG_BRK);
         dn.redraw |= DN_RD_ALL;
     }
-    if (press & (1u << B_SAVE))
-        dn_save();
     if (press & (1u << B_PLAY)) {                   /* the transport */
         dn_lock();
         if (dn_sq.playing) {
@@ -716,7 +928,15 @@ void dn_app_input(void)
         dn.rec_cur = 0;
         dn.redraw |= DN_RD_ALL;
     }
-    if (press & (1u << B_HOME)) {                   /* hold a note */
+    if ((press & (1u << B_HOME)) && dn.page == DN_PG_ROLL && dn.roll_keys) {   /* ROLL KEYS: a rest */
+        dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+        dn_lock();
+        tr->st[dn.roll_cur % tr->len].flags = 0;
+        dn_unlock();
+        dn.roll_cur = (uint8_t)((dn.roll_cur + 1u) % tr->len);
+        dn.view = (uint8_t)(dn.roll_cur / 16u);
+        dn_mark();
+    } else if (press & (1u << B_HOME)) {            /* hold a note */
         dn.play = (uint8_t)!dn.play;
         if (dn.play && !dn.nheld)
             dn_play(dn_key_note(0), 0);
@@ -725,9 +945,18 @@ void dn_app_input(void)
         dn.redraw |= DN_RD_BOTTOM;
     }
     if ((d = plat_enc(EN_SELECT)) != 0) {
-        if (dn.page == DN_PG_SEQ)
+        if (dn.page == DN_PG_SEQ) {
             dn_seq_knob(0, d > 0 ? 1 : -1);         /* the track */
-        else if (dn.page == DN_PG_BRK) {
+        } else if (dn.page == DN_PG_ROLL) {         /* the next synth / MIDI track (not the breaks) */
+            int32_t t = dn.trk;
+            do
+                t = (t + (d > 0 ? 1 : -1) + (int32_t)DN_SEQ_TRACKS) % (int32_t)DN_SEQ_TRACKS;
+            while (DN_IS_BRK((uint32_t)t));
+            dn.trk = (uint8_t)t;
+            dn.view = 0;
+            dn_roll_fit();
+            dn.redraw |= DN_RD_ALL;
+        } else if (dn.page == DN_PG_BRK || dn.page == DN_PG_DRUM) {
             dn.trk = dn.trk == 1u ? 2u : 1u;        /* BREAKS A <-> B */
             dn.redraw |= DN_RD_ALL;
         } else
@@ -743,7 +972,7 @@ void dn_app_input(void)
         dn_set(DN_PX_BPM, (int32_t)dn_rs.bpm + d);
     for (k = 0; k < 4u; k++)
         if ((d = plat_enc(EN_K1 + (int)k)) != 0) {
-            if (dn.page == DN_PG_SEQ) {
+            if (DN_IS_SEQPG(dn.page)) {
                 dn_seq_knob(k, d);
             } else {
                 uint32_t id = dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : DN_PAGE[dn.page][k];
@@ -848,8 +1077,10 @@ static void dn_note_name(char *o, int32_t n)
     }
 }
 
+static void dn_draw_overview(void);
+
 /* BRK: the loop's picture, its slices (bars brighter), the slice playing lit and where it has got to */
-static void dn_draw_loop(const dn_brk_t *b)
+static void dn_draw_loop(const dn_brk_t *b, int32_t sel)
 {
     uint32_t i, ns = b->nslices ? b->nslices : 16u;
     cv_rect(4, 50, 232, 42, DN_C_WELL);
@@ -859,6 +1090,8 @@ static void dn_draw_loop(const dn_brk_t *b)
     }
     if (b->on)
         cv_rect(4 + (int32_t)(b->slice * 232u / ns), 50, (int32_t)(232u / ns), 42, DN_C_GRID);
+    if (sel >= 0)                                   /* DRUM: the slice row selected */
+        cv_rect(4 + (int32_t)((uint32_t)sel * 232u / ns), 50, (int32_t)(232u / ns), 42, DN_C_BLUE_D);
     for (i = 1; i < ns; i++)
         cv_rect(4 + (int32_t)(i * 232u / ns), 50, 1, 42, (i % 16u) ? (i % 4u ? DN_C_GRID : DN_C_TRACK) : DN_C_BLUE_D);
     for (i = 0; i < DN_BRK_PEAKS; i++) {
@@ -891,7 +1124,7 @@ static void dn_draw_top(void)
     char t[16];
     int32_t x, i, w = (int32_t)dn_scope_w, start, y, py = 0;
     const char *pn = reese_preset_name(dn.preset);
-    int brk = dn.page == DN_PG_BRK;
+    int brk = dn.page == DN_PG_BRK || dn.page == DN_PG_DRUM;
     const dn_brk_t *bk = &dn_bk[dn_bsel()];
     cv_begin(240, 96, DN_C_BG);
     /* the title bar */
@@ -908,6 +1141,12 @@ static void dn_draw_top(void)
         const char *tag = dn_bsel() ? "BRK B" : "BRK A";
         cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
         pn = bk->loop.name;
+    } else if (dn.page == DN_PG_ROLL && dn.trk) {   /* ROLL on a MIDI track */
+        char tag[8] = "MIDI ";
+        tag[5] = (char)('1' + dn_sq.pat.tr[dn.trk].chan % 9u);
+        tag[6] = 0;
+        cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
+        pn = "TRACK";
     } else {
         cv_text(29 - text_w(&FONT_T, "REESE") / 2, 28, &FONT_T, "REESE", DN_C_BAR);
     }
@@ -935,7 +1174,12 @@ static void dn_draw_top(void)
         cv_text(234 - text_w(&FONT_T, "PRESETS"), 29, &FONT_T, "PRESETS", DN_C_DIMTXT);
     }
     if (brk) {
-        dn_draw_loop(bk);
+        dn_draw_loop(bk, dn.page == DN_PG_DRUM ? (int32_t)dn.drum_row : -1);
+        cv_blit(0, 0);
+        return;
+    }
+    if (dn.page == DN_PG_ROLL) {
+        dn_draw_overview();
         cv_blit(0, 0);
         return;
     }
@@ -1064,6 +1308,228 @@ static void dn_draw_seq(void)
     }
 }
 
+/* where a note on step i ends, in steps (exclusive): its length, cut by the next note on the track */
+static uint32_t dn_note_end(const dn_track_t *tr, uint32_t i)
+{
+    uint32_t span = (tr->st[i].len + DN_LEN_STEP - 1u) / DN_LEN_STEP, j;
+    for (j = 1; j < span; j++)
+        if (tr->st[(i + j) % tr->len].flags & DN_ST_ON)
+            return i + j;
+    return i + span;
+}
+
+/* ROLL's top: the whole track at a glance, pitch up, the 16 steps in view boxed */
+static void dn_draw_overview(void)
+{
+    const dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    uint32_t i, L = tr->len, lo = 127, hi = 0;
+    cv_rect(4, 50, 232, 42, DN_C_WELL);
+    for (i = 0; i < L; i++)
+        if (tr->st[i].flags & DN_ST_ON) {
+            lo = tr->st[i].note < lo ? tr->st[i].note : lo;
+            hi = tr->st[i].note > hi ? tr->st[i].note : hi;
+        }
+    {
+        int32_t x0 = 4 + (int32_t)(16u * dn.view * 232u / L), x1 = 4 + (int32_t)((16u * dn.view + 16u) * 232u / L);
+        x1 = x1 > 236 ? 236 : x1;
+        cv_rect(x0, 50, x1 - x0, 1, DN_C_LABEL);
+        cv_rect(x0, 91, x1 - x0, 1, DN_C_LABEL);
+        cv_rect(x0, 50, 1, 42, DN_C_LABEL);
+        cv_rect(x1 - 1, 50, 1, 42, DN_C_LABEL);
+    }
+    if (lo > hi)
+        return;
+    for (i = 0; i < L; i++)
+        if (tr->st[i].flags & DN_ST_ON) {
+            int32_t x = 4 + (int32_t)(i * 232u / L), w = (int32_t)((dn_note_end(tr, i) - i) * 232u / L);
+            int32_t y = 86 - (int32_t)((tr->st[i].note - lo) * 32u / (hi - lo + 1u));
+            if (x + w > 236)
+                w = 236 - x;
+            cv_rect(x, y, w > 1 ? w - 1 : 1, 3, (tr->st[i].flags & DN_ST_ACC) ? DN_C_BLUE : DN_C_BLUE_D);
+        }
+    if (dn_sq.playing)
+        cv_rect(4 + (int32_t)(dn_sq.cur[dn.trk] * 232u / L), 50, 1, 42, C_WHITE);
+}
+
+/* ROLL: a piano roll of the selected track: pitch up the screen (an octave in view, KNOB 1 scrolls), the 16 steps in
+ * view across, every note a bar as long as it lasts, slides a ramp from the note before, accents bright */
+static void dn_draw_roll(void)
+{
+    const dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    uint32_t i, r, v0 = 16u * dn.view, L = tr->len;
+    int32_t trans = dn.trk == 0u ? dn_rs.p[RP_TRANS] : 0, prev_y = -1, prev_end = -1;
+    char line[48], v[8];
+    cv_rect(0, 17, 240, 104, DN_C_PANEL);
+    for (r = 0; r < DN_ROLL_ROWS; r++) {            /* the rows: a keyboard down the side, black keys' rows darker */
+        uint32_t p = dn.roll_lo + r, pc = (uint32_t)((int32_t)p + trans + 120) % 12u;
+        int32_t y = 112 - 8 * (int32_t)r, black = (0x54Au >> pc) & 1u;
+        cv_rect(30, y, 208, 8, black ? DN_C_WELL : DN_C_TRACK);
+        cv_rect(2, y, 25, 7, black ? DN_C_BAR : DN_C_KNOB);
+        if (pc == 0u) {                             /* C: named, and a line under it */
+            dn_note_name(v, (int32_t)p + trans);
+            cv_text(4, y - 3, &FONT_T, v, DN_C_BAR);
+            cv_rect(30, y + 7, 208, 1, DN_C_GRID);
+        }
+    }
+    for (i = 4; i < 16u; i += 4)                    /* the beats */
+        cv_rect(30 + 13 * (int32_t)i, 24, 1, 96, DN_C_BG);
+    for (i = 0; i < L; i++) {                       /* the notes (one that started earlier shows where it reaches) */
+        const dn_step_t *st = &tr->st[i];
+        int32_t x0, x1, y, row;
+        uint32_t end;
+        if (!(st->flags & DN_ST_ON))
+            continue;
+        end = dn_note_end(tr, i);
+        row = (int32_t)st->note - (int32_t)dn.roll_lo;
+        y = row < 0 ? 119 : row >= DN_ROLL_ROWS ? 21 : 113 - 8 * row;
+        x0 = 30 + 13 * ((int32_t)i - (int32_t)v0);
+        x1 = 30 + 13 * ((int32_t)end - (int32_t)v0) - 1;
+        if (st->len < DN_LEN_STEP && end == i + 1u)
+            x1 = x0 + (int32_t)(13u * st->len / DN_LEN_STEP) - 1;
+        if ((st->flags & DN_ST_SLIDE) && prev_y >= 0 && prev_end == (int32_t)i && x0 >= 30 && x0 < 238)
+            cv_line(x0 - 4, prev_y + 2, x0 + 2, y + 2, C_WHITE);   /* the slide: a ramp from the note before */
+        prev_y = y;
+        prev_end = (int32_t)end;
+        if (x1 < 30 || x0 > 237)
+            continue;
+        x0 = x0 < 30 ? 30 : x0;
+        x1 = x1 > 237 ? 237 : x1;
+        if (row < 0 || row >= DN_ROLL_ROWS) {       /* out of view: a tick at the edge says which way */
+            cv_rect(x0, y, x1 - x0 + 1, 2, DN_C_BLUE_D);
+            continue;
+        }
+        cv_rect(x0, y, x1 - x0 + 1, 6, (st->flags & DN_ST_ACC) ? DN_C_BLUE : DN_C_BLUE_D);
+        cv_rect(x0, y, 2, 6, DN_C_BLUE);            /* its start */
+        if ((int32_t)i == dn.step_held) {
+            cv_rect(x0, y - 1, x1 - x0 + 1, 1, C_WHITE);
+            cv_rect(x0, y + 6, x1 - x0 + 1, 1, C_WHITE);
+        }
+    }
+    if (dn_sq.playing && dn_sq.cur[dn.trk] >= v0 && dn_sq.cur[dn.trk] < v0 + 16u)
+        cv_rect(30 + 13 * (int32_t)(dn_sq.cur[dn.trk] - v0), 20, 1, 100, C_WHITE);
+    if (dn.roll_keys && dn.roll_cur >= v0 && dn.roll_cur < v0 + 16u)   /* KEYS: the cursor */
+        for (r = 0; r < 100u; r += 4u)
+            cv_rect(30 + 13 * (int32_t)(dn.roll_cur - v0), 20 + (int32_t)r, 2, 2, DN_C_RED);
+    cv_rect(0, 121, 240, 23, DN_C_BAR);
+    line[0] = 0;
+    if (dn.step_held >= 0) {
+        const dn_step_t *st = &tr->st[dn.step_held];
+        dn_cat(line, "STEP ");
+        dn_num(v, dn.step_held + 1);
+        dn_cat(line, v);
+        dn_cat(line, "  ");
+        dn_note_name(v, st->note + trans);
+        dn_cat(line, v);
+        dn_cat(line, "  ");
+        dn_len_text(v, st->len);
+        dn_cat(line, v);
+        if (st->flags & DN_ST_ACC)
+            dn_cat(line, "  ACC");
+        if (st->flags & DN_ST_SLIDE)
+            dn_cat(line, "  SLIDE");
+        cv_text(8, 125, &FONT_XS, line, DN_C_BLUE);
+        return;
+    }
+    dn_cat(line, dn.roll_keys ? "KEYS  AT " : "STEP  ");
+    if (dn.roll_keys) {
+        dn_num(v, dn.roll_cur + 1);
+        dn_cat(line, v);
+        dn_cat(line, "  LEN ");
+        dn_len_text(v, dn.entry_len);
+        dn_cat(line, v);
+    } else {
+        dn_cat(line, "T");
+        v[0] = (char)('1' + dn.trk), v[1] = 0;
+        dn_cat(line, v);
+        dn_cat(line, "  LEN ");
+        dn_num(v, (int32_t)L);
+        dn_cat(line, v);
+        dn_cat(line, "  ");
+        dn_num(v, (int32_t)v0 + 1);
+        dn_cat(line, v);
+        dn_cat(line, "-");
+        dn_num(v, (int32_t)v0 + 16);
+        dn_cat(line, v);
+    }
+    cv_text(8, 125, &FONT_XS, line, DN_C_LABEL);
+    cv_text(232 - text_w(&FONT_T, "FX: MODE"), 128, &FONT_T, "FX: MODE", DN_C_DIMTXT);
+}
+
+/* DRUM: the break track's slices as rows (KNOB 1 picks one), the steps across: a cell lit where that step plays that
+ * slice, as long as it lasts, reversed ones marked */
+static void dn_draw_drum(void)
+{
+    const dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    uint32_t i, r, v0 = 16u * dn.view, ns = dn_slices(dn.trk);
+    char line[48], v[8];
+    cv_rect(0, 17, 240, 104, DN_C_PANEL);
+    for (r = 0; r < DN_DRUM_ROWS && dn.drum_top + r < ns; r++) {
+        uint32_t sl = dn.drum_top + r;
+        int32_t y = 21 + 12 * (int32_t)r, sel = sl == dn.drum_row;
+        v[0] = 0;
+        dn_num(v, (int32_t)sl + 1);
+        cv_rect(2, y, 25, 11, sel ? DN_C_BLUE : DN_C_BG);
+        cv_text(5, y - 1, &FONT_T, v, sel ? DN_C_BAR : DN_C_LABEL);
+        for (i = 0; i < 16u; i++) {
+            uint32_t si = v0 + i;
+            int32_t x = 30 + 13 * (int32_t)i;
+            cv_rect(x, y, 11, 10, si >= tr->len ? DN_C_PANEL : i % 4u ? DN_C_TRACK : DN_C_WELL);
+        }
+    }
+    for (i = 0; i < tr->len; i++) {                 /* the hits */
+        const dn_step_t *st = &tr->st[i];
+        int32_t row, x0, x1, y;
+        if (!(st->flags & DN_ST_ON))
+            continue;
+        row = (int32_t)st->note - (int32_t)dn.drum_top;
+        if (row < 0 || row >= DN_DRUM_ROWS)
+            continue;
+        y = 21 + 12 * row;
+        x0 = 30 + 13 * ((int32_t)i - (int32_t)v0);
+        x1 = 30 + 13 * ((int32_t)dn_note_end(tr, i) - (int32_t)v0) - 3;
+        if (x1 < 30 || x0 > 237)
+            continue;
+        x0 = x0 < 30 ? 30 : x0;
+        x1 = x1 > 237 ? 237 : x1;
+        cv_rect(x0, y, x1 - x0 + 1, 10, tr->mute ? DN_C_KNOB : (st->flags & DN_ST_ACC) ? DN_C_BLUE : DN_C_BLUE_D);
+        if (st->flags & DN_ST_SLIDE)                /* reversed: an arrow pointing back */
+            cv_line(x0 + 7, y + 2, x0 + 3, y + 5, C_WHITE), cv_line(x0 + 3, y + 5, x0 + 7, y + 8, C_WHITE);
+        if ((int32_t)i == dn.step_held)
+            cv_rect(x0 + 2, y + 3, 4, 4, C_WHITE);
+    }
+    if (dn_sq.playing && dn_sq.cur[dn.trk] >= v0 && dn_sq.cur[dn.trk] < v0 + 16u)
+        cv_rect(30 + 13 * (int32_t)(dn_sq.cur[dn.trk] - v0) + 5, 18, 1, 102, C_WHITE);
+    cv_rect(0, 121, 240, 23, DN_C_BAR);
+    line[0] = 0;
+    dn_cat(line, dn.trk == 1u ? "BRK A  SL " : "BRK B  SL ");
+    if (dn.step_held >= 0) {
+        const dn_step_t *st = &tr->st[dn.step_held];
+        dn_num(v, st->note + 1);
+        dn_cat(line, v);
+        dn_cat(line, "  ");
+        dn_len_text(v, st->len);
+        dn_cat(line, v);
+        if (st->flags & DN_ST_ACC)
+            dn_cat(line, "  ACC");
+        if (st->flags & DN_ST_SLIDE)
+            dn_cat(line, "  REV");
+        cv_text(8, 125, &FONT_XS, line, DN_C_BLUE);
+        return;
+    }
+    dn_num(v, dn.drum_row + 1);
+    dn_cat(line, v);
+    dn_cat(line, "  LEN ");
+    dn_num(v, tr->len);
+    dn_cat(line, v);
+    dn_cat(line, "  ");
+    dn_num(v, (int32_t)v0 + 1);
+    dn_cat(line, v);
+    dn_cat(line, "-");
+    dn_num(v, (int32_t)v0 + 16);
+    dn_cat(line, v);
+    cv_text(8, 125, &FONT_XS, line, DN_C_LABEL);
+}
+
 static void dn_draw_bottom(void)
 {
     uint32_t k;
@@ -1073,14 +1539,20 @@ static void dn_draw_bottom(void)
     /* the page tabs */
     for (k = 0, x = 0; k < DN_NTABS; k++) {
         int32_t w = k == DN_NTABS - 1u ? 240 - x : 34;
-        int on = k == dn.page;
+        int on = k == dn.page || (k == DN_PG_SEQ && DN_IS_SEQPG(dn.page));
+        const char *nm = k == DN_PG_SEQ && dn.page == DN_PG_ROLL ? "ROLL" : k == DN_PG_SEQ && dn.page == DN_PG_DRUM
+                         ? "DRUM" : DN_PAGE_NAME[k];
         cv_rect(x, 0, w - 1, 17, on ? DN_C_BLUE : DN_C_PANEL);
-        cv_text(x + (w - 1 - text_w(&FONT_T, DN_PAGE_NAME[k])) / 2, 3, &FONT_T, DN_PAGE_NAME[k],
-                on ? DN_C_BAR : DN_C_LABEL);
+        cv_text(x + (w - 1 - text_w(&FONT_T, nm)) / 2, 3, &FONT_T, nm, on ? DN_C_BAR : DN_C_LABEL);
         x += w;
     }
-    if (dn.page == DN_PG_SEQ) {
-        dn_draw_seq();
+    if (DN_IS_SEQPG(dn.page)) {
+        if (dn.page == DN_PG_SEQ)
+            dn_draw_seq();
+        else if (dn.page == DN_PG_ROLL)
+            dn_draw_roll();
+        else
+            dn_draw_drum();
         cv_blit(0, 96);
         return;
     }
@@ -1112,14 +1584,16 @@ void dn_app_draw(int force)
         dn.redraw = DN_RD_ALL;
     uint32_t keys = dn.keys_prev, dim = 0, k;
     static uint32_t shown_pos;
-    if (dn.page == DN_PG_SEQ && dn_sq.playing && dn_sq.pos != shown_pos)
+    if (DN_IS_SEQPG(dn.page) && dn_sq.playing && dn_sq.pos != shown_pos)
         dn.redraw |= DN_RD_BOTTOM;                  /* the playhead moved */
     shown_pos = dn_sq.pos;
     dn_draw_top();                                  /* every frame: the scope moves */
     if (dn.redraw & DN_RD_BOTTOM)
         dn_draw_bottom();
     dn.redraw = 0;
-    lit |= 1u << (dn.page == DN_PG_SEQ ? B_SEQ : dn.page == DN_PG_BRK ? B_ARP : DN_PAGE_BTN[dn.page]);
+    lit |= 1u << (DN_IS_SEQPG(dn.page) ? B_SEQ : dn.page == DN_PG_BRK ? B_ARP : DN_PAGE_BTN[dn.page]);
+    if (dn.page == DN_PG_ROLL && dn.roll_keys)
+        lit |= 1u << B_FX;
     if (dn.dirty)
         lit |= 1u << B_SAVE;
     if (dn_sq.playing)
@@ -1128,15 +1602,19 @@ void dn_app_draw(int force)
         lit |= 1u << B_REC;
     if (dn.play)
         lit |= 1u << B_HOME;
-    if (dn.page == DN_PG_SEQ) {                     /* the steps that are on, the playhead dim; the tracks playing */
+    if (DN_IS_SEQPG(dn.page) && !(dn.page == DN_PG_ROLL && dn.roll_keys)) {   /* the steps on, the playhead dim; the
+                                                     * tracks playing (DRUM: the steps playing the selected slice) */
         const dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
         keys = 0;
         for (k = 0; k < NKEYS; k++) {
             int32_t o = dn_key_ord(k);
             uint32_t si = (uint32_t)o + 16u * dn.view;
             if (dn_is_white(k)) {
-                if (si < tr->len && (tr->st[si].flags & DN_ST_ON))
+                if (si < tr->len && (tr->st[si].flags & DN_ST_ON) &&
+                    (dn.page != DN_PG_DRUM || tr->st[si].note == dn.drum_row))
                     keys |= 1u << k;
+                else if (si < tr->len && (tr->st[si].flags & DN_ST_ON))
+                    dim |= 1u << k;
                 else if (dn_sq.playing && dn_sq.cur[dn.trk] == si)
                     dim |= 1u << k;
             } else if (o < 8 && !dn_sq.pat.tr[o].mute) {

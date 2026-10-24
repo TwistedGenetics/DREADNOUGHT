@@ -341,6 +341,9 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "trk")) got = dn.trk + 1;
             else if (!strcmp(b, "view")) got = dn.view;
             else if (!strcmp(b, "swing")) got = dn_sq.pat.swing;
+            else if (!strcmp(b, "reclen")) got = dn_sq.pat.tr[dn.trk].st[dn.rec_last].len;
+            else if (!strcmp(b, "rollkeys")) got = dn.roll_keys;
+            else if (!strcmp(b, "row")) got = dn.drum_row;
             else if (!strcmp(b, "clocks")) got = (long)clock_n;
             else if (!strcmp(b, "midinotes")) got = (long)midi_notes_n;
             else if (!strncmp(b, "len.", 4)) got = dn_sq.pat.tr[atoi(b + 4) - 1].len;
