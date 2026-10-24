@@ -98,6 +98,15 @@ key 2 up
 wait 50
 # the keys: chop 3 (key 2) selected and lit (the other four dim)
 expect leds-keys 4
+# --- the tapped chops played back on the keys, one after another
+wav chop-tapped.wav
+tapkey 0 330
+tapkey 2 330
+tapkey 4 330
+tapkey 5 330
+tapkey 7 500
+wait 300
+wavstop
 # --- saved by themselves: no SAVE, 3 s, a restart
 wait 3500
 reboot

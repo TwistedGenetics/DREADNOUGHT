@@ -142,3 +142,31 @@ Not yet tested on a real FM-1.
 
 Not yet tested on a real FM-1.
 
+## 0.8 — chop by hand, overlap slides, a roll that follows (2026-10-24)
+
+- **Chop mode** (the SLICE page, rebuilt): MANUAL starts empty (one slice, the whole loop); a cursor (KNOB 2 coarse,
+  KNOB 3 fine, KNOB 4 zoom 1x–64x, the view scrolling only to keep it in sight); REC chops at the cursor, snapped to a
+  zero crossing, or — with PLAY looping the break on this page — where it's playing, 12 ms early for your reaction:
+  tap-to-chop; FX moves the selected chop to the cursor (any chop, the first one too); HOME deletes it, held 1 s clears
+  them all; SAVE + OCT− / OCT+ start from AUTO's hits or the GRID. The keys play the chops in order and select the one
+  you play (lit). What was wrong in 0.7: moving was 3 ms a detent, adding could only halve a slice, slice 1 couldn't
+  move, the selection could point past the last slice after a change (then every edit silently did nothing), and
+  MANUAL began as a copy of AUTO.
+- **Chops keep their sound:** adding or deleting a chop moves the pattern's steps with it (on both break tracks, and
+  from the breaks page too), so the pattern plays the same audio. Chops save themselves 3 s after the last change.
+- **Overlapping notes slide:** a REESE or MIDI note whose length reaches past the next note slides into it (no new
+  attack; MIDI: note-on before note-off). GLIDE is the slide time and now reads in ms / s on the FM-1 and in the web
+  editor (measured, an octave: GLIDE 64 ≈ 0.1 s, 90 ≈ 0.6 s; 0 = OFF, notes retrigger). **OVERLAP** SLIDE / CUT per
+  track (REESE on OUT's KNOB 4, which was a second OCT control; every synth and MIDI track in the web editor). Slides
+  are drawn as ramps on ROLL and in the piano roll.
+- **The view follows the note:** on ROLL / DRUM the window follows a held note's pitch or slice; SELECT with a step
+  held moves it in time, over the other notes, and the bar in view follows it. In the web editor: a horizontal zoom
+  (1 bar / 2 bars / all), dragging past an edge scrolls with the note, arrow keys move the selected note (up / down,
+  along the steps) and keep it in view.
+- Fixed: a 1 s hold (black key 9 track clear, HOME on SLICE) could fire at once (a timer wrap on even milliseconds).
+
+Tested on the host: new scenarios `chop.txt` (empty → chops by cursor and by tapping while it plays, insert / delete
+keep the pattern's audio, keys select chops, chops survive a restart without SAVE), `overlap.txt` (mid-slide pitch,
+CUT), `follow.txt`; overlap cases in `seq_test`; GLIDE timing and its text; the web editor end to end. Not yet tested
+on a real FM-1.
+
