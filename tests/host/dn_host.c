@@ -548,6 +548,15 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "dly")) {           /* the delay's output now, both sides */
                 got = labs((long)dn_fxs[0].o_l) + labs((long)dn_fxs[0].o_r);
             } else if (!strcmp(b, "legato")) got = dn_sq.legato;
+            else if (!strcmp(b, "sbgate")) got = dn_sb.gate;       /* SUB (0.13) */
+            else if (!strcmp(b, "sbpreset")) got = dn.sb_preset;
+            else if (!strcmp(b, "sbnote")) got = dn_sb.gate ? dn_sb.note : -1;
+            else if (!strncmp(b, "s.", 2)) {
+                got = -9999;
+                for (uint32_t k = 0; k < SP_COUNT; k++)
+                    if (!strcmp(b + 2, dn_sub_param_name(k)))
+                        got = dn_sb.p[k];
+            }
             else if (!strcmp(b, "msg")) got = dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0;
             else if (!strncmp(b, "p.", 2)) {
                 got = -9999;

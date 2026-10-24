@@ -7,6 +7,7 @@
 DN_SINE    1025 x int16   one cycle of a sine, Q15, with the first value repeated at the end (interpolation)
 DN_TANH    257 x int16    tanh(x) for x = 0 .. 2 in 256 steps, Q15 (the soft clipper)
 DN_SVF_G   128 x uint16   tan(pi f / FS), Q12, for f = 30 Hz .. 16 kHz in 128 log steps (the filters' cutoff)
+DN_SVF_G16 128 x uint32   the same, Q16 (SUB's ladder: in tune when it self-oscillates)
 DN_NOTE_INC 128 x uint32  the phase increment of each MIDI note at 44.1 kHz (A4 = 440 Hz), 2^32 per cycle
 DN_ENV_K   128 x uint16   one-pole step per control tick (32 samples), Q16, for times 1 ms .. 10 s (log): the
                           envelopes and the glide cover ~99 % of the way in that time
@@ -36,6 +37,7 @@ def main(out):
     L += arr("DN_TANH", "int16_t", [int(32767 * math.tanh(i / 256 * 2)) for i in range(257)])
     fc = [30.0 * ((16000 / 30) ** (v / 127)) for v in range(128)]
     L += arr("DN_SVF_G", "uint16_t", [int(4096 * math.tan(math.pi * min(f, 0.45 * FS) / FS)) for f in fc])
+    L += arr("DN_SVF_G16", "uint32_t", [int(round(65536 * math.tan(math.pi * min(f, 0.45 * FS) / FS))) for f in fc], 8)
     L += arr("DN_NOTE_INC", "uint32_t",
              [min(0xFFFFFFFF, int(round(440.0 * 2 ** ((n - 69) / 12) / FS * 2 ** 32))) for n in range(128)], per=6)
     tick = 32 / FS

@@ -273,3 +273,30 @@ wrapping at full feedback, no click on a time change; the voice pool's stealing 
 editor: `media` (folds, aliasing below −40 dB, ADPCM, fitting, slot images with a rate per zone, send / read back),
 `project` (a whole project from one simulated FM-1 to another), and the end-to-end run in Chromium. Not yet tested on
 a real FM-1.
+
+## 0.13 — SUB: an SH-101-style bass with dirt (2026-10-24)
+
+- **SUB**, a new instrument: the SH-101's voice as its panel lays it out — one oscillator with a saw, a pulse (its
+  width by hand and moved by its own triangle: PWM) and a square sub an octave or two down (or the 25 % pulse two
+  down), noise, each on a mixer level; a resonant 4-pole low-pass that self-oscillates in tune (within half a cent an
+  octave over three octaves, KEY at full), with envelope amount and keyboard tracking; one ADSR for the filter and the
+  amp, or the amp on the gate alone (VCA GATE); portamento OFF / AUTO (legato only) / ON; ACCENT from the sequencer's
+  accented steps opening the filter and lifting the level.
+- **The dirt, for jungle:** after the amp, DRIVE (SOFT, HARD, FOLD, RECT), CRUSH (rate and bits down), TONE (a low-pass to
+  tame it), and **SPLIT**: below its frequency the signal goes round the dirt, so the sub stays whole under the
+  heaviest drive (measured: the fundamental within 0.1 dB of clean under HARD at full drive; 8 dB off without it).
+- 12 factory sounds: DREAD, DONK, ROLLER, WOBBLE, ACID 101, 808 SUB, GROWL, SQUARE SB, PUNCH, TECH SUB, CRUSHED,
+  RAVE STAB.
+- Put it on a track on the PROJECT page (or the editor's Project tab); SEQ + its track's white key opens its pages:
+  the same buttons as REESE's (OSC, FILTER, AMP, MOD, OUT), SEL again for OSC2, EDIT again for DIRT. The sound pages
+  follow the synth on the selected track (REESE or SUB); from a break or MIDI track they go to the synth shown last.
+  PRESETS loads SUB's sounds with its track selected. VEL SENS (SETUP) counts for both synths. The LFOs' CUTOFF, RES,
+  DRIVE, PITCH, LEVEL, F.ENV and SUB reach SUB too.
+- Saved with the sound; the web editor has a **SUB** tab (every value, the factory sounds) and SUB in the Project tab's
+  instruments. Editor: PARAMS ends with SUB's 27 values; NAMES kind 5; command 78 SUB_PRESET.
+
+Tested on the host: `sub_test` (the oscillator and the sub at pitch to 0.3 Hz, the filter ringing in tune and
+tracking the keys, SPLIT under drive, accent, the gate VCA, AUTO portamento, all 12 sounds in range, and
+`build/host/sub_presets.wav`, each sound on a jungle bass line to listen to), the `sub` scenario (on a track, its
+pages, PRESETS, the keys and the sequencer playing it, kept by SAVE), every earlier test, and the editor's end-to-end
+run. Not yet tested on a real FM-1.

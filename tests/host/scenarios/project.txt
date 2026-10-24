@@ -133,8 +133,8 @@ expect reply.0 68
 expect reply.8 0
 expect reply.14 0
 expect reply.30 90
-# the names the editor shows: kind 2 the instruments (5), 3 the effects (2)
+# the names the editor shows: kind 2 the instruments (6, with SUB), 3 the effects (2)
 sysex 69 2 0
-expect reply.0 5
+expect reply.0 6
 sysex 69 3 0
 expect reply.0 2

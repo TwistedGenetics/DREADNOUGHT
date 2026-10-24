@@ -78,6 +78,17 @@ static inline int32_t dn_svf_g(int32_t cut)
     return g;
 }
 
+/* the same, Q16 (finer at low cutoffs: a self-oscillating filter plays in tune) */
+static inline int32_t dn_svf_g16(int32_t cut)
+{
+    int32_t i, f;
+    uint32_t a, b;
+    cut = dn_clamp(cut, 0, 127 << 8);
+    i = cut >> 8, f = cut & 255;
+    a = DN_SVF_G16[i], b = DN_SVF_G16[i < 127 ? i + 1 : 127];
+    return (int32_t)(a + (uint32_t)(((uint64_t)(b - a) * (uint32_t)f) >> 8));
+}
+
 /* Trapezoidal SVF (A. Simper), Q13 coefficients; signals within +-150000. Outputs: 0 LP, 1 BP, 2 HP */
 typedef struct { int32_t a1, a2, a3, k; } dn_svf_t;
 static inline void dn_svf_coef(dn_svf_t *c, int32_t cut, int32_t k)   /* k: damping Q12 (2.0 = 8192, sqrt2 = 5793) */

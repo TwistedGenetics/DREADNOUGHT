@@ -31,21 +31,24 @@
  *                                 fields: 0-7 track n's instrument (REESE / BRK A / BRK B swap), 8-15 send A,
  *                                 16-23 send B, 24-25 returns, 26-29 FX A type p0 p1 p2, 30-33 FX B's
  *   77 PROJ_NAME chars...      -> rc (0)                             up to 11 characters, 32-126
- * NAMES kinds from 0.12: 2 the instruments, 3 the effects, 4 the delay's times.
+ * NAMES kinds from 0.12: 2 the instruments, 3 the effects, 4 the delay's times; 5 SUB's factory sounds (0.13).
+ *   78 SUB_PRESET i            -> rc                                 SUB's factory sound i (0.13)
+ * From 0.13 PARAMS ends with SUB's values (dn_sub.h SP_*, 27 of them).
  * From 0.11 a step in the pattern is 8 bytes {note, flags, len, vel, cond, rtim, rlen, rvel}: dn_seq.h.
  * From 0.9 PARAMS also has the LFOs, 8 each after BREAKS B: SHAPE SYNC RATE DEST DEPTH PHASE MODE SMOOTH (SYNC
  * before RATE: setting SYNC resets RATE).
  */
 enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT_COMMIT, ED_TRANSPORT, ED_SAVE,
        ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL, ED_PROJ, ED_PROJ_SET,
-       ED_PROJ_NAME };
+       ED_PROJ_NAME, ED_SUB_PRESET };
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
                                      DN_PX_BCHOKE, DN_PX_BSMODE, DN_PX_BSTRETCH, DN_PX_BLEVEL};
 static const uint8_t DN_ED_LFO[8] = {DN_PX_LSHAPE, DN_PX_LSYNC, DN_PX_LRATE, DN_PX_LDEST, DN_PX_LDEPTH, DN_PX_LPHASE,
                                      DN_PX_LMODE, DN_PX_LSMOOTH};
 #define DN_ED_NBASE (RP_COUNT + 1u + 2u * 8u)       /* (0.7 / 0.8: these) */
-#define DN_ED_NPARAM (DN_ED_NBASE + DN_NLFO * 8u)
+#define DN_ED_NPARAM_09 (DN_ED_NBASE + DN_NLFO * 8u)
+#define DN_ED_NPARAM (DN_ED_NPARAM_09 + SP_COUNT)    /* (0.13: SUB's after the LFOs) */
 /* the editor frames the device glue must take whole (not into its 64-byte copy) */
 static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 79u; }
 static dn_pattern_t dn_ed_pat X0X_POOL;             /* PAT_WRITE's copy, until PAT_COMMIT */
@@ -54,6 +57,8 @@ static dn_pattern_t dn_ed_pat X0X_POOL;             /* PAT_WRITE's copy, until P
 static uint32_t dn_ed_id(uint32_t i, int32_t *brk)
 {
     *brk = -1;
+    if (i >= DN_ED_NPARAM_09)
+        return DN_PX_SUB0 + (i - DN_ED_NPARAM_09);
     if (i >= DN_ED_NBASE) {                         /* an LFO's (brk: 10 + which LFO) */
         i -= DN_ED_NBASE;
         *brk = 10 + (int32_t)(i / 8u);
@@ -312,6 +317,12 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         dn.redraw |= DN_RD_ALL;
         return 1;
     }
+    case ED_SUB_PRESET:
+        if (na < 1u || a[0] >= dn_sub_preset_count())
+            return 0;
+        dn_sub_preset(a[0]);
+        put(0);
+        return 1;
     case ED_PROJ_NAME:
         for (i = 0; i + 1u < sizeof dn_pname; i++)
             dn_pname[i] = i < na && a[i] >= 32u && a[i] < 127u ? (char)a[i] : 0;
@@ -339,14 +350,15 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         kind = a[0];
         from = a[1];
         count = kind == 1u ? dn_src_count() : kind == 2u ? DN_E_N : kind == 3u ? DN_FX_N : kind == 4u ? DN_FX_NDIV
-              : reese_preset_count();
+              : kind == 5u ? dn_sub_preset_count() : reese_preset_count();
         put(count);
         put(from);
         for (i = from; i < count && used < 180u; i++) {
             char nm[10];
             const char *s;
             if (kind >= 2u) {
-                s = kind == 2u ? DN_E_NAME[i] : kind == 3u ? DN_FX_NAME[i] : DN_FX_DIV_NAME[i];
+                s = kind == 2u ? DN_E_NAME[i] : kind == 3u ? DN_FX_NAME[i] : kind == 4u ? DN_FX_DIV_NAME[i]
+                  : dn_sub_preset_name(i);
             } else if (kind) {
                 dn_loop_t L;
                 nm[0] = 0;

@@ -10,7 +10,13 @@ const CLASSIC = [0, 70, 0, 80, 68, 18, 24, 0, 0, 70, 120, 30, 0, 36, 0, 0, 100, 
 const LIMITS = [[0, 5], [0, 127], [0, 7], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127],
   [0, 127], [0, 127], [-64, 63], [0, 127], [0, 127], [-64, 63], [0, 127], [-36, 36], [60, 200],
   ...[0, 1].flatMap(() => [[0, 1], [-24, 24], [0, 127], [0, 127], [0, 4], [0, 2], [0, 2], [0, 127]]),
-  ...[0, 1, 2, 3].flatMap(() => [[0, 7], [0, 1], [0, 127], [0, 21], [-64, 63], [0, 127], [0, 2], [0, 127]])];
+  ...[0, 1, 2, 3].flatMap(() => [[0, 7], [0, 1], [0, 127], [0, 21], [-64, 63], [0, 127], [0, 2], [0, 127]]),
+  // SUB (0.13)
+  [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 2], [0, 127], [0, 127], [-64, 63], [0, 127],
+  [0, 127], [0, 3], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 2], [0, 127], [0, 1],
+  [0, 127], [-36, 36], [0, 127]];
+const SUB_PRESETS = ["DREAD", "DONK", "ROLLER", "WOBBLE", "ACID 101", "808 SUB", "GROWL", "SQUARE SB", "PUNCH", "TECH SUB", "CRUSHED", "RAVE STAB"];
+const SUB_DREAD = [40, 90, 110, 0, 30, 0, 0, 0, 48, 30, 20, 40, 70, 0, 0, 90, 0, 70, 110, 30, 40, 1, 60, 0, 100, -24, 70];
 const LFO0 = 18 + 1 + 16;
 
 export function demoPattern() {
@@ -27,7 +33,7 @@ export function demoPattern() {
 export class MockFM1 {
   constructor() {
     this.params = [...CLASSIC, 172, 0, 0, 127, 0, 1, 0, 0, 100, 1, 0, 127, 0, 1, 0, 0, 100,
-      ...[0, 1, 2, 3].flatMap(() => [0, 1, 7, 0, 0, 0, 0, 0])];
+      ...[0, 1, 2, 3].flatMap(() => [0, 1, 7, 0, 0, 0, 0, 0]), ...SUB_DREAD];
     this.patCur = Array(8).fill(0); this.patQ = Array(8).fill(-1);
     this.bank = Array.from({ length: 8 }, (_, t) => Array.from({ length: 8 }, (_, n) => (n === 0 ? null : { steps: Array.from({ length: 64 }, () => newStep()), len: 16, lastNote: 53 })));
     this.lfo = Array.from({ length: NLFO }, () => ({ npts: 16, pts: Array.from({ length: LFO_PTS }, (_, i) => Math.round(100 - (i % 16) * 200 / 15)) }));
@@ -143,19 +149,20 @@ export class MockFM1 {
       case CMD.TRANSPORT: this.playing = a[0] ? 1 : 0; if (this.playing) this.step = 0; return [this.playing];
       case CMD.SAVE: this.dirty = 0; this.saved++; return [0];
       case CMD.PRESET: this.preset = a[0]; this.rev++; return [0];
+      case CMD.SUB_PRESET: this.subPreset = a[0]; this.rev++; return [0];
       case CMD.PROJ: {
         const P = this.proj, nm = P.name.padEnd(12, "\0").slice(0, 12).split("").map((c) => c.charCodeAt(0) & 127);
         const used = this.slots.reduce((acc, sl) => acc + (sl.ok ? 512 + new DataView(sl.buf.buffer).getUint32(16, true) : 0), 0);
         const fxk = P.fx.reduce((acc, f) => acc + (f[0] === 1 ? 96 : 0), 0);
         return [...nm, ...P.eng, ...P.send[0], ...P.send[1], ...P.ret, ...P.fx[0], ...P.fx[1], ...digits(used, 3),
-          ...digits(3 * (0x14000 - 512), 3), ...digits(fxk, 2), ...digits(144, 2), 12, 5, 2];
+          ...digits(3 * (0x14000 - 512), 3), ...digits(fxk, 2), ...digits(144, 2), 12, 6, 2];
       }
       case CMD.PROJ_SET: {
         const f = a[0], v = a[1] | a[2] << 7, P = this.proj;
         this.rev++; this.dirty = 1;
         if (f < 8) {
-          if (v > 4) return [1];
-          if (v >= 1 && v <= 3) { const u = P.eng.indexOf(v); if (u >= 0 && u !== f) P.eng[u] = P.eng[f]; }
+          if (v > 5) return [1];
+          if (v !== 0 && v !== 4) { const u = P.eng.indexOf(v); if (u >= 0 && u !== f) P.eng[u] = P.eng[f]; }
           P.eng[f] = v;
           return [0];
         }
@@ -208,8 +215,8 @@ export class MockFM1 {
         return [...a.slice(0, 5), 0];
       }
       case CMD.NAMES: {
-        const list = [PRESETS, LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI"], ["OFF", "DELAY"],
-          ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"]][a[0]] || [];
+        const list = [PRESETS, LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB"], ["OFF", "DELAY"],
+          ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], SUB_PRESETS][a[0]] || [];
         const out = [list.length, a[1]];
         for (let i = a[1]; i < list.length; i++) out.push(...list[i].split("").map((c) => c.charCodeAt(0)), 0);
         return out;

@@ -1,0 +1,87 @@
+# DREADNOUGHT host scenario (0.13): SUB, the SH-101-style bass, on a track. PROJECT puts it on track 5; SEQ + white key
+# 5 opens its pages (OSC, SEL again OSC2; FILTER, EDIT again DIRT; AMP; MOD; OUT); PRESETS its factory sounds; the
+# keys and the sequencer play it; SAVE keeps it.
+# White keys (tracks 1..8): 0 2 4 6 7 9 11 12.
+tap GLO
+tap GLO
+tap GLO
+tap GLO
+tap GLO
+expect page 15
+turn K1 1
+expect trk 5
+turn K2 1
+expect peng 5
+tap FX
+expect eng.5 5
+# SEQ + white key 5: SUB's OSC page
+press SEQ
+tapkey 7 40
+release SEQ
+expect trk 5
+expect page 0
+shot sub-01-osc.png
+tap SEL
+expect page 16
+shot sub-02-osc2.png
+tap SEL
+expect page 0
+tap EDIT
+expect page 1
+shot sub-03-filter.png
+tap EDIT
+expect page 17
+turn K1 2
+expect s.DRIVE 72
+shot sub-04-dirt.png
+tap EDIT
+expect page 1
+# a factory sound: PRESETS
+turn PRESET 4
+expect sbpreset 4
+expect s.RES 104
+shot sub-05-acid.png
+# the keys play SUB (and only SUB)
+key 0 down
+wait 20
+expect sbgate 1
+expect gate 0
+key 0 up
+wait 20
+expect sbgate 0
+# REESE's pages still REESE's: SEL from a break track goes to the synth shown last (SUB), track 1 is REESE
+press SEQ
+tapkey 0 40
+release SEQ
+expect trk 1
+expect page 1
+shot sub-06-reese-filter.png
+press SEQ
+tapkey 7 40
+release SEQ
+tap ENV
+expect page 2
+tap LFO
+expect page 3
+shot sub-07-mod.png
+tap GLO
+expect page 4
+shot sub-08-out.png
+# the sequencer: SUB's roll, a step, PLAY
+tap SEQ
+expect page 7
+tapkey 0 40
+expect on.5 1
+press PLAY
+wait 20
+expect sbgate 1
+release PLAY
+tap PLAY
+wait 300
+tap SEQ
+# kept
+tap SAVE
+reboot
+expect eng.5 5
+expect sbpreset 4
+expect s.RES 104

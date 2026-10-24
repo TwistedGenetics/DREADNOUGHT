@@ -8,7 +8,7 @@
 
 export const HDR = [0x7D, 0x46, 0x4C];
 export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, PATS: 73, PAT_SEL: 74, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
-  TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77 };
+  TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77, SUB_PRESET: 78 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
 export const digits = (v, n) => { const o = []; for (let i = 0; i < n; i++) { o.push(v & 127); v = Math.floor(v / 128); } return o; };
@@ -90,6 +90,24 @@ export const lfoParams = () => [
 ];
 export const lfoIndex = (k, i) => REESE.length + 1 + 16 + 8 * k + i;   // LFO k, its value i (lfoParams' order)
 export const NPARAM_08 = REESE.length + 1 + 16, NPARAM = NPARAM_08 + NLFO * 8;
+
+// ---- SUB (0.13): the SH-101-style bass, its values after the LFOs (src/dsp/dn_sub.h SP_*) -----------------------
+const subCut = (v) => { const hz = 30 * Math.pow(533.33, v / 127); return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : `${Math.round(hz)}Hz`; };
+const sgn = (v) => (v > 0 ? `+${v}` : `${v}`);
+export const SUB = [
+  R("SAW", 0, 127, "OSC"), R("PULSE", 0, 127, "OSC"), R("SUB", 0, 127, "OSC"), R("NOISE", 0, 127, "OSC"),
+  R("PW", 0, 127, "OSC", (v) => `${50 - Math.floor((v * 45) / 127)}%`), R("PWM", 0, 127, "OSC"), R("PWM RATE", 0, 127, "OSC"),
+  R("SUB MODE", 0, 2, "OSC", (v) => ["-1 OCT", "-2 OCT", "-2 25%"][v]),
+  R("CUT", 0, 127, "FILTER", subCut), R("RES", 0, 127, "FILTER"), R("ENV", -64, 63, "FILTER", sgn), R("KEY", 0, 127, "FILTER"),
+  R("DRIVE", 0, 127, "DIRT"), R("TYPE", 0, 3, "DIRT", (v) => ["SOFT", "HARD", "FOLD", "RECT"][v]),
+  R("CRUSH", 0, 127, "DIRT", (v) => (v ? `${v}` : "OFF")), R("TONE", 0, 127, "DIRT"),
+  R("ATK", 0, 127, "AMP"), R("DEC", 0, 127, "AMP"), R("SUS", 0, 127, "AMP"), R("REL", 0, 127, "AMP"),
+  R("GLIDE", 0, 127, "MOD", (v) => (v ? glideText(v) : "OFF")), R("PORTA", 0, 2, "MOD", (v) => ["OFF", "AUTO", "ON"][v]),
+  R("ACCENT", 0, 127, "MOD"), R("VCA", 0, 1, "MOD", (v) => (v ? "GATE" : "ENV")),
+  R("LEVEL", 0, 127, "OUT"), R("TRANS", -36, 36, "OUT", sgn), R("SPLIT", 0, 127, "OUT", (v) => (v ? `${40 + Math.floor((v * 260) / 127)}Hz` : "OFF")),
+];
+export const subIndex = (i) => NPARAM + i;
+export const NPARAM_13 = NPARAM + SUB.length;
 export function parseLfoPts(r) {
   const pts = [];
   for (let i = 0; i < LFO_PTS; i++) pts.push(num(r, 2 + 2 * i, 2) - 100);
@@ -137,12 +155,13 @@ export function parseNames(r) {
 export const TRACKS = 8, STEPS = 64, LEN_STEP = 4, LEN_MAX = 255;
 export const ST_ON = 1, ST_SLIDE = 2, ST_ACC = 4;
 // what each track plays (0.12: the project says; before it, REESE / BREAKS A / B / MIDI x5)
-export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI"];
-export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4 };
+export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB"];
+export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4, SUB: 5 };
 let ENG = [1, 2, 3, 4, 4, 4, 4, 4];
 export function setEngines(e) { ENG = e.slice(0, 8); }
 export const engines = () => ENG.slice();
-export const KIND = (t) => (ENG[t] === E.REESE ? "REESE" : ENG[t] === E.BRKA || ENG[t] === E.BRKB ? "BREAKS" : ENG[t] === E.MIDI ? "MIDI" : "OFF");
+export const KIND = (t) => (ENG[t] === E.REESE ? "REESE" : ENG[t] === E.BRKA || ENG[t] === E.BRKB ? "BREAKS" : ENG[t] === E.MIDI ? "MIDI"
+  : ENG[t] === E.SUB ? "SUB" : "OFF");
 export const brkOf = (t) => (ENG[t] === E.BRKB ? 1 : 0);   // a break track's voice: 0 A, 1 B
 export const midiNo = (t) => ENG.slice(0, t).filter((e) => e === E.MIDI).length + 1;   // "MIDI n"
 export const ST_RTRG = 8;
@@ -314,6 +333,7 @@ export class Link {
   async pats() { return parsePats(await this.req(CMD.PATS)); }
   async patSel(t, n) { return (await this.req(CMD.PAT_SEL, [t, n]))[0]; }
   async save() { return (await this.req(CMD.SAVE, [], 8000))[0]; }
+  async subPreset(i) { return (await this.req(CMD.SUB_PRESET, [i]))[0]; }
   async preset(i) { return (await this.req(CMD.PRESET, [i]))[0]; }
   async proj() { return parseProj(await this.req(CMD.PROJ)); }
   async projSet(f, v) { return (await this.req(CMD.PROJ_SET, [f, ...digits(v, 2)]))[0]; }

@@ -4,7 +4,7 @@ import {
   connect, REESE, BPM_INDEX, brkParams, brkIndex, KIND, ST_ON, ST_SLIDE, ST_ACC, LEN_STEP, LEN_MAX, noteEnd, lenText,
   noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
   lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
-  PF, FX_NAMES, FX_PARAMS, E,
+  PF, FX_NAMES, FX_PARAMS, E, SUB, subIndex, NPARAM_13,
 } from "./protocol.js";
 import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
@@ -32,6 +32,7 @@ async function start(link, label) {
   say("Reading…");
   S.st = await link.state();
   S.presets = await link.names(0);
+  S.subPresets = await link.names(5).catch(() => []);
   S.loops = await link.names(1);
   S.params = await link.params();
   S.pat = await link.readPattern(S.st.patSize);
@@ -45,6 +46,7 @@ async function start(link, label) {
   buildSound();
   buildBreaks();
   buildLfos();
+  buildSub();
   buildProject();
   ["play", "bpm", "save"].forEach((id) => { $(id).disabled = false; });
   say(label, "ok");
@@ -190,7 +192,7 @@ document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
 // ---- the pattern: tracks ----------------------------------------------------------------------------------------
 function trackLabel(t) {
   const k = KIND(t);
-  return k === "REESE" ? ["REESE", "bass"] : k === "BREAKS" ? [brkOf(t) ? "BREAKS B" : "BREAKS A", "slices"]
+  return k === "REESE" ? ["REESE", "bass"] : k === "SUB" ? ["SUB", "bass"] : k === "BREAKS" ? [brkOf(t) ? "BREAKS B" : "BREAKS A", "slices"]
     : k === "MIDI" ? [`MIDI ${midiNo(t)}`, `channel ${S.pat.tracks[t].chan + 1}`] : ["OFF", "plays nothing"];
 }
 function renderTracks() {
@@ -218,7 +220,7 @@ $("down").onclick = () => { S.lo = Math.max(S.lo - 6, 0); render(); };
 
 const isBrk = () => KIND(S.sel) === "BREAKS";
 const slices = () => (S.st ? S.st.slices[brkOf(S.sel)] || 32 : 32);
-const trans = () => (KIND(S.sel) === "REESE" ? S.params[17] || 0 : 0);   // (REESE's TRANS: the roll names the notes it plays)
+const trans = () => (KIND(S.sel) === "REESE" ? S.params[17] || 0 : KIND(S.sel) === "SUB" ? S.params[subIndex(25)] || 0 : 0);   // (REESE's TRANS: the roll names the notes it plays)
 
 // the rows in view: pitches for a synth track (high at the top), slices for a break track (slice 1 at the top)
 function rows() { return isBrk() ? slices() : ROWS; }
@@ -530,6 +532,27 @@ function buildSound() {
   S.presets.forEach((n, k) => { const o = document.createElement("option"); o.value = k; o.textContent = n; ps.appendChild(o); });
   ps.value = S.st.preset;
   ps.onchange = () => guard(async () => { await S.link.preset(+ps.value); S.params = await S.link.params(); refreshValues(); });
+}
+function buildSub() {                                // (0.13: SUB's values follow the LFOs)
+  const has = !!(S.st && S.st.nparams >= NPARAM_13);
+  $("subTabBtn").hidden = !has;
+  if (!has) return;
+  const box = $("sub"), groups = {};
+  box.textContent = "";
+  SUB.forEach((p, i) => {
+    if (!groups[p.group]) {
+      const g = document.createElement("div");
+      g.className = "grp";
+      g.innerHTML = `<h3>${p.group}</h3>`;
+      box.appendChild(g);
+      groups[p.group] = g;
+    }
+    slider(groups[p.group], subIndex(i), p);
+  });
+  const ps = $("subpreset");
+  ps.textContent = "";
+  (S.subPresets || []).forEach((n, k) => { const o = document.createElement("option"); o.value = k; o.textContent = n; ps.appendChild(o); });
+  ps.onchange = () => guard(async () => { await S.link.subPreset(+ps.value); S.params = await S.link.params(); refreshValues(); });
 }
 function buildBreaks() {
   [0, 1].forEach((k) => {

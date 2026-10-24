@@ -3,10 +3,10 @@ sysex 60
 expect replylen 22
 expect reply.5 44
 expect reply.6 1
-expect reply.19 67
+expect reply.19 94
 sysex 61
-expect replylen 135
-expect reply.0 67
+expect replylen 189
+expect reply.0 94
 # PARAM_SET: REESE DTN (1) to 80 (+8192 = 80, 64); BREAKS A PITCH (20) to +5
 sysex 62 1 80 64
 expect reply.0 0

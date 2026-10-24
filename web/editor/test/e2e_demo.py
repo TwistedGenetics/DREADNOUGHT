@@ -221,6 +221,17 @@ with sync_playwright() as pw:
       r.dispatchEvent(new Event('input')); }""")
     p.wait_for_timeout(400)
     check("REESE CUT reaches the FM-1", p.evaluate("() => window.__dn.mock.params[4]") == 90)
+    # SUB (0.13): its tab, a value reaching the FM-1, a factory sound
+    p.click("[data-tab=subtab]")
+    p.wait_for_timeout(200)
+    p.evaluate("""() => { const r = document.querySelector('.prm[data-i="75"] input'); r.value = 100;
+      r.dispatchEvent(new Event('input')); }""")
+    p.wait_for_timeout(400)
+    check("SUB CUT (value 75) reaches the FM-1", p.evaluate("() => window.__dn.mock.params[75]") == 100)
+    p.select_option("#subpreset", "4")
+    p.wait_for_timeout(300)
+    check("SUB: a factory sound (ACID 101) asked for", p.evaluate("() => window.__dn.mock.subPreset") == 4)
+    p.screenshot(path=str(shots / "editor-13-sub.png"), full_page=True)
     p.click("#play")
     p.wait_for_timeout(500)
     check("PLAY starts the FM-1", p.evaluate("() => window.__dn.mock.playing") == 1)
