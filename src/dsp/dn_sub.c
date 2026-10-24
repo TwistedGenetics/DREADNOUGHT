@@ -118,27 +118,27 @@ static const dn_sub_preset_t SB_PRESETS[] = {
     /* dread: a pulse and the sub, the filter low and round, driven soft, the clean low end split off */
     {"DREAD",    {40, 90, 110, 0,  30,  0,  0,  0,  48, 30, 20, 40,  70,  0,  0, 90,   0, 70, 110, 30,  40, 1, 60, 0, 100, -24, 70}},
     /* donk: a short, plucky, resonant square bounce (the hardcore donk), quick decay */
-    {"DONK",     {0, 120, 60, 0,   0,  0,  0,  0,  56, 90, 40, 64,  40,  1,  0, 110,  0, 40, 30, 20,   0, 0, 90, 0, 100, -12, 60}},
+    {"DONK", {0, 120, 60, 0, 0, 0, 0, 0, 56, 90, 40, 64, 40, 1, 0, 110, 0, 40, 30, 20, 0, 0, 90, 0, 127, -12, 60}},
     /* rolling sub: mostly sub and a little saw, the filter closed, a sine-ish rolling bass for steppers */
-    {"ROLLER",   {30, 0, 127, 0,   0,  0,  0,  0,  38, 10, 10, 30,  30,  0,  0, 70,   2, 80, 120, 34, 30, 1, 40, 0, 100, -24, 90}},
+    {"ROLLER", {30, 0, 127, 0, 0, 0, 0, 0, 38, 10, 10, 30, 30, 0, 0, 70, 2, 80, 120, 34, 30, 1, 40, 0, 127, -24, 90}},
     /* wobble: resonant saw with the PWM; put an LFO on CUTOFF (LFO page) for the wobble */
     {"WOBBLE",   {110, 60, 90, 0, 40, 60, 50,  0,  50, 70, 10, 50,  80,  0,  0, 100,  0, 70, 120, 30, 20, 1, 50, 0, 100, -24, 70}},
     /* acid: the 101 / 303 squelch: saw, high resonance, big envelope, accent and auto glide */
-    {"ACID 101", {127, 0, 30, 0,   0,  0,  0,  0,  44, 104, 50, 64, 50,  0,  0, 120,  0, 50, 20, 30,  50, 1, 110, 0, 100, -12, 0}},
+    {"ACID 101", {127, 0, 30, 0, 0, 0, 0, 0, 44, 104, 50, 64, 50, 0, 0, 120, 0, 50, 20, 30, 50, 1, 110, 0, 127, -12, 0}},
     /* an 808-style sine sub: the filter shut on the sub alone, folded for harmonics above the split */
     {"808 SUB",  {0, 0, 127, 0,    0,  0,  0,  0,  20, 0, 30, 40,  90,  2,  0, 90,   0, 90, 0, 60,   45, 2, 30, 0, 100, -24, 100}},
     /* growl: hard-driven saw and pulse, mid resonance, a slow PWM: the techstep growl */
-    {"GROWL",    {120, 100, 80, 10, 60, 70, 30, 0,  62, 60, 20, 50, 120,  1,  0, 80,   0, 70, 120, 30, 20, 1, 60, 0, 90, -24, 80}},
+    {"GROWL", {120, 100, 80, 10, 60, 70, 30, 0, 62, 60, 20, 50, 120, 1, 0, 80, 0, 70, 120, 30, 20, 1, 60, 0, 60, -24, 80}},
     /* square sub: the 25 % pulse two octaves down under a hollow square: the 101 sub sound */
-    {"SQUARE SB",{0, 100, 127, 0, 0,  0,  0,  2,  52, 20, 10, 40,  20,  0,  0, 100,  0, 70, 120, 30,  0, 0, 40, 1, 100, -12, 0}},
+    {"SQUARE SB", {0, 100, 127, 0, 0, 0, 0, 2, 52, 20, 10, 40, 20, 0, 0, 100, 0, 70, 120, 30, 0, 0, 40, 1, 120, -12, 0}},
     /* punch: a fast filter snap on saw and sub, gated amp: the 101's tight bass */
     {"PUNCH",    {100, 0, 100, 0,  0,  0,  0,  0,  40, 50, 60, 64,  50,  0,  0, 110,  0, 30, 0, 10,    0, 0, 80, 1, 100, -24, 60}},
     /* tech sub: rectified for an octave-up rasp over a clean sub */
-    {"TECH SUB", {80, 80, 110, 0, 50, 20, 40,  0,  58, 40, 20, 50,  70,  3,  0, 90,   0, 70, 120, 30, 20, 1, 50, 0, 100, -24, 110}},
+    {"TECH SUB", {80, 80, 110, 0, 50, 20, 40, 0, 58, 40, 20, 50, 70, 3, 0, 90, 0, 70, 120, 30, 20, 1, 50, 0, 70, -24, 110}},
     /* crushed: bits and rate down on a resonant pulse, the low end kept clean: lo-fi jungle */
     {"CRUSHED",  {60, 110, 100, 0, 20, 30, 20, 0,  60, 50, 20, 50,  40,  0, 70, 90,   0, 70, 120, 30, 20, 1, 50, 0, 100, -24, 80}},
     /* rave stab: bright saw + pulse, noise, a short env: the old-skool bleep-bass hit */
-    {"RAVE STAB",{127, 90, 40, 30, 30, 40, 70,  0,  70, 60, 40, 64,  60,  0,  0, 127,  0, 50, 20, 40,  0, 0, 70, 0, 100, 0, 0}},
+    {"RAVE STAB", {127, 90, 40, 30, 30, 40, 70, 0, 70, 60, 40, 64, 60, 0, 0, 127, 0, 50, 20, 40, 0, 0, 70, 0, 120, 0, 0}},
 };
 #define SB_NPRESETS (sizeof SB_PRESETS / sizeof SB_PRESETS[0])
 uint32_t dn_sub_preset_count(void) { return SB_NPRESETS; }
@@ -266,7 +266,7 @@ static void sb_control(dn_sub_t *s)
     }
     s->pwph += DN_LFO_INC[dn_clamp(p[SP_PWMR], 0, 127)];
     s->amp_now = s->amp_next;
-    s->amp_next = (int32_t)(((int64_t)(a >> 9) * SB_M(s, SP_LEVEL, 0, 127) * 258) >> 15);   /* Q15 */
+    s->amp_next = (int32_t)(((int64_t)(a >> 9) * 100 * 258) >> 15);   /* Q15 (LEVEL comes after the dirt) */
     if (s->acc)                                     /* accent: louder by up to half again */
         s->amp_next += s->amp_next * dn_clamp(p[SP_ACC], 0, 127) / 254;
     if (s->vsens)
@@ -306,7 +306,7 @@ void dn_sub_render(dn_sub_t *s, int32_t *lr, uint32_t n)
     const int16_t *p = s->p;
     while (n) {
         uint32_t len, i, inc, sinc, pw, type;
-        int32_t buf[SB_CTL], lsaw, lpul, lsub, lnoi, cut, drive, gain, crush, tone, split;
+        int32_t buf[SB_CTL], lsaw, lpul, lsub, lnoi, cut, drive, gain, crush, tone, split, level;
         sb_ladder_t lc;
         if (!s->ctl) {
             sb_control(s);
@@ -353,6 +353,7 @@ void dn_sub_render(dn_sub_t *s, int32_t *lr, uint32_t n)
         crush = SB_M(s, SP_CRUSH, 0, 127);
         tone = SB_M(s, SP_TONE, 0, 127);
         split = p[SP_SPLIT] ? (40 + p[SP_SPLIT] * 260 / 127) * 467 / 100 : 0;   /* a one-pole's Q15 coefficient */
+        level = SB_M(s, SP_LEVEL, 0, 127) * 17000 / 100;   /* the output, after the dirt (100 = unity) */
         {
             uint32_t pos = SB_CTL - s->ctl;
             int32_t a0 = s->amp_now, da = s->amp_next - s->amp_now;
@@ -379,8 +380,8 @@ void dn_sub_render(dn_sub_t *s, int32_t *lr, uint32_t n)
                 }
                 if (ta < 32768)
                     s->tone += (int32_t)(((int64_t)(hi - s->tone) * ta) >> 15), hi = s->tone;
-                y = dn_clamp(hi + lo, -60000, 60000);
-                y = dn_mulq15(y, 17000);            /* (60000 -> 31128: never past full scale) */
+                y = dn_clamp(hi + lo, -45000, 45000);
+                y = dn_clamp(dn_mulq15(y, level), -32767, 32767);   /* (LEVEL 100: 45000 -> 23300) */
                 lr[2u * i] += y;
                 lr[2u * i + 1u] += y;
             }

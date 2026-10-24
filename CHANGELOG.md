@@ -286,7 +286,8 @@ a real FM-1.
   tame it), and **SPLIT**: below its frequency the signal goes round the dirt, so the sub stays whole under the
   heaviest drive (measured: the fundamental within 0.1 dB of clean under HARD at full drive; 8 dB off without it).
 - 12 factory sounds: DREAD, DONK, ROLLER, WOBBLE, ACID 101, 808 SUB, GROWL, SQUARE SB, PUNCH, TECH SUB, CRUSHED,
-  RAVE STAB.
+  RAVE STAB, levelled against each other. LEVEL is the output after the dirt (so it changes the volume, not the
+  drive).
 - Put it on a track on the PROJECT page (or the editor's Project tab); SEQ + its track's white key opens its pages:
   the same buttons as REESE's (OSC, FILTER, AMP, MOD, OUT), SEL again for OSC2, EDIT again for DIRT. The sound pages
   follow the synth on the selected track (REESE or SUB); from a break or MIDI track they go to the synth shown last.
