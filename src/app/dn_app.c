@@ -2094,9 +2094,11 @@ void dn_app_init(void)
         dn_man.count > DN_MAN_N)
         dn_man.magic = dn_man.count = 0;            /* (no manual slices yet) */
     got = plat_store_load(OBJ_SOUND, &s, sizeof s);
-    if ((got == (int)sizeof s || got == (int)DN_SAVE_V016 || got == (int)DN_SAVE_V015 || got == (int)DN_SAVE_V014 || got == (int)DN_SAVE_V012 || got == (int)DN_SAVE_V011 || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 ||
-         got == (int)DN_SAVE_V04) &&
-        s.magic == DN_SAVE_MAGIC) {
+    /* any save from 0.4 on (0.20.1: by its length, not an exact list: a save is its struct's size, padded to 4 bytes,
+     * and the list held the unpadded offsets, so a save from 0.14, 0.15 or 0.16-0.18 was turned away and the FM-1
+     * started from nothing after an update; Jamie: "every time I update the FW it clears my project"). Each part is
+     * read if the save reaches past it; the parts only ever get added at the end. */
+    if (got >= (int)DN_SAVE_V04 && got <= (int)sizeof s && s.magic == DN_SAVE_MAGIC) {
         dn.preset = (uint8_t)(s.preset % (reese_preset_count() + DN_NUSER));
         dn.page = (uint8_t)(DN_IS_SNDPG(s.page) ? s.page : 0u);
         dn.oct = (int8_t)dn_clamp(s.oct, -3, 3);
@@ -2134,7 +2136,7 @@ void dn_app_init(void)
             dn_user_fe[1][k][0] = b[SP_ATK], dn_user_fe[1][k][1] = b[SP_DEC], dn_user_fe[1][k][2] = b[SP_SUS];
             dn_user_fe[1][k][3] = b[SP_REL];
         }
-        if (got == (int)sizeof s) {
+        if (got >= (int)(offsetof(dn_save_t, user_fe) + sizeof s.user_fe)) {   /* (0.19) */
             for (k = 0; k < 4u; k++)
                 dn_rs.fe[k] = (int16_t)dn_clamp(s.fe[0][k], 0, 127), dn_sb.fe[k] = (int16_t)dn_clamp(s.fe[1][k], 0, 127);
             for (k = 0; k < 2u * DN_NUSER * 4u; k++)

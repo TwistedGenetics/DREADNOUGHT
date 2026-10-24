@@ -13,6 +13,7 @@
  *   wav FILE | wavstop            record the output
  *   shot FILE.png                 the screen
  *   reboot                        start again from what was saved
+ *   storesave FILE | storeload FILE   the flash objects to / from a file (saves from earlier releases: upgrade.txt)
  *   expect WHAT VALUE             preset page dirty oct bpm gate note (MIDI, before TRANS) leds-btn leds-keys
  *                                 playing rec trk view swing clocks midinotes len.T mute.T on.T st.T.I nt.T.I ln.T.I;
  *                                 peak (the output's peak since the last expect peak, Q15); VALUE "<N" / ">N" a bound
@@ -476,6 +477,13 @@ int main(int argc, char **argv)
             }
             fprintf(g, "]}\n");
             fclose(g);
+        } else if (!strcmp(a, "storesave") && n >= 2) {   /* the flash objects to a file (0.20.1) */
+            FILE *f = fopen(b, "wb");
+            fwrite(store_len, sizeof store_len, 1, f); fwrite(store, sizeof store, 1, f); fclose(f);
+        } else if (!strcmp(a, "storeload") && n >= 2) {
+            FILE *f = fopen(b, "rb");
+            if (!f || fread(store_len, sizeof store_len, 1, f) != 1 || fread(store, sizeof store, 1, f) != 1) { printf("  FAIL storeload\n"); return 1; }
+            fclose(f);
         } else if (!strcmp(a, "reboot")) {
             memset(&dn, 0, sizeof dn);
             held_btn = held_keys = 0;
@@ -567,6 +575,9 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "fxb")) got = dn_fxp[1].type;
             else if (!strncmp(b, "fxap.", 5)) got = dn_fxp[0].p[atoi(b + 5) % DN_FX_NP];   /* (0.16) */
             else if (!strncmp(b, "fxbp.", 5)) got = dn_fxp[1].p[atoi(b + 5) % DN_FX_NP];
+            else if (!strcmp(b, "savesz")) got = (long)sizeof(dn_save_t);   /* (the save's layout: versions) */
+            else if (!strcmp(b, "savev016")) got = (long)DN_SAVE_V016;
+            else if (!strcmp(b, "savev015")) got = (long)DN_SAVE_V015;
             else if (!strcmp(b, "knee")) { got = (long)dn_knee; dn_knee = 0; }   /* samples the master knee bent (0.16.1) */
             else if (!strncmp(b, "rfe.", 4)) got = dn_rs.fe[atoi(b + 4) & 3];   /* the filter envelopes (0.19) */
             else if (!strncmp(b, "sfe.", 4)) got = dn_sb.fe[atoi(b + 4) & 3];

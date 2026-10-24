@@ -1,0 +1,40 @@
+# DREADNOUGHT host scenario (0.20.1): saves from earlier releases load (an update keeps the project). Each
+# tests/host/saves/vX.bin is the flash objects of that release's simulator after: the project named JAMIE, track 2's
+# send A 100, track 4 to SUB, REESE's 4th factory sound, track 1 on its 3rd pattern, SAVE. Before 0.20.1 a save from
+# 0.14, 0.15 or 0.16-0.18 was turned away (its padded length was not in the loader's list) and the FM-1 started empty.
+storeload tests/host/saves/v0.14.bin
+reboot
+expect eng.4 5
+expect preset 3
+expect senda.2 100
+expect pat.1 3
+storeload tests/host/saves/v0.15.bin
+reboot
+expect eng.4 5
+expect preset 3
+expect senda.2 100
+expect pat.1 3
+storeload tests/host/saves/v0.16.bin
+reboot
+expect eng.4 5
+expect preset 3
+expect senda.2 100
+expect pat.1 3
+storeload tests/host/saves/v0.18.bin
+reboot
+expect eng.4 5
+expect preset 3
+expect senda.2 100
+expect pat.1 3
+storeload tests/host/saves/v0.19.bin
+reboot
+expect eng.4 5
+expect preset 3
+expect senda.2 100
+expect pat.1 3
+storeload tests/host/saves/v0.20.bin
+reboot
+expect eng.4 5
+expect preset 3
+expect senda.2 100
+expect pat.1 3

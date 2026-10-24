@@ -413,3 +413,16 @@ sound's values, USER 1 and a reboot keeping them, SUB's apart); the editor again
 - Writing to the flash (SAVE, a user sound, chops and slices kept, samples from the editor) pauses everything for a
   moment, the audio too: it always has. Since 0.17 that pause showed as "AUDIO LATE: CPU FULL" (Jamie: on every save).
   The warning now leaves out the moments around a flash write; it still comes when the CPU really runs out.
+
+## 0.21 — updates keep your project (2026-10-24)
+
+- **An update no longer clears the project** (Jamie: "every time I update the FW it clears my project"). The saved
+  sound and project grow at the end when a version adds something; the loader took only an exact list of the older
+  lengths, and the list was 2 bytes short of each (a save is padded to 4 bytes). So a save from 0.14, 0.15 or
+  0.16–0.18 was turned away after updating and the FM-1 started from its factory project. Now any save from 0.4 on
+  loads, each part read if the save reaches past it.
+- The host tests keep a save made by each release since 0.14 (`tests/host/saves/`) and load them all on every build
+  (`upgrade.txt`), so this can't come back unseen.
+
+Saves made on 0.19 and 0.20 were never affected. A project lost to an earlier update can't be brought back by this
+(it was replaced at the next SAVE); a project saved to the computer from the editor's Project tab can be loaded again.
