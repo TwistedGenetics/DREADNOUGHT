@@ -15,3 +15,5 @@ void dn_app_midi(uint8_t st, uint8_t d1, uint8_t d2);
 void dn_app_input(void);
 void dn_app_draw(int force);
 void dn_app_slots_changed(int done);     /* the sample slots: about to change (0), changed (1) */
+uint32_t dn_app_slices_get(uint32_t key, uint32_t *starts);   /* a loop's manual slices (samples); 0: none */
+int dn_app_slices_set(uint32_t key, uint32_t n, const uint32_t *starts);   /* 0: kept (and saved) */

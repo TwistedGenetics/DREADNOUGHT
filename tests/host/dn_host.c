@@ -320,6 +320,20 @@ int main(int argc, char **argv)
             dn_splash("0.3 BETA");
             snprintf(path, sizeof path, "%s/%s", dir, b);
             shot(path);
+        } else if (!strcmp(a, "sliceset") && n >= 2) {   /* sliceset A|B s1 s2 ...: as the breaks page sends them */
+            uint32_t st[64], cnt = 0, k = b[0] == 'B';
+            char *q = ln + 8;
+            while (*q == ' ') q++;
+            q++;                                    /* (past A / B) */
+            while (cnt < 64) {
+                char *e;
+                long v = strtol(q, &e, 10);
+                if (e == q) break;
+                st[cnt++] = (uint32_t)v;
+                q = e;
+            }
+            printf("  sliceset %c: %u slices, rc %d\n", b[0], cnt, dn_app_slices_set(dn_bk[k].key, cnt, st));
+            run(1);
         } else if (!strcmp(a, "reboot")) {
             memset(&dn, 0, sizeof dn);
             held_btn = held_keys = 0;

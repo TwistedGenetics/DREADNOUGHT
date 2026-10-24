@@ -31,3 +31,11 @@ reboot
 expect smode.1 2
 expect ns.1 22
 expect sl.1.4 >12300
+# the breaks page's SET: four slices for B's loop, used at once (MANUAL) and kept
+tap SAVE
+sliceset B 0 4000 9000 20000
+expect smode.2 2
+expect ns.2 4
+expect sl.2.3 9000
+reboot
+expect ns.2 4

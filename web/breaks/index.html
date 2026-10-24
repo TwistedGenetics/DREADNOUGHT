@@ -90,6 +90,7 @@
     loops you have the right to use.</p>
 </main>
 <script type="module">
+import { sliceKey, key7, pos7, editSlices } from "./slices.js";
 // SPDX-License-Identifier: GPL-3.0-only
 // X0X break loops in the browser: tools/upload_breaks.py and its helpers (tools/sampleio.py,
 // Felucca's encoder; tools/import_breaks.py's bar guess) as plain functions, so the page
@@ -386,12 +387,15 @@ function render() {
   loops.forEach((l, i) => {
     const r = document.createElement("div");
     r.className = l.isNew ? "loop new" : "loop";
-    r.innerHTML = `<div class="name">BR${i + 1}<small>${(l.n / SLOT_RATE).toFixed(1)} s${l.isNew ? " · new" : ""}</small></div>
+    r.innerHTML = `<div class="name">BR${i + 1}<small>${(l.n / SLOT_RATE).toFixed(1)} s${l.isNew ? " · new" : ""}${l.slices ? ` · ${l.slices.length} slices` : ""}${l.slicesDirty ? " (not sent)" : ""}</small></div>
       <canvas width="900" height="80"></canvas>
-      <div class="acts"><button class="link rep">Replace</button><button class="link del">Remove</button></div>`;
+      <div class="acts"><button class="link sl">Slices</button><button class="link rep">Replace</button><button class="link del">Remove</button></div>`;
     if (l.file) r.title = l.file;
     r.querySelector(".rep").onclick = () => { replaceAt = i; $("files").multiple = false; $("files").click(); };
     r.querySelector(".del").onclick = () => { loops.splice(i, 1); render(); };
+    r.querySelector(".sl").onclick = () => editSlices(l, barsOf(l.n / SLOT_RATE)[0], SLOT_RATE,
+      (sl) => { l.slices = sl; l.slicesDirty = true; render(); }, `Slices of BR${i + 1}`);
+    r.querySelector(".sl").disabled = busy;
     r.querySelector(".rep").disabled = r.querySelector(".del").disabled = busy;
     r.ondragover = (ev) => { ev.preventDefault(); ev.stopPropagation(); r.classList.add("over"); };
     r.ondragleave = () => r.classList.remove("over");
@@ -404,7 +408,7 @@ function render() {
   $("room").className = plan ? "" : "bad";
   $("room").textContent = !readOk ? "" : plan ? `${loops.length} loop${loops.length === 1 ? "" : "s"}, ${KB(used)} of ${KB(CAP)}.`
     : `Too much: ${KB(used)} of ${KB(CAP)}. Remove a loop, or use shorter ones.`;
-  const changed = readOk && plan && changedSlots(plan).length > 0;
+  const changed = readOk && plan && (changedSlots(plan).length > 0 || loops.some((l) => l.slicesDirty));
   $("send").disabled = busy || !changed;
   $("discard").hidden = !changed;
   $("discard").disabled = busy;
@@ -584,6 +588,12 @@ async function readAll() {
     throw new Error("This firmware can't send its loops back to the page. Install DREADNOUGHT 0.5 or later, then connect again.");
   }
   bar.hidden = true;
+  for (const l of loops) {                           // each loop's slices set by hand, if any (ED_SLICE_GET, 50)
+    try {
+      const r = await link.req(50, key7(sliceKey(l.adpcm, l.n)), 1500), cnt = r[5] || 0;
+      if (cnt) l.slices = Array.from({ length: cnt }, (_, j) => r[6 + 3 * j] | r[7 + 3 * j] << 7 | r[8 + 3 * j] << 14);
+    } catch (_) { break; }                           // (a firmware without slices: don't ask again)
+  }
   readOk = true;
 }
 
@@ -636,6 +646,14 @@ $("send").onclick = () => run(async () => {
     }
     const e = await link.req(13, [k, ...pack7(im.hdr)], 5000);
     if (e[1]) throw new Error("The FM-1 didn't accept the loops.");
+  }
+  for (const l of loops) {                           // the slices set by hand (DREADNOUGHT's ED_SLICE_SET, 51)
+    if (!l.slicesDirty) continue;
+    if (!l.adpcm) l.adpcm = imaEncode(l.s);
+    say("Sending the slices…");
+    const r = await link.req(51, [...key7(sliceKey(l.adpcm, l.n)), l.slices.length, ...l.slices.flatMap(pos7)], 5000);
+    if (r[5]) throw new Error("The FM-1 didn't keep the slices.");
+    l.slicesDirty = false;
   }
   bar.hidden = true;
   say("Reading back…");

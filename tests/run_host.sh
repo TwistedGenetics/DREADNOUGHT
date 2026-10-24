@@ -22,6 +22,9 @@ build/host/seq_test
 $CC $W tests/host/brk_test.c src/dsp/dn_breaks.c -o build/host/brk_test -lm
 build/host/brk_test build/host
 # shellcheck disable=SC2086
+$CC $W tests/host/slices_xcheck.c src/dsp/dn_breaks.c -o build/host/slices_xcheck
+build/host/slices_xcheck | node tests/host/slices_xcheck.mjs
+# shellcheck disable=SC2086
 $CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c -o build/host/dn_host
 for s in tests/host/scenarios/*.txt; do
     build/host/dn_host "$s" build/host

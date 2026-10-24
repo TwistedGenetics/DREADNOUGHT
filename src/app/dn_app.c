@@ -318,6 +318,51 @@ static void dn_man_keep(const dn_brk_t *b)
         m->st[i] = (uint16_t)(b->man_start[i] / 4u);
 }
 
+/* the breaks page (web/breaks) reads and writes a loop's manual slices over SysEx (src/hardware: ED_SLICE_*) */
+uint32_t dn_app_slices_get(uint32_t key, uint32_t *starts)
+{
+    const dn_man_t *m = dn_man_find(key);
+    uint32_t i;
+    if (!m)
+        return 0;
+    for (i = 0; i < m->n && i < DN_BRK_MAXSL; i++)
+        starts[i] = (uint32_t)m->st[i] * 4u;
+    return m->n;
+}
+int dn_app_slices_set(uint32_t key, uint32_t n, const uint32_t *starts)
+{
+    dn_brk_t tmp;                                   /* (only key, n_man, man_start are read by dn_man_keep) */
+    uint32_t i, k;
+    if (n > DN_BRK_MAXSL)
+        return 1;
+    for (i = 1; i < n; i++)
+        if (starts[i] <= starts[i - 1u])
+            return 2;                               /* in order, or not at all */
+    tmp.key = key;
+    tmp.n_man = (uint8_t)n;
+    for (i = 0; i < n; i++)
+        tmp.man_start[i] = i ? starts[i] : 0u;
+    dn_man_keep(&tmp);
+    for (k = 0; k < DN_NBRK; k++)                   /* a loop playing now: its slices, and MANUAL */
+        if (dn_bk[k].ok && dn_bk[k].key == key) {
+            dn_bk[k].smode = n ? 2u : 1u;
+            dn_man_restore(&dn_bk[k]);
+        }
+    dn_man.magic = DN_MAN_MAGIC;
+    dn.redraw |= DN_RD_ALL;
+    {                                               /* the saved sound gets MANUAL for those tracks too (only that:
+                                                     * other edits not saved yet stay unsaved) */
+        static dn_save_t sv;
+        if (plat_store_load(OBJ_SOUND, &sv, sizeof sv) == (int)sizeof sv && sv.magic == DN_SAVE_MAGIC) {
+            for (k = 0; k < DN_NBRK; k++)
+                if (dn_bk[k].key == key)
+                    sv.brk2[k].smode = dn_bk[k].smode;
+            plat_store_save(OBJ_SOUND, &sv, sizeof sv);
+        }
+    }
+    return plat_store_save(OBJ_SONG, &dn_man, sizeof dn_man) ? 3 : 0;
+}
+
 static void dn_brk_select(uint32_t k, uint32_t src)
 {
     dn_loop_t L;

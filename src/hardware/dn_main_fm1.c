@@ -190,6 +190,9 @@ extern void isr_timer5(void);
 #define ED_HDR1 0x46
 #define ED_HDR2 0x4C
 enum { ED_INFO = 1, ED_SMP_BEGIN = 11, ED_SMP_WRITE, ED_SMP_END, ED_SMP_ERASE, ED_SMP_INFO, ED_SMP_READ, ED_PING = 25 };
+/* DREADNOUGHT's own: a loop's manual slices. GET key(5 x 7 bits) -> key, n, n starts (3 x 7 bits each);
+ * SET key, n, starts -> rc (0 kept; 1 too many, 2 not in order, 3 not saved). Numbers low 7 bits first. */
+enum { ED_SLICE_GET = 50, ED_SLICE_SET = 51 };
 #define ED_READ_MAX 224u                            /* SMP_READ's bytes a frame */
 static uint8_t ed_out[288];
 static uint32_t ed_n;
@@ -365,6 +368,35 @@ static void ed_handle(const uint8_t *f, uint32_t n)
             ed_b(usr_nz[i] ? (h->data_len + 1023u) / 1024u : 0u);
         }
         break;
+    case ED_SLICE_GET:
+    case ED_SLICE_SET: {
+        static uint32_t st[DN_BRK_MAXSL];
+        uint32_t key, n, j;
+        if (na < 5u)
+            return;
+        key = (uint32_t)a[0] | (uint32_t)a[1] << 7 | (uint32_t)a[2] << 14 | (uint32_t)a[3] << 21 | (uint32_t)a[4] << 28;
+        for (j = 0; j < 5u; j++)
+            ed_b(a[j]);
+        if (cmd == ED_SLICE_GET) {
+            n = dn_app_slices_get(key, st);
+            ed_b(n);
+            for (j = 0; j < n; j++) {
+                ed_b(st[j]);
+                ed_b(st[j] >> 7);
+                ed_b(st[j] >> 14);
+            }
+        } else {
+            n = na > 5u ? a[5] : 0u;
+            if (n > DN_BRK_MAXSL || na < 6u + 3u * n) {
+                ed_b(1);
+                break;
+            }
+            for (j = 0; j < n; j++)
+                st[j] = (uint32_t)a[6u + 3u * j] | (uint32_t)a[7u + 3u * j] << 7 | (uint32_t)a[8u + 3u * j] << 14;
+            ed_b((uint32_t)dn_app_slices_set(key, n, st));
+        }
+        break;
+    }
     default:
         return;                                     /* not ours: no reply */
     }
@@ -377,7 +409,7 @@ static void ed_service(void)
     uint32_t n;
     if (!ota_frame_get(&p, &n) || n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
         return;                                     /* not an editor frame: ota_service() reads it */
-    if (p[3] >= ED_SMP_BEGIN && p[3] <= ED_SMP_READ) {
+    if ((p[3] >= ED_SMP_BEGIN && p[3] <= ED_SMP_READ) || p[3] == ED_SLICE_SET || p[3] == ED_SLICE_GET) {
         ed_handle(p, n);                            /* long frames (data): handled in place */
         ota_frame_done();
         return;
