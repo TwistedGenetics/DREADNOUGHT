@@ -382,3 +382,13 @@ return: peaks held at the limiter's ceiling, the knee untouched), QUADRA's golde
 
 Tested: host scenario `project.txt` (FX B up from OFF beside DELAY lands on TAPE, down again on OFF), the editor's
 refusal unchanged.
+
+## 0.18 — the FX list no longer sticks on "NO MEMORY" (2026-10-24)
+
+- Turning KNOB 1 through the effects now skips any effect that won't fit beside the other slot's, instead of stopping
+  on it. With DELAY on FX A, FX B's list went OFF → DELAY (no room for two) and stuck there, so TAPE, the reverbs,
+  QUADRA and MASSIVE couldn't be reached (Jamie: "a 'no memory, FX off first' warning"). The warning now only comes
+  when nothing further along fits. The editor's effect menu still refuses one that doesn't fit, as before.
+
+Tested: host scenario `project.txt` (FX B up from OFF beside DELAY lands on TAPE, down again on OFF), the editor's
+refusal unchanged.
