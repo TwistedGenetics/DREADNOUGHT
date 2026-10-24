@@ -36,6 +36,7 @@ typedef struct {
     int32_t amp_now, amp_next;              /* the amplitude ramp over the control tick, Q15 */
     int32_t mod[RP_COUNT];                  /* the LFOs (the app): added to each value, 1/256 of a step */
     int32_t mod_pitch;                      /* the LFOs on the pitch, 1/256 semitone */
+    uint8_t vel, vsens;                     /* the note's velocity; how much it counts (0: not at all .. 127: all) */
 } reese_t;
 
 void reese_init(reese_t *r);

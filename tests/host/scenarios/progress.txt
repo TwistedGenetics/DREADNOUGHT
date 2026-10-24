@@ -52,7 +52,6 @@ tap PLAY
 wavstop
 # a 3-bar track: the bar reads 3 bars stopped, bar 3 later
 tap SEQ
-tap SEQ
 expect page 7
 turn K3 2
 turn K3 2

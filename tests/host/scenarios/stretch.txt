@@ -1,23 +1,11 @@
 # DREADNOUGHT host scenario: the stretch modes (0.6), the built-in ROLLER (136 BPM) at 172, a recording of each.
+tap ARP
 tap SEQ
+expect page 8
 tapkey 1 50
-turn K1 1
-tapkey 0 30
-tapkey 2 30
-tapkey 4 30
-tapkey 6 30
-tapkey 7 30
-tapkey 9 30
-tapkey 11 30
-tapkey 12 30
-tapkey 14 30
-tapkey 16 30
-tapkey 18 30
-tapkey 19 30
-tapkey 21 30
-tapkey 23 30
-tapkey 24 30
-tapkey 26 30
+press SAVE
+tap FX
+release SAVE
 expect on.2 16
 tap ARP
 tap ARP

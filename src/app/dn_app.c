@@ -52,6 +52,7 @@
 #define DN_PG_SET (DN_NPAGES + 6u)                  /* OUT's second page (GLO again): click, count-in, octave */
 #define DN_PG_LFO (DN_NPAGES + 7u)                  /* the LFOs (LFO again from MOD: 1, 2, 3, 4, back to MOD) */
 #define DN_IS_SNDPG(p) ((p) < DN_NPAGES || (p) == DN_PG_SET || (p) == DN_PG_LFO)
+#define DN_PG_MIDI (DN_NPAGES + 8u)                 /* the MIDI instruments' page (GLO: OUT, SETUP, MIDI) */
 #define DN_ROLL_ROWS 12                             /* the piano roll's pitches in view (an octave) */
 #define DN_DRUM_ROWS 8                              /* the drum grid's slices in view */
 #define DN_NBRK 2u                                  /* BREAKS A and B: tracks 2 and 3 */
@@ -63,6 +64,11 @@
 #define DN_PX_CLICK 103                             /* SETUP: the click (OFF / REC / ON), its level, the count-in */
 #define DN_PX_CLKLVL 104
 #define DN_PX_CIN 105
+#define DN_PX_VSENS 106                             /* SETUP: REESE's velocity sensitivity (0: velocity ignored) */
+#define DN_PX_MSEL 107                              /* MIDI: which MIDI instrument (tracks 4-8), its channel, OVERLAP */
+#define DN_PX_MCHAN 108
+#define DN_PX_MOVL 109
+#define DN_PX_NONE 0xFFu                            /* (a knob with nothing on it) */
 #define DN_PX_LSHAPE 130                            /* the LFO page (the selected LFO): shape, rate, dest, depth ... */
 #define DN_PX_LRATE 131
 #define DN_PX_LDEST 132
@@ -99,7 +105,8 @@ static const uint8_t DN_PAGE[DN_NPAGES][4] = {
     {RP_LEVEL, RP_TRANS, DN_PX_BPM, DN_PX_OVL},
 };
 static const uint8_t DN_PAGE_BTN[DN_NPAGES] = {B_SEL, B_EDIT, B_ENV, B_LFO, B_GLO};
-static const uint8_t DN_SET_PAGE[4] = {DN_PX_CLICK, DN_PX_CLKLVL, DN_PX_CIN, DN_PX_OCT};
+static const uint8_t DN_SET_PAGE[4] = {DN_PX_CLICK, DN_PX_CLKLVL, DN_PX_CIN, DN_PX_VSENS};
+static const uint8_t DN_MIDI_PAGE[4] = {DN_PX_MSEL, DN_PX_MCHAN, DN_PX_MOVL, DN_PX_NONE};
 #define DN_NSND 7u                                  /* the sound pages, in SELECT's order (the tab row's too) */
 static const uint8_t DN_SND[DN_NSND] = {0, 1, 2, 3, DN_PG_LFO, 4, DN_PG_SET};
 static const char *const DN_SND_NAME[DN_NSND] = {"OSC", "FILTER", "AMP", "MOD", "LFO", "OUT", "SETUP"};
@@ -164,6 +171,13 @@ static struct {
     uint8_t clk_acc;
     uint32_t clk_count;                             /* (clicks so far: the tests count them) */
     uint8_t lfo_sel, lfo_view;                      /* the LFO page: which LFO; MAIN / MORE / DRAW (FX) */
+    uint8_t midi_sel;                               /* the MIDI page: MIDI 1..5 (tracks 4-8) */
+    uint8_t back_page;                              /* SEQ again goes back here (the instrument's page it came from) */
+    uint8_t step_pg;                                /* a step held: which four of its values the knobs edit (FX) */
+    int8_t ramp_a, ramp_b;                          /* a velocity ramp over steps a..b (b < 0: none) ... */
+    uint8_t ramp_v0, ramp_v1;                       /* ... from, to */
+    uint8_t rec_held, rec_chord;                    /* REC down on a sequencer page; used with a step (no record) */
+    uint8_t pclip_ok;                               /* a pattern copied (SAVE + black key 10) */
     int8_t pen;                                     /* DRAW: the value a pressed point gets */
     uint8_t pt_view;                                /* DRAW: points 1-16 / 17-32 on the keys */
     int8_t pt_held;                                 /* DRAW: the point key held (-1: none) */
@@ -658,7 +672,8 @@ static uint32_t dn_dial(uint32_t k)
 {
     return dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : dn.page == DN_PG_BRK2 ? DN_BRK2_PAGE[k]
          : dn.page == DN_PG_SLICE ? DN_SLICE_PAGE[k] : dn.page == DN_PG_SET ? DN_SET_PAGE[k]
-         : dn.page == DN_PG_LFO ? DN_LFO_PAGE[dn.lfo_view & 1u][k] : DN_PAGE[dn.page % DN_NPAGES][k];
+         : dn.page == DN_PG_LFO ? DN_LFO_PAGE[dn.lfo_view & 1u][k] : dn.page == DN_PG_MIDI ? DN_MIDI_PAGE[k]
+         : DN_PAGE[dn.page % DN_NPAGES][k];
 }
 
 /* ------------------------------------------------------------------------------------------------ values --- */
@@ -790,6 +805,14 @@ static int32_t dn_get(uint32_t id)
         return dn.clk_lvl;
     if (id == DN_PX_CIN)
         return dn.cin;
+    if (id == DN_PX_VSENS)
+        return dn_rs.vsens;
+    if (id == DN_PX_MSEL)
+        return dn.midi_sel;
+    if (id == DN_PX_MCHAN)
+        return dn_sq.pat.tr[3u + dn.midi_sel % 5u].chan;
+    if (id == DN_PX_MOVL)
+        return DN_PAT_CUT(&dn_sq.pat) >> (3u + dn.midi_sel % 5u) & 1u;
     if (id == DN_PX_BSRC)
         return dn_bk_src[dn_bsel()];
     if (id == DN_PX_BPITCH)
@@ -820,7 +843,7 @@ static int32_t dn_min(uint32_t id)
         return dn_lfo_lim(id, 0);
     if (id >= DN_PX_SLSEL)
         return 0;
-    return id == DN_PX_BPM ? 60 : id == DN_PX_OVL || (id >= DN_PX_CLICK && id <= DN_PX_CIN) ? 0 : id == DN_PX_OCT ? -3 : id == DN_PX_BPITCH ? -24 : id >= DN_PX_BSRC ? 0
+    return id == DN_PX_BPM ? 60 : id == DN_PX_OVL || (id >= DN_PX_CLICK && id <= DN_PX_MOVL) ? 0 : id == DN_PX_OCT ? -3 : id == DN_PX_BPITCH ? -24 : id >= DN_PX_BSRC ? 0
          : reese_param_min(id);
 }
 static int32_t dn_max(uint32_t id)
@@ -830,8 +853,8 @@ static int32_t dn_max(uint32_t id)
     if (id >= DN_PX_SLSEL)
         return id == DN_PX_SLSEL ? (int32_t)dn_bk[dn_bsel()].nslices - 1 : id == DN_PX_SLADD ? 6
              : (int32_t)dn_bk[dn_bsel()].loop.n;
-    return id == DN_PX_BPM ? 200 : id == DN_PX_OVL ? 1 : id == DN_PX_CLICK || id == DN_PX_CIN ? 2
-         : id == DN_PX_CLKLVL ? 127 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (int32_t)dn_src_count() - 1
+    return id == DN_PX_BPM ? 200 : id == DN_PX_OVL || id == DN_PX_MOVL ? 1 : id == DN_PX_CLICK || id == DN_PX_CIN ? 2
+         : id == DN_PX_CLKLVL || id == DN_PX_VSENS ? 127 : id == DN_PX_MSEL ? 4 : id == DN_PX_MCHAN ? 15 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (int32_t)dn_src_count() - 1
          : id == DN_PX_BPITCH ? 24 : id == DN_PX_BCHOKE ? 4 : id == DN_PX_BSMODE || id == DN_PX_BSTRETCH ? 2
          : id >= DN_PX_BDECAY ? 127 : reese_param_max(id);
 }
@@ -847,7 +870,8 @@ static const char *dn_name(uint32_t id)
     if (id >= DN_PX_SLSEL)
         return SN[id - DN_PX_SLSEL];
     return id == DN_PX_BPM ? "BPM" : id == DN_PX_OVL ? "OVERLAP" : id == DN_PX_CLICK ? "CLICK"
-         : id == DN_PX_CLKLVL ? "CLK LVL" : id == DN_PX_CIN ? "COUNT-IN" : id == DN_PX_OCT ? "OCT" : id >= DN_PX_BSRC ? BN[id - DN_PX_BSRC]
+         : id == DN_PX_CLKLVL ? "CLK LVL" : id == DN_PX_CIN ? "COUNT-IN" : id == DN_PX_VSENS ? "VEL SENS"
+         : id == DN_PX_MSEL ? "MIDI" : id == DN_PX_MCHAN ? "CHANNEL" : id == DN_PX_MOVL ? "OVERLAP" : id == DN_PX_OCT ? "OCT" : id >= DN_PX_BSRC ? BN[id - DN_PX_BSRC]
          : reese_param_name(id);
 }
 static void dn_text(uint32_t id, int32_t v, char out[8])
@@ -918,7 +942,11 @@ static void dn_text(uint32_t id, int32_t v, char out[8])
         out[i] = 0;
         return;
     }
-    if (id == DN_PX_OVL) {
+    if (id == DN_PX_MSEL || id == DN_PX_MCHAN) {    /* MIDI 1..5; channel 1..16 */
+        reese_param_text(RP_LEVEL, v + 1, out);
+        return;
+    }
+    if (id == DN_PX_OVL || id == DN_PX_MOVL) {
         const char *w = v ? "CUT" : "SLIDE";
         uint32_t i;
         for (i = 0; w[i]; i++)
@@ -990,6 +1018,17 @@ static void dn_set(uint32_t id, int32_t v)
         dn.clk_lvl = (uint8_t)v;
     else if (id == DN_PX_CIN)
         dn.cin = (uint8_t)v;
+    else if (id == DN_PX_VSENS)
+        dn_rs.vsens = (uint8_t)v;
+    else if (id == DN_PX_MSEL) {
+        dn.midi_sel = (uint8_t)v;
+        dn.trk = (uint8_t)(3u + dn.midi_sel);       /* (the keys play it) */
+    } else if (id == DN_PX_MCHAN)
+        dn_sq.pat.tr[3u + dn.midi_sel % 5u].chan = (uint8_t)v;
+    else if (id == DN_PX_MOVL) {
+        uint32_t b = 1u << (3u + dn.midi_sel % 5u);
+        DN_PAT_CUT(&dn_sq.pat) = (uint8_t)(v ? DN_PAT_CUT(&dn_sq.pat) | b : DN_PAT_CUT(&dn_sq.pat) & ~b);
+    }
     else if (DN_IS_LPX(id))
         dn_lfo_set(id, v);
     else {
@@ -1042,7 +1081,7 @@ static void dn_save_fill(dn_save_t *sp)
     s.set.click = dn.click;
     s.set.clk_lvl = dn.clk_lvl;
     s.set.cin = dn.cin;
-    s.set.pad = 0;
+    s.set.pad = dn_rs.vsens;                        /* (0.11: VEL SENS) */
     for (k = 0; k < DN_NLFO; k++)
         s.lfo[k] = dn_lp[k];
 #undef s
@@ -1259,6 +1298,7 @@ void dn_app_init(void)
     dn_sq.legato = 0xF9u;                           /* overlaps slide on REESE and MIDI, not on the breaks */
     dn.sounding = dn.midi_note = 0xFF;
     dn.step_held = -1;
+    dn.ramp_b = -1;
     dn.pt_held = -1;
     dn.pen = 100;
     dn.entry_len = DN_LEN_STEP;
@@ -1299,6 +1339,7 @@ void dn_app_init(void)
             dn.click = (uint8_t)dn_clamp(s.set.click, 0, 2);
             dn.clk_lvl = (uint8_t)dn_clamp(s.set.clk_lvl, 0, 127);
             dn.cin = (uint8_t)dn_clamp(s.set.cin, 0, 2);
+            dn_rs.vsens = (uint8_t)dn_clamp(s.set.pad, 0, 127);
         }
         for (k = 0; got >= (int)DN_SAVE_V08 && k < DN_NBRK; k++) {
             dn_bk[k].choke = (uint8_t)dn_clamp(s.brk2[k].choke, 0, 4);
@@ -1510,6 +1551,21 @@ static void dn_keys_seq(uint32_t keys)
         int32_t o = dn_key_ord(k);
         if (dn_is_white(k)) {
             uint32_t i = (uint32_t)o + 16u * dn.view;
+            if ((down & (1u << k)) && dn.save_held && dn.step_held < 0 && o < (int32_t)DN_NPAT) {
+                dn_pat_select(dn.trk, (uint32_t)o);   /* SAVE held + white key 1-8: this instrument's pattern */
+                dn.save_chord = 1;
+                continue;
+            }
+            if ((down & (1u << k)) && i < tr->len && dn.step_held >= 0 && dn.step_key != (int8_t)k && dn.rec_held) {
+                int32_t a = dn.step_held < (int32_t)i ? dn.step_held : (int32_t)i;   /* REC held: a velocity ramp */
+                int32_t b = dn.step_held < (int32_t)i ? (int32_t)i : dn.step_held;
+                dn.ramp_a = (int8_t)a, dn.ramp_b = (int8_t)b;
+                dn.ramp_v0 = tr->st[a].vel, dn.ramp_v1 = tr->st[b].vel;
+                dn.rec_chord = 1;
+                dn.step_edited = 1;
+                dn_say("RAMP: K3 FROM, K4 TO");
+                continue;
+            }
             if ((down & (1u << k)) && i < tr->len && dn.step_held >= 0 && dn.step_key != (int8_t)k) {
                 dn_step_drop(i);                    /* a step held, another pressed: the note goes there */
                 continue;
@@ -1518,6 +1574,8 @@ static void dn_keys_seq(uint32_t keys)
                 dn.step_held = (int8_t)i;
                 dn.step_key = (int8_t)k;
                 dn.step_edited = 0;
+                dn.step_pg = 0;
+                dn.ramp_b = -1;
                 if (drum && (tr->st[i].flags & DN_ST_ON) && tr->st[i].note != dn.drum_row) {
                     dn_lock();
                     tr->st[i].note = dn.drum_row;
@@ -1542,6 +1600,7 @@ static void dn_keys_seq(uint32_t keys)
                 }
             }
             if ((up & (1u << k)) && dn.step_held >= 0 && dn.step_key == (int8_t)k) {
+                dn.ramp_b = -1;
                 i = (uint32_t)dn.step_held;         /* (moved with SELECT: no longer under this key) */
                 if (!dn.step_edited) {
                     dn_lock();
@@ -1553,7 +1612,24 @@ static void dn_keys_seq(uint32_t keys)
                 dn.redraw |= DN_RD_BOTTOM;
             }
         } else if (down & (1u << k)) {
-            if (o < 8) {                            /* mutes */
+            if (dn.save_held && (o == 9 || o == 10)) {  /* SAVE + black key 10 / 11: copy / paste the pattern */
+                static dn_track_t clip;
+                dn_track_t *live = &dn_sq.pat.tr[dn.trk];
+                if (o == 9) {
+                    clip = *live;
+                    dn.pclip_ok = 1;
+                    dn_say("PATTERN COPIED");
+                } else if (dn.pclip_ok) {
+                    uint8_t mute = live->mute, chan = live->chan;
+                    dn_lock();
+                    *live = clip;
+                    live->mute = mute, live->chan = chan;
+                    dn_unlock();
+                    dn_mark();
+                    dn_say("PATTERN PASTED");
+                }
+                dn.save_chord = 1;
+            } else if (o < 8) {                     /* mutes */
                 dn_lock();
                 dn_sq.pat.tr[o].mute = (uint8_t)!dn_sq.pat.tr[o].mute;
                 dn_unlock();
@@ -1775,7 +1851,49 @@ static void dn_step_move(int32_t d)
 static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page */
 {
     dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
-    if (dn.step_held >= 0) {                        /* a step held: its note, length, accent, slide */
+    if (dn.step_held >= 0 && dn.ramp_b >= 0 && (k == 2u || k == 3u)) {   /* a velocity ramp: its start, its end */
+        int32_t a = dn.ramp_a, b = dn.ramp_b, i, n;
+        if (k == 2u)
+            dn.ramp_v0 = (uint8_t)dn_clamp(dn.ramp_v0 + dn_accel(127, d), 1, 127);
+        else
+            dn.ramp_v1 = (uint8_t)dn_clamp(dn.ramp_v1 + dn_accel(127, d), 1, 127);
+        dn_lock();
+        for (i = a, n = b - a; i <= b; i++)         /* the straight line from start to end, over the steps between */
+            tr->st[i].vel = (uint8_t)(n ? dn.ramp_v0 + ((int32_t)dn.ramp_v1 - dn.ramp_v0) * (i - a) / n : dn.ramp_v0);
+        dn_unlock();
+        dn.step_edited = 1;
+        dn_mark();
+        return;
+    }
+    if (dn.step_held >= 0 && dn.step_pg) {         /* a step held, FX's second / third page */
+        dn_step_t *st = &tr->st[dn.step_held];
+        dn_lock();
+        if (dn.step_pg == 1u) {                     /* SLIDE (break: reverse), ACCENT, RETRIG, its RATE */
+            if (k == 0u)
+                st->flags = (uint8_t)(d > 0 ? st->flags | DN_ST_SLIDE : st->flags & ~DN_ST_SLIDE);
+            else if (k == 1u)
+                st->flags = (uint8_t)(d > 0 ? st->flags | DN_ST_ACC : st->flags & ~DN_ST_ACC);
+            else if (k == 2u)
+                st->flags = (uint8_t)(d > 0 ? st->flags | DN_ST_RTRG : st->flags & ~DN_ST_RTRG);
+            else
+                st->rtim = (uint8_t)dn_clamp(st->rtim + d, 0, DN_RTIM_N - 1);
+        } else {                                    /* the retrigs' LENGTH (0: the note's), their VELOCITY curve */
+            if (k == 0u) {
+                int32_t l = st->rlen, n = d < 0 ? -d : d;
+                while (n--)
+                    l = dn_clamp(l + (d < 0 ? -1 : 1) * (l < 8 ? 1 : l < 32 ? 2 : 4), 0, DN_LEN_MAX);
+                st->rlen = (uint8_t)l;
+            } else if (k == 1u) {
+                st->rvel = (int8_t)dn_clamp(st->rvel + d * 8, -127, 127);
+            }
+        }
+        dn_unlock();
+        dn.step_edited = 1;
+        dn_mark();
+        return;
+    }
+    if (dn.step_held >= 0) {                        /* a step held: its NOTE (break: slice), LENGTH, VELOCITY,
+                                                     * CONDITION (Digitakt's: %, FILL, PRE, NEI, 1ST, LST, A:B) */
         dn_step_t *st = &tr->st[dn.step_held];
         dn_lock();
         if (k == 0u) {
@@ -1793,9 +1911,9 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
             st->len = (uint8_t)l;
         }
         else if (k == 2u)
-            st->flags = (uint8_t)(d > 0 ? st->flags | DN_ST_ACC : st->flags & ~DN_ST_ACC);
+            st->vel = (uint8_t)dn_clamp(st->vel + dn_accel(127, d), 1, 127);
         else
-            st->flags = (uint8_t)(d > 0 ? st->flags | DN_ST_SLIDE : st->flags & ~DN_ST_SLIDE);
+            st->cond = (uint8_t)dn_clamp(st->cond + d, 0, DN_CO_N - 1);
         dn_unlock();
         dn.step_edited = 1;
         dn_mark();
@@ -1893,6 +2011,10 @@ static void dn_goto(uint32_t page)
     if (dn.page != page) {
         dn.page = (uint8_t)page;
         dn.step_held = -1;
+        if (DN_IS_SNDPG(page))
+            dn.trk = 0;                             /* REESE's pages: the keys play REESE */
+        else if (page == DN_PG_MIDI)
+            dn.trk = (uint8_t)(3u + dn.midi_sel % 5u);
         if (page == DN_PG_ROLL) {                   /* ROLL edits a synth or MIDI track; DRUM a break track */
             if (DN_IS_BRK(dn.trk))
                 dn.trk = 0;
@@ -2356,17 +2478,49 @@ void dn_app_input(void)
                     dn.redraw |= DN_RD_ALL;
                 }
             } else
-                dn_goto(k == 4u && dn.page == 4u ? DN_PG_SET : k);   /* GLO again: OUT's second page, SETUP */
+                dn_goto(k != 4u ? k : dn.page == 4u ? DN_PG_SET : dn.page == DN_PG_SET ? DN_PG_MIDI : 4u);   /* GLO
+                                                     * again: SETUP, then the MIDI instruments, then OUT */
         break;
     }
-    if (press & (1u << B_SEQ))                      /* SEQ: the overview, then ROLL, then DRUM, then round again */
-        dn_goto(dn.page == DN_PG_SEQ ? DN_PG_ROLL : dn.page == DN_PG_ROLL ? DN_PG_DRUM : DN_PG_SEQ);
+    if (press & (1u << B_SEQ)) {                    /* SEQ: this instrument's sequencer page; again: back */
+        if (DN_IS_SEQPG(dn.page)) {
+            dn_goto(dn.back_page);
+        } else {
+            uint32_t back = dn.page;
+            if (DN_IS_BRKPG(dn.page)) {
+                dn_goto(DN_PG_DRUM);                /* (the break the BRK pages show) */
+            } else {
+                dn.trk = dn.page == DN_PG_MIDI ? (uint8_t)(3u + dn.midi_sel % 5u) : 0u;
+                dn_goto(DN_PG_ROLL);
+            }
+            dn.back_page = (uint8_t)back;
+        }
+    }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_LFO) {   /* LFO: the main knobs, MORE, DRAW (a DRAW shape) */
         dn.lfo_view = (uint8_t)((dn.lfo_view + 1u) % (dn_lp[dn.lfo_sel % DN_NLFO].shape == DN_LS_DRAW ? 3u : 2u));
         dn.pt_held = -1;
         dn.redraw |= DN_RD_ALL;
     }
-    if ((press & (1u << B_FX)) && dn.page == DN_PG_ROLL) {
+    if ((press & (1u << B_FX)) && dn.page == DN_PG_DRUM && dn.save_held && dn.step_held < 0 && DN_IS_BRK(dn.trk)) {
+        dn_track_t *tr = &dn_sq.pat.tr[dn.trk];     /* SAVE + FX on a break's grid: the break straight, each step its
+                                                     * own slice (the hit nearest it) */
+        const dn_brk_t *bk = &dn_bk[dn.trk - 1u];
+        uint32_t i, gs = dn_brk_grid_slices(bk);
+        dn_lock();
+        for (i = 0; i < tr->len; i++) {
+            dn_step_clear(&tr->st[i]);
+            tr->st[i].flags = DN_ST_ON;
+            tr->st[i].note = (uint8_t)dn_brk_slice_at(bk, i % gs, gs);
+            tr->st[i].len = DN_LEN_STEP;
+        }
+        dn_unlock();
+        dn.save_chord = 1;
+        dn_mark();
+        dn_say("THE BREAK, STRAIGHT");
+    } else if ((press & (1u << B_FX)) && DN_IS_SEQPG(dn.page) && dn.step_held >= 0) {
+        dn.step_pg = (uint8_t)((dn.step_pg + 1u) % 3u);   /* a step held: its next four values on the knobs */
+        dn.redraw |= DN_RD_ALL;
+    } else if ((press & (1u << B_FX)) && dn.page == DN_PG_ROLL) {
         dn.roll_keys = (uint8_t)!dn.roll_keys;      /* ROLL: STEP <-> KEYS */
         dn.roll_cur = (uint8_t)(16u * dn.view);
         dn.redraw |= DN_RD_ALL;
@@ -2398,10 +2552,31 @@ void dn_app_input(void)
         dn_unlock();
         dn.redraw |= DN_RD_ALL;
     }
-    if (press & (1u << B_REC)) {
+    if ((press & (1u << B_REC)) && DN_IS_SEQPG(dn.page)) {
+        dn.rec_held = 1;                            /* a sequencer page: REC acts as it comes up, unless it was used
+                                                     * with the steps (a velocity ramp) */
+        dn.rec_chord = 0;
+    } else if (press & (1u << B_REC)) {
         dn.rec = (uint8_t)!dn.rec;
         dn.rec_cur = 0;
         dn.redraw |= DN_RD_ALL;
+    }
+    if (dn.rec_held && !(btn & (1u << B_REC))) {
+        dn.rec_held = 0;
+        if (!dn.rec_chord) {
+            dn.rec = (uint8_t)!dn.rec;
+            dn.rec_cur = 0;
+            dn.redraw |= DN_RD_ALL;
+        }
+    }
+    {   /* FILL: HOME held on a sequencer page (not ROLL's KEYS, where HOME is a rest) */
+        uint8_t f = DN_IS_SEQPG(dn.page) && !(dn.page == DN_PG_ROLL && dn.roll_keys) && (btn & (1u << B_HOME));
+        if (f != dn_sq.fill) {
+            dn_sq.fill = f;
+            dn.redraw |= DN_RD_ALL;
+        }
+        if (DN_IS_SEQPG(dn.page) && !(dn.page == DN_PG_ROLL && dn.roll_keys))
+            press &= ~(1u << B_HOME);
     }
     if ((press & (1u << B_HOME)) && dn.page == DN_PG_ROLL && dn.roll_keys) {   /* ROLL KEYS: a rest */
         dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
@@ -2422,17 +2597,10 @@ void dn_app_input(void)
     if ((d = plat_enc(EN_SELECT)) != 0) {
         if (DN_IS_SEQPG(dn.page) && dn.step_held >= 0) {
             dn_step_move(d);                        /* a step held: it moves in time */
-        } else if (dn.page == DN_PG_SEQ) {
-            dn_seq_knob(0, d > 0 ? 1 : -1);         /* the track */
-        } else if (dn.page == DN_PG_ROLL) {         /* the next synth / MIDI track (not the breaks) */
-            int32_t t = dn.trk;
-            do
-                t = (t + (d > 0 ? 1 : -1) + (int32_t)DN_SEQ_TRACKS) % (int32_t)DN_SEQ_TRACKS;
-            while (DN_IS_BRK((uint32_t)t));
-            dn.trk = (uint8_t)t;
-            dn.view = 0;
-            dn_roll_fit();
-            dn.redraw |= DN_RD_ALL;
+        } else if (dn.page == DN_PG_ROLL) {
+            /* (an instrument's page: SELECT moves a held note; the instrument is chosen on its sound pages) */
+        } else if (dn.page == DN_PG_MIDI) {
+            dn_set(DN_PX_MSEL, (int32_t)dn.midi_sel + (d > 0 ? 1 : -1));
         } else if (DN_IS_BRKPG(dn.page) || dn.page == DN_PG_DRUM) {
             dn.trk = dn.trk == 1u ? 2u : 1u;        /* BREAKS A <-> B */
             dn_sl_fix();
@@ -2464,6 +2632,8 @@ void dn_app_input(void)
                 dn_lfo_draw_knob(k, d);
             } else {
                 uint32_t id = dn_dial(k);
+                if (id == DN_PX_NONE)
+                    continue;
                 dn_set(id, dn_get(id) + (id == DN_PX_BSRC ? (d > 0 ? 1 : -1) : dn_accel(dn_max(id) - dn_min(id), d)));
             }
         }
@@ -3163,16 +3333,46 @@ static void dn_draw_drum(void)
 
 /* the tab row's pages: the sound pages (SELECT cycles them), the sequencer's (SEQ), the breaks' (ARP) */
 #define DN_MAXTABS 8u
+/* the instrument a track is, by name */
+static const char *dn_inst_name(uint32_t t)
+{
+    static const char *const N[DN_SEQ_TRACKS] = {"REESE", "BRK A", "BRK B", "MIDI 1", "MIDI 2", "MIDI 3", "MIDI 4",
+                                                 "MIDI 5"};
+    return N[t % DN_SEQ_TRACKS];
+}
+/* a sequencer page's tab row: the instrument, then its 8 patterns (the playing one lit, a queued one flashing, the
+ * ones with notes marked), then how full pattern memory is */
+static void dn_draw_pat_tabs(void)
+{
+    uint32_t t = dn.trk, n, used = dn_pat_used(t), pct = dn_pat_notes() * 100u / dn_pat_room();
+    int32_t x = 66;
+    char v[8];
+    cv_rect(0, 0, 64, 17, DN_C_BLUE);
+    cv_text(32 - text_w(&FONT_T, dn_inst_name(t)) / 2, 3, &FONT_T, dn_inst_name(t), DN_C_BAR);
+    for (n = 0; n < DN_NPAT; n++, x += 17) {
+        int cur = n == dn_pcur[t], q = n == dn_pq[t] && (plat_ms() / 200u) % 2u == 0u;
+        uint16_t bg = cur ? C_WHITE : q ? DN_C_BLUE : DN_C_PANEL;
+        cv_rect(x, 1, 15, 15, bg);
+        v[0] = (char)('1' + n), v[1] = 0;
+        cv_text(x + 8 - text_w(&FONT_T, v) / 2, 3, &FONT_T, v, cur || q ? DN_C_BAR : (used >> n & 1u) ? C_WHITE
+                                                                                           : DN_C_DIMTXT);
+        if ((used >> n & 1u) && !cur)
+            cv_rect(x + 2, 13, 11, 2, DN_C_BLUE_D);
+    }
+    dn_num(v, (int32_t)pct);
+    dn_cat(v, "%");
+    cv_text(238 - text_w(&FONT_T, v), 3, &FONT_T, v, pct > 90u ? DN_C_RED : DN_C_DIMTXT);
+}
+
 static uint32_t dn_tabs(uint8_t *ids, const char **nms)
 {
-    static const uint8_t SEQ_T[3] = {DN_PG_SEQ, DN_PG_ROLL, DN_PG_DRUM};
-    static const char *const SEQ_N[3] = {"OVERVIEW", "ROLL", "DRUM"};
     static const uint8_t BRK_T[3] = {DN_PG_BRK, DN_PG_BRK2, DN_PG_SLICE};
     static const char *const BRK_N[3] = {"BRK", "BRK2", "SLICE"};
+    static const char *const MN[5] = {"MIDI 1", "MIDI 2", "MIDI 3", "MIDI 4", "MIDI 5"};
     uint32_t k, n = 0;
-    if (DN_IS_SEQPG(dn.page))
-        for (k = 0; k < 3u; k++)
-            ids[n] = SEQ_T[k], nms[n++] = SEQ_N[k];
+    if (dn.page == DN_PG_MIDI)                      /* the MIDI instruments (SELECT: the next) */
+        for (k = 0; k < 5u; k++)
+            ids[n] = k == dn.midi_sel ? DN_PG_MIDI : 0xFFu, nms[n++] = MN[k];
     else if (DN_IS_BRKPG(dn.page))
         for (k = 0; k < 3u; k++)
             ids[n] = BRK_T[k], nms[n++] = BRK_N[k];
@@ -3194,7 +3394,9 @@ static void dn_draw_bottom(void)
     {   /* the page tabs: the pages of this group only (the ones its button / SELECT cycle through) */
         uint8_t ids[DN_MAXTABS];
         const char *nms[DN_MAXTABS];
-        uint32_t n = dn_tabs(ids, nms), w;
+        uint32_t n = DN_IS_SEQPG(dn.page) ? 0u : dn_tabs(ids, nms), w;
+        if (DN_IS_SEQPG(dn.page))
+            dn_draw_pat_tabs();                     /* an instrument's sequencer: its name, its 8 patterns */
         for (k = 0, x = 0; k < n; k++) {
             int on = ids[k] == dn.page;
             w = k == n - 1u ? 240u - (uint32_t)x : 240u / n;
@@ -3255,7 +3457,8 @@ static void dn_draw_bottom(void)
     cv_rect(0, 17, 240, 104, DN_C_PANEL);
     cv_rect(0, 17, 240, 1, DN_C_EDGE);
     for (k = 0; k < 4u; k++)
-        dn_knob(30 + 60 * (int32_t)k, 67, dn_dial(k), 1);
+        if (dn_dial(k) != DN_PX_NONE)
+            dn_knob(30 + 60 * (int32_t)k, 67, dn_dial(k), 1);
     /* the status line */
     cv_rect(0, 121, 240, 23, DN_C_BAR);
     t[0] = 'O'; t[1] = 'C'; t[2] = 'T'; t[3] = ' ';
@@ -3337,7 +3540,7 @@ void dn_app_draw(int force)
     if (dn.redraw & DN_RD_BOTTOM)
         dn_draw_bottom();
     dn.redraw = 0;
-    lit |= 1u << (DN_IS_SEQPG(dn.page) ? B_SEQ : DN_IS_BRKPG(dn.page) ? B_ARP : dn.page == DN_PG_SET ? B_GLO
+    lit |= 1u << (DN_IS_SEQPG(dn.page) ? B_SEQ : DN_IS_BRKPG(dn.page) ? B_ARP : dn.page == DN_PG_SET || dn.page == DN_PG_MIDI ? B_GLO
                   : dn.page == DN_PG_LFO ? B_LFO : DN_PAGE_BTN[dn.page]);
     if (dn.page == DN_PG_LFO && dn.lfo_view)
         lit |= 1u << B_FX;

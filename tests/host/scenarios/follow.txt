@@ -2,7 +2,6 @@
 # the window scrolls with it; SELECT moves the held note in time, over the other notes, and the 16 steps in view
 # follow it into bar 3. DRUM: the slice rows follow too.
 tap SEQ
-tap SEQ
 expect page 7
 expect rolllo 46
 key 0 down
@@ -58,6 +57,8 @@ expect st.1.1 1
 expect nt.1.1 65
 expect on.1 7
 # DRUM: a slice on step 1, held, KNOB 1 down the slices: the rows scroll
+tap SEQ
+tap ARP
 tap SEQ
 expect page 8
 tapkey 0 60

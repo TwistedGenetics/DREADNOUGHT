@@ -1,4 +1,6 @@
 # DREADNOUGHT host scenario: the 8-track sequencer from the panel. tests/run_host.sh runs it.
+# (0.11: SEQ opens the instrument's own page: REESE's piano roll from REESE's pages, a break's grid from BRK, a MIDI
+# instrument's roll from the MIDI page (GLO: OUT, SETUP, MIDI); SEQ again goes back)
 # White keys (steps 1..16): 0 2 4 6 7 9 11 12 14 16 18 19 21 23 24 26.
 # Black keys: 1 3 5 8 10 13 15 17 = mute tracks 1..8; 20 = hold to clear; 22 / 25 = steps in view - / +.
 # First boot: the demo reese line on track 1
@@ -13,7 +15,8 @@ expect clocks >185
 expect clocks <200
 expect peak >6000
 tap SEQ
-expect page 5
+expect page 7
+expect trk 1
 wait 300
 shot seq-01-playing.png
 wavstop
@@ -22,10 +25,11 @@ tapkey 7 80
 expect on.1 8
 tapkey 7 80
 expect on.1 7
-# hold step 1, KNOB 1 up three semitones, KNOB 4 right: slide; letting go keeps it on
+# hold step 1, KNOB 1 up three semitones, FX (the second four values), KNOB 1 right: slide; letting go keeps it on
 key 0 down
 turn K1 3
-turn K4 1
+tap FX
+turn K1 1
 shot seq-02-step-held.png
 key 0 up
 expect nt.1.1 56
@@ -36,22 +40,36 @@ expect mute.1 1
 shot seq-03-muted.png
 tapkey 1 50
 expect mute.1 0
-# track 4 (MIDI channel 4): a step, a shorter length, its notes go out on MIDI
-turn K1 3
+# track 4 (MIDI 1, channel 4): SEQ back, GLO x3 (OUT, SETUP, MIDI), SEQ: its roll; a step, a shorter length
+tap SEQ
+expect page 0
+tap GLO
+tap GLO
+tap GLO
+expect page 13
+expect trk 4
+tap SEQ
+expect page 7
 expect trk 4
 tapkey 0 80
 expect on.4 1
-turn K2 -4
+turn K3 -4
 expect len.4 4
 wait 1000
 expect midinotes >1
-# swing
+# swing (a break's grid: KNOB 3): SEQ back, ARP, SEQ
+tap SEQ
+tap ARP
+tap SEQ
+expect page 8
 turn K3 6
 expect swing 60
 tap PLAY
 expect playing 0
-# step record into track 1: clear it first (black key 9 held 1 s)
-turn K1 -3
+# step record into track 1: REESE's roll, clear it first (black key 9 held 1 s)
+tap SEQ
+tap SEL
+tap SEQ
 expect trk 1
 key 20 down
 wait 1200

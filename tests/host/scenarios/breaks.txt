@@ -1,38 +1,27 @@
 # DREADNOUGHT host scenario: BREAKS from the panel. tests/run_host.sh runs it.
 # Tracks 2 and 3 are BREAKS A and B (the built-in ROLLER and STEPPER); a step's note is its slice, its slide: reverse.
 # The demo pattern has no break steps: mute the reese and fill track 2 with the break in order.
+tap ARP
 tap SEQ
+expect page 8
 tapkey 1 50
 expect mute.1 1
-turn K1 1
 expect trk 2
-# all 16 white keys: each step gets its own slice (straight break)
-tapkey 0 40
-tapkey 2 40
-tapkey 4 40
-tapkey 6 40
-tapkey 7 40
-tapkey 9 40
-tapkey 11 40
-tapkey 12 40
-tapkey 14 40
-tapkey 16 40
-tapkey 18 40
-tapkey 19 40
-tapkey 21 40
-tapkey 23 40
-tapkey 24 40
-tapkey 26 40
+# SAVE + FX: the break straight, each of the 16 steps its own slice
+press SAVE
+tap FX
+release SAVE
 expect on.2 16
 expect nt.2.5 4
 expect ln.2.5 4
 # chop: step 13 plays slice 5, step 16 reversed
+turn K1 5
 key 21 down
-turn K1 -7
 key 21 up
 expect nt.2.13 5
 key 26 down
-turn K4 1
+tap FX
+turn K1 1
 key 26 up
 expect st.2.16 3
 shot brk-01-seq.png

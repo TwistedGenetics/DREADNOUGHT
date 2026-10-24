@@ -219,7 +219,7 @@ void reese_note_on(reese_t *r, uint8_t note, uint8_t vel, int legato)
 {
     uint32_t j;
     int32_t t = ((int32_t)note + r->p[RP_TRANS]) * 256;
-    (void)vel;
+    r->vel = vel ? vel : 1;
     r->note = note;
     r->target256 = t;
     if (legato && r->gate && r->active && r->p[RP_GLIDE]) {      /* a slide: no new attack */
@@ -291,6 +291,8 @@ static void rs_control(reese_t *r)
     }
     r->amp_now = r->amp_next;
     r->amp_next = (int32_t)(((int64_t)(r->aenv >> 9) * RS_M(r, RP_LEVEL, 0, 127) * 258) >> 15);   /* Q15 */
+    if (r->vsens)                                         /* velocity: down to (1 - VEL SENS) of it at velocity 0 */
+        r->amp_next = r->amp_next * (127 * 127 - (int32_t)r->vsens * (127 - (int32_t)r->vel)) / (127 * 127);
 }
 
 void reese_render(reese_t *r, int32_t *lr, uint32_t n)

@@ -1,7 +1,6 @@
 # DREADNOUGHT host scenario (0.9): the LFOs heard. A break on track 2, REESE's line; LFO 1 a drawn 1/8 wobble on the
 # cutoff; then LFO 2 a 1/4T sine on the pitch; then the count-in and click.
-tap SEQ
-tap SEQ
+tap ARP
 tap SEQ
 expect page 8
 tapkey 0 60

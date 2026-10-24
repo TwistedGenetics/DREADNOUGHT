@@ -4,7 +4,6 @@
 # White keys (steps 1..16): 0 2 4 6 7 9 11 12 14 16 18 19 21 23 24 26. Black keys: 10 = key 22, 11 = key 25.
 # The demo's notes: steps 1 (53), 4, 7, 8, 11, 13, 15.
 tap SEQ
-tap SEQ
 expect page 7
 expect on.1 7
 # step 1 held, step 2 pressed: moved
