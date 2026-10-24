@@ -426,3 +426,16 @@ sound's values, USER 1 and a reboot keeping them, SUB's apart); the editor again
 
 Saves made on 0.19 and 0.20 were never affected. A project lost to an earlier update can't be brought back by this
 (it was replaced at the next SAVE); a project saved to the computer from the editor's Project tab can be loaded again.
+
+## 0.22 — pick an instrument with HOME + SELECT; name the project and your sounds (2026-10-24)
+
+- **HOME held + SELECT** steps through the 8 tracks, straight to each instrument's pages (the status line names it:
+  "T3 BRK B"). On its own HOME does what it did, on letting go: holds a note on a sound page, a rest in ROLL's KEYS,
+  FILL while held on a sequencer page (not while picking).
+- **Names.** SAVE held + FX on PROJECT names the project (11 letters); on REESE's or SUB's pages it names the user
+  sound loaded (8 letters). Storing a sound (SAVE + PRESETS) opens the name editor at once, with the name of the sound
+  it came from. KNOB 1 / SELECT the place, KNOB 2 / PRESETS the letter, SAVE keeps (and saves), HOME cancels. The names
+  show on the top bar, in PRESETS and in the editor's lists; they're kept with the manual slices (older saves load).
+
+Tested: host scenario `names.txt` (picking tracks and their pages, naming and cancelling, a stored sound's name, all
+over a reboot); `patches.txt` and `fenv.txt` updated for the editor that opens after storing.

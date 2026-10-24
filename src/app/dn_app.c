@@ -306,6 +306,9 @@ static struct {
     uint8_t lfo_sel, lfo_view;                      /* the LFO page: which LFO (1-4 of the synth's); MAIN / MORE / DRAW */
     uint8_t lfo_force;
     uint8_t store;                                  /* SAVE + PRESETS: the user slot to store into (1-8; 0 none) */
+    uint8_t naming, nm_set, nm_slot, nm_len, nm_cur; /* (0.22) the name editor: 1 the project, 2 a user sound */
+    char nm[12];
+    uint8_t home_chord;                             /* HOME held and SELECT turned: an instrument picked */
     uint8_t fx_exact;                               /* (the editor sets an effect: no skipping past ones that don't fit) */                              /* the editor: the LFO values read set 1 (REESE) / 2 (SUB), 0: by page */
     uint8_t midi_sel;                               /* the MIDI page: MIDI 1..n (the tracks that play MIDI, in order) */
     uint8_t bk_last;                                /* the break the BRK pages showed last (0 A, 1 B) */
@@ -889,10 +892,13 @@ typedef struct {
     uint8_t n, pad[3];
     uint16_t st[DN_BRK_MAXSL];                      /* where each slice starts, in 4-sample units */
 } dn_man_t;
-static struct {
+typedef struct {
     uint32_t magic, count;
     dn_man_t t[DN_MAN_N];
-} dn_man X0X_POOL;
+    char uname[2][DN_NUSER][8];                     /* (0.22) the user sounds' names, REESE's and SUB's ("": USER n) */
+} dn_mans_t;
+static dn_mans_t dn_man X0X_POOL;
+#define DN_MAN_V021 (offsetof(dn_mans_t, uname))    /* (before 0.22: the slices only) */
 typedef char dn_man_fits[sizeof dn_man <= PLAT_STORE_MAX ? 1 : -1];
 
 static dn_man_t *dn_man_find(uint32_t key)
@@ -1704,6 +1710,13 @@ static const char *dn_sound_name(uint32_t set, uint32_t i)
     if (i < nf)
         return set ? dn_sub_preset_name(i) : reese_preset_name(i);
     i -= nf;
+    if (dn_user[set][i % DN_NUSER].used && dn_man.uname[set][i % DN_NUSER][0]) {   /* (0.22: its own name) */
+        uint32_t j;
+        for (j = 0; j < 8u; j++)
+            t[set][j] = dn_man.uname[set][i % DN_NUSER][j];
+        t[set][8] = 0;
+        return t[set];
+    }
     t[set][0] = 'U', t[set][1] = 'S', t[set][2] = 'E', t[set][3] = 'R', t[set][4] = ' ';
     t[set][5] = (char)('1' + i % DN_NUSER), t[set][6] = 0;
     if (!dn_user[set][i % DN_NUSER].used)
@@ -2090,9 +2103,20 @@ void dn_app_init(void)
         dn.rec_step[k] = 0xFF;
     dn_pat_load();
     dn.redraw = DN_RD_ALL;
-    if (plat_store_load(OBJ_SONG, &dn_man, sizeof dn_man) != (int)sizeof dn_man || dn_man.magic != DN_MAN_MAGIC ||
+    got = plat_store_load(OBJ_SONG, &dn_man, sizeof dn_man);
+    if ((got != (int)sizeof dn_man && got != (int)DN_MAN_V021) || dn_man.magic != DN_MAN_MAGIC ||
         dn_man.count > DN_MAN_N)
         dn_man.magic = dn_man.count = 0;            /* (no manual slices yet) */
+    if (got != (int)sizeof dn_man || dn_man.magic != DN_MAN_MAGIC) {   /* (no names yet) */
+        uint8_t *z = (uint8_t *)dn_man.uname;
+        for (k = 0; k < sizeof dn_man.uname; k++)
+            z[k] = 0;
+    }
+    for (k = 0; k < sizeof dn_man.uname; k++) {    /* (printable, ended) */
+        char *c = &dn_man.uname[0][0][0] + k;
+        if (*c < 32 || *c > 126)
+            *c = 0;
+    }
     got = plat_store_load(OBJ_SOUND, &s, sizeof s);
     /* any save from 0.4 on (0.20.1: by its length, not an exact list: a save is its struct's size, padded to 4 bytes,
      * and the list held the unpadded offsets, so a save from 0.14, 0.15 or 0.16-0.18 was turned away and the FM-1
@@ -3308,14 +3332,114 @@ static void dn_copy_paste(int paste)
     dn_mark();
 }
 
+/* ---- the name editor (0.22): the project's name, or a user sound's. KNOB 1 / SELECT the place, KNOB 2 / PRESETS the
+ * letter there, SAVE keeps it (and saves), HOME leaves it as it was ---- */
+static const char DN_NM_CH[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-#&!.+";
+static void dn_name_open(uint32_t what, uint32_t set, uint32_t slot, const char *from)
+{
+    uint32_t i, len = what == 1u ? 11u : 8u, n = 0;
+    dn.naming = (uint8_t)what, dn.nm_set = (uint8_t)set, dn.nm_slot = (uint8_t)slot, dn.nm_len = (uint8_t)len;
+    while (from && n < len && from[n])
+        n++;
+    for (i = 0; i < len; i++) {
+        char c = i < n ? from[i] : ' ';
+        if (c >= 'a' && c <= 'z')
+            c = (char)(c - 32);
+        dn.nm[i] = c;
+    }
+    dn.nm[len] = 0;
+    dn.nm_cur = (uint8_t)(n < len ? n : len - 1u);
+    dn.redraw |= DN_RD_ALL;
+}
+static void dn_name_input(uint32_t press)
+{
+    int32_t d, k;
+    uint32_t i;
+    if ((d = plat_enc(EN_K1)) != 0 || (d = plat_enc(EN_SELECT)) != 0)
+        dn.nm_cur = (uint8_t)dn_clamp((int32_t)dn.nm_cur + d, 0, (int32_t)dn.nm_len - 1);
+    if ((d = plat_enc(EN_K2)) != 0 || (d = plat_enc(EN_PRESET)) != 0) {
+        int32_t n = (int32_t)sizeof DN_NM_CH - 1, at = 0;
+        for (k = 0; k < n; k++)
+            if (DN_NM_CH[k] == dn.nm[dn.nm_cur])
+                at = k;
+        dn.nm[dn.nm_cur] = DN_NM_CH[((at + d) % n + n) % n];
+    }
+    (void)plat_enc(EN_K3), (void)plat_enc(EN_K4), (void)plat_enc(EN_ALGO);   /* (the others do nothing here) */
+    if (press & (1u << B_SAVE)) {                   /* keep it: trailing spaces off, saved */
+        char out[12];
+        uint32_t len = dn.nm_len;
+        while (len && dn.nm[len - 1u] == ' ')
+            len--;
+        for (i = 0; i < 12u; i++)
+            out[i] = i < len ? dn.nm[i] : 0;
+        if (dn.naming == 1u) {
+            if (!len)
+                out[0] = 'P', out[1] = '1', out[2] = 0;
+            for (i = 0; i < sizeof dn_pname; i++)
+                dn_pname[i] = i < 11u ? out[i] : 0;
+        } else {
+            for (i = 0; i < 8u; i++)
+                dn_man.uname[dn.nm_set][dn.nm_slot % DN_NUSER][i] = out[i];
+        }
+        dn.naming = 0;
+        dn_rev++;
+        dn_save();
+        dn_say("NAMED");
+        dn.redraw |= DN_RD_ALL;
+    } else if (press & (1u << B_HOME)) {
+        dn.naming = 0;
+        dn_say("NAME LEFT AS IT WAS");
+        dn.redraw |= DN_RD_ALL;
+    } else if (press || d) {
+        dn.redraw |= DN_RD_BOTTOM;
+    }
+    dn.redraw |= DN_RD_BOTTOM;
+}
+
 void dn_app_input(void)
 {
-    uint32_t btn = plat_buttons(), keys = plat_keys(), press = btn & ~dn.btn_prev, k;
+    uint32_t btn = plat_buttons(), keys = plat_keys(), press = btn & ~dn.btn_prev, rel = dn.btn_prev & ~btn, k;
     int32_t d;
     dn.btn_prev = btn;
     if (keys != dn.keys_raw)
         dn_keys(keys);
     dn_chops_flush();
+    if (dn.naming) {                                /* (0.22) the name editor has the controls */
+        dn_name_input(press);
+        return;
+    }
+    /* (0.22) HOME held + SELECT: the next / last track and its instrument's pages (HOME's own job then waits: a hold
+     * on release, chop deletes cancelled, no FILL) */
+    if (press & (1u << B_HOME))
+        dn.home_chord = 0;
+    if ((btn & (1u << B_HOME)) && (d = plat_enc(EN_SELECT)) != 0) {
+        static char t[24];
+        uint32_t tr = (uint32_t)(((int32_t)dn.trk + d) % (int32_t)DN_SEQ_TRACKS + (int32_t)DN_SEQ_TRACKS) % DN_SEQ_TRACKS;
+        dn.home_chord = 1;
+        dn.home_done = 1;                           /* (SLICE: no chop deleted when HOME comes up) */
+        dn_sq.fill = 0;
+        dn_trk_go(tr);
+        t[0] = 'T', t[1] = (char)('1' + tr), t[2] = ' ', t[3] = 0;
+        dn_cat(t, dn_inst_name(tr));
+        dn_say(t);
+    }
+    /* (0.22) SAVE held + FX: name the project (PROJECT) or the user sound loaded (a synth's pages) */
+    if ((press & (1u << B_FX)) && dn.save_held && !DN_IS_SEQPG(dn.page) && dn.page != DN_PG_SLICE) {
+        if (dn.page == DN_PG_PROJ) {
+            dn_name_open(1u, 0u, 0u, dn_pname);
+            press &= ~(1u << B_FX);
+            dn.save_chord = 1;
+        } else if (DN_IS_SNDPG(dn.page) && DN_IS_SYN(dn.trk)) {
+            uint32_t set = DN_IS_SUB(dn.trk) ? 1u : 0u, nf = set ? dn_sub_preset_count() : reese_preset_count();
+            uint32_t cur = set ? dn.sb_preset : dn.preset;
+            if (cur >= nf && dn_user[set][(cur - nf) % DN_NUSER].used)
+                dn_name_open(2u, set, (cur - nf) % DN_NUSER, dn_sound_name(set, cur));
+            else
+                dn_say("STORE IT FIRST: SAVE+PRESETS");
+            press &= ~(1u << B_FX);
+            dn.save_chord = 1;
+        }
+    }
     if (dn.page == DN_PG_SLICE) {                   /* chop mode's buttons (before the usual ones take them) */
         dn_brk_t *bk = &dn_bk[dn_bsel()];
         if ((press & (1u << B_REC)) && dn.save_held) {   /* SAVE + REC: a chop between the others, at the cursor (or
@@ -3382,8 +3506,13 @@ void dn_app_input(void)
     if (dn.save_held && !(btn & (1u << B_SAVE))) {
         dn.save_held = 0;
         if (dn.store) {                             /* SAVE + PRESETS: the synth's sound into that user slot, kept */
-            uint32_t set = DN_IS_SUB(dn.trk) ? 1u : 0u, u = dn.store - 1u;
+            uint32_t set = DN_IS_SUB(dn.trk) ? 1u : 0u, u = dn.store - 1u, j;
             static char t[16];
+            char was[10];                           /* (0.22: the name it goes in with: the sound's own) */
+            const char *w = dn_sound_name(set, set ? dn.sb_preset : dn.preset);
+            for (j = 0; j < 9u; j++)
+                was[j] = w[j];
+            was[9] = 0;
             dn_patch_store(set, &dn_user[set][u]);
             if (set)
                 dn.sb_preset = (uint8_t)(dn_sub_preset_count() + u);
@@ -3395,6 +3524,10 @@ void dn_app_input(void)
             dn_cat(t, "STORED USER ");
             t[12] = (char)('1' + u), t[13] = 0;
             dn_say(t);
+            for (j = 0; j < 8u; j++)
+                dn_man.uname[set][u][j] = 0;        /* (a new sound in the slot: its old name goes) */
+            dn_name_open(2u, set, u, was[0] == 'U' && was[1] == 'S' && was[4] == ' ' && was[5] >= '1' && was[5] <= '8'
+                                         ? "" : was);   /* (then a name for it: SAVE keeps, HOME leaves "USER n") */
         } else if (!dn.save_chord)
             dn_save();
     }
@@ -3556,7 +3689,8 @@ void dn_app_input(void)
         }
     }
     {   /* FILL: HOME held on a sequencer page (not ROLL's KEYS, where HOME is a rest) */
-        uint8_t f = DN_IS_SEQPG(dn.page) && !(dn.page == DN_PG_ROLL && dn.roll_keys) && (btn & (1u << B_HOME));
+        uint8_t f = DN_IS_SEQPG(dn.page) && !(dn.page == DN_PG_ROLL && dn.roll_keys) && (btn & (1u << B_HOME)) &&
+                    !dn.home_chord;
         if (f != dn_sq.fill) {
             dn_sq.fill = f;
             dn.redraw |= DN_RD_ALL;
@@ -3564,7 +3698,8 @@ void dn_app_input(void)
         if (DN_IS_SEQPG(dn.page) && !(dn.page == DN_PG_ROLL && dn.roll_keys))
             press &= ~(1u << B_HOME);
     }
-    if ((press & (1u << B_HOME)) && dn.page == DN_PG_ROLL && dn.roll_keys) {   /* ROLL KEYS: a rest */
+    if ((rel & (1u << B_HOME)) && !dn.home_chord && dn.page == DN_PG_ROLL && dn.roll_keys) {   /* ROLL KEYS: a rest
+                                                     * (0.22: when HOME comes up, unless it picked an instrument) */
         dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
         dn_lock();
         tr->st[dn.roll_cur % tr->len].flags = 0;
@@ -3572,7 +3707,7 @@ void dn_app_input(void)
         dn.roll_cur = (uint8_t)((dn.roll_cur + 1u) % tr->len);
         dn.view = (uint8_t)(dn.roll_cur / 16u);
         dn_mark();
-    } else if (press & (1u << B_HOME)) {            /* hold a note */
+    } else if ((rel & (1u << B_HOME)) && !dn.home_chord && !DN_IS_SEQPG(dn.page)) {   /* hold a note */
         dn.play = (uint8_t)!dn.play;
         if (dn.play && !dn.nheld)
             dn_play(dn_key_note(0), 0);
@@ -4546,6 +4681,34 @@ static void dn_draw_bottom(void)
     int32_t x;
     char t[24];
     cv_begin(240, 144, DN_C_BG);
+    if (dn.naming) {                                /* (0.22) the name editor */
+        uint32_t i;
+        char c[2] = {0, 0};
+        t[0] = 0;
+        if (dn.naming == 1u)
+            dn_cat(t, "NAME THE PROJECT");
+        else {
+            dn_cat(t, dn.nm_set ? "NAME SUB USER " : "NAME REESE USER ");
+            c[0] = (char)('1' + dn.nm_slot);
+            dn_cat(t, c);
+        }
+        cv_rect(0, 0, 240, 17, DN_C_BLUE);
+        cv_text(120 - text_w(&FONT_T, t) / 2, 3, &FONT_T, t, DN_C_BAR);
+        for (i = 0; i < dn.nm_len; i++) {           /* a box a letter, the cursor's lit */
+            int32_t bx = 120 - (int32_t)dn.nm_len * 10 + (int32_t)i * 20, on = i == dn.nm_cur;
+            cv_rect(bx, 40, 18, 30, on ? DN_C_BLUE : DN_C_WELL);
+            c[0] = dn.nm[i] == ' ' ? '_' : dn.nm[i];
+            cv_text(bx + 9 - text_w(&FONT_M, c) / 2, 46, &FONT_M, c, on ? DN_C_BAR : dn.nm[i] == ' ' ? DN_C_DIMTXT
+                                                                                              : C_WHITE);
+        }
+        cv_text(120 - text_w(&FONT_XS, "K1 / SELECT: PLACE    K2 / PRESETS: LETTER") / 2, 88, &FONT_XS,
+                "K1 / SELECT: PLACE    K2 / PRESETS: LETTER", DN_C_LABEL);
+        cv_rect(0, 121, 240, 23, DN_C_BAR);
+        cv_text(8, 127, &FONT_T, "SAVE: KEEP", C_WHITE);
+        cv_text(232 - text_w(&FONT_T, "HOME: CANCEL"), 127, &FONT_T, "HOME: CANCEL", DN_C_DIMTXT);
+        cv_blit(0, 96);
+        return;
+    }
     {   /* the page tabs: the pages of this group only (the ones its button / SELECT cycle through) */
         uint8_t ids[DN_MAXTABS];
         const char *nms[DN_MAXTABS];

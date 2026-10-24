@@ -41,6 +41,9 @@ expect slfo1d 63
 press SAVE
 turn PRESET 1
 release SAVE
+expect naming 2
+tap HOME
+expect naming 0
 wait 50
 expect sbpreset 13
 expect used.1.0 1
@@ -77,6 +80,9 @@ expect rlfo1 0
 press SAVE
 turn PRESET 2
 release SAVE
+expect naming 2
+tap HOME
+expect naming 0
 wait 50
 expect preset 11
 expect used.0.1 1

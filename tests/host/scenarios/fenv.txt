@@ -30,6 +30,9 @@ expect rfe.2 >30
 press SAVE
 turn PRESET 1
 release SAVE
+expect naming 2
+tap HOME
+expect naming 0
 wait 50
 expect preset 10
 reboot

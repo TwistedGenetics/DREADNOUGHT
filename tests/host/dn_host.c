@@ -578,6 +578,9 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "savesz")) got = (long)sizeof(dn_save_t);   /* (the save's layout: versions) */
             else if (!strcmp(b, "savev016")) got = (long)DN_SAVE_V016;
             else if (!strcmp(b, "savev015")) got = (long)DN_SAVE_V015;
+            else if (!strcmp(b, "naming")) got = dn.naming;   /* (0.22) the name editor open: 1 project, 2 a sound */
+            else if (!strncmp(b, "uname.", 6)) got = dn_man.uname[b[6] - '0'][b[8] - '0'][b[10] - '0'];   /* uname.S.U.I: a char */
+            else if (!strncmp(b, "pname.", 6)) got = dn_pname[atoi(b + 6)];
             else if (!strcmp(b, "knee")) { got = (long)dn_knee; dn_knee = 0; }   /* samples the master knee bent (0.16.1) */
             else if (!strncmp(b, "rfe.", 4)) got = dn_rs.fe[atoi(b + 4) & 3];   /* the filter envelopes (0.19) */
             else if (!strncmp(b, "sfe.", 4)) got = dn_sb.fe[atoi(b + 4) & 3];

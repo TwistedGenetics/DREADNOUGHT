@@ -73,7 +73,9 @@ The FM-1 restarts on the DREADNOUGHT screen. Press **PLAY** to hear the demo ree
 | HOME | hold a note, hands free; on a sequencer page, held: **FILL** (for FILL / !FILL steps) |
 | OCT− / OCT+ | octave |
 | SAVE (tap) | keep the sound, the patterns and your slices for next time (lit when changed) |
-| SAVE held + PRESETS | store the synth's sound (with its LFOs) in a user slot: turn to pick USER 1–8 (shown on the status line), let go of SAVE to store it; it is kept at once |
+| SAVE held + PRESETS | store the synth's sound (with its LFOs) in a user slot: turn to pick USER 1–8 (shown on the status line), let go of SAVE to store it; it is kept at once. The name editor opens straight after (below) |
+| SAVE held + FX | **name it**: on PROJECT the project, on a synth's pages the user sound loaded (a factory sound: store it first). The name editor: KNOB 1 or SELECT the place, KNOB 2 or PRESETS the letter, **SAVE** keeps it, **HOME** leaves it as it was |
+| HOME held + SELECT | **pick an instrument**: the next / last track, straight to its instrument's pages (the status line names it). HOME on its own still holds a note (on letting go) |
 | SAVE held + OCT− / OCT+ | copy / paste the bar in view of the selected track |
 | SAVE held + white key 1–8 (ROLL, DRUM) | this instrument's **pattern** 1–8: stopped, at once; playing, when the playing one ends (it flashes until then) |
 | SAVE held + black key 10 / 11 (ROLL, DRUM) | copy this pattern / paste into this one |

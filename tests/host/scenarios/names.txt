@@ -1,0 +1,81 @@
+# DREADNOUGHT host scenario (0.22): picking an instrument with HOME held + SELECT; naming the project (PROJECT:
+# SAVE + FX) and a user sound (opened when it's stored; SAVE + FX on its pages renames it); names kept over a reboot.
+# HOME held + SELECT: track 2 (BRK A: its BRK page), track 3, back to 1 (REESE: its pages); no held note after
+press HOME
+turn SELECT 1
+expect trk 2
+expect page 6
+turn SELECT 1
+expect trk 3
+shot names-01-pick.png
+turn SELECT -2
+expect trk 1
+expect page 0
+release HOME
+wait 50
+expect gate 0
+# the project's name: PROJECT, SAVE + FX; KNOB 1 to the start, KNOB 2 one letter on (P -> Q); SAVE keeps it
+tap GLO
+tap GLO
+tap GLO
+tap GLO
+tap GLO
+expect page 15
+press SAVE
+tap FX
+release SAVE
+expect naming 1
+turn K1 -20
+turn K2 1
+shot names-02-project.png
+tap SAVE
+expect naming 0
+expect pname.0 81
+# HOME leaves a name as it was
+press SAVE
+tap FX
+release SAVE
+expect naming 1
+turn K2 1
+tap HOME
+expect naming 0
+expect pname.0 81
+# a user sound: REESE's pages, SAVE + PRESETS stores USER 1, the name editor opens with the sound's name (CLASSIC)
+turn SELECT 1
+press SEQ
+tapkey 0 40
+release SEQ
+tap SEL
+expect page 0
+press SAVE
+turn PRESET 1
+release SAVE
+wait 50
+expect naming 2
+expect preset 10
+turn K1 7
+turn K2 2
+shot names-03-sound.png
+tap SAVE
+expect naming 0
+expect uname.0.0.0 67
+expect uname.0.0.7 66
+shot names-04-named.png
+# over a reboot; SAVE + FX renames it
+reboot
+expect pname.0 81
+expect uname.0.0.0 67
+expect preset 10
+tap SEL
+press SAVE
+tap FX
+release SAVE
+expect naming 2
+tap HOME
+# a factory sound can't be renamed: stored first
+turn PRESET 1
+press SAVE
+tap FX
+release SAVE
+expect naming 0
+expect msg 1
