@@ -54,6 +54,9 @@ typedef struct {
     uint32_t pinc;                                  /* STRETCH: the grains' own speed (the pitch's rate), Q16 */
     /* the voice */
     uint8_t on, rev, rel, fast;                     /* fast: the release is a quick fade (the transport stopped) */
+    int32_t mpitch;                         /* the LFOs (the app): pitch in 1/256 semitone (dn_brk_tempo applies it) */
+    int16_t mdecay, mcrush, mlevel;         /* ... and steps on DECAY, CRUSH, LEVEL */
+    uint32_t bpm;                           /* (the tempo last set) */
     uint8_t aud;                                    /* the whole loop playing round (the chop page's preview) */
     uint8_t stopend;                                /* this hit stops at its slice's end (auditioning a chop) */
     uint8_t slice;                                  /* the slice playing (the screen's playhead) */

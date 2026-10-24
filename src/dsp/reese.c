@@ -251,6 +251,9 @@ void reese_note_off(reese_t *r)
         r->fstage = 3;
 }
 
+/* a value with the LFOs' modulation on it (mod: 1/256 of a step), in its range */
+#define RS_M(r, k, lo, hi) dn_clamp((r)->p[k] + ((r)->mod[k] >> 8), lo, hi)
+
 /* the envelopes and the glide, once a control tick */
 static void rs_control(reese_t *r)
 {
@@ -287,7 +290,7 @@ static void rs_control(reese_t *r)
         else r->pitch256 += step ? step : (d > 0 ? 1 : -1);
     }
     r->amp_now = r->amp_next;
-    r->amp_next = (int32_t)(((int64_t)(r->aenv >> 9) * dn_clamp(p[RP_LEVEL], 0, 127) * 258) >> 15);   /* Q15 */
+    r->amp_next = (int32_t)(((int64_t)(r->aenv >> 9) * RS_M(r, RP_LEVEL, 0, 127) * 258) >> 15);   /* Q15 */
 }
 
 void reese_render(reese_t *r, int32_t *lr, uint32_t n)
@@ -312,16 +315,17 @@ void reese_render(reese_t *r, int32_t *lr, uint32_t n)
         mode = (uint32_t)dn_clamp(p[RP_OSC], 0, RO_N - 1);
         no = RS_N[mode];
         beat = (uint32_t)dn_clamp(p[RP_BEAT], 0, 7);
-        sub = p[RP_SUB] * 258;
-        drv = p[RP_DRV];
-        hol = p[RP_NTCH] * 258;
+        sub = RS_M(r, RP_SUB, 0, 127) * 258;      /* (each value + the LFOs' modulation, RS_M) */
+        drv = RS_M(r, RP_DRV, 0, 127);
+        hol = RS_M(r, RP_NTCH, 0, 127) * 258;
         xover = sub && mode != RO_2SIN;
         g = RS_GAIN[mode];
-        inc = dn_pitch_inc(r->pitch256);
+        inc = dn_pitch_inc(r->pitch256 + r->mod_pitch);
         /* the LFO on the cutoff (a sine), advanced once a block of this length */
         r->lph += (uint32_t)(((uint64_t)DN_LFO_INC[dn_clamp(p[RP_LRATE], 0, 127)] * len) >> 5);
         lfo = p[RP_LFLT] ? (dn_sine(r->lph) * p[RP_LFLT]) >> 6 : 0;          /* +-32 steps of cutoff at full depth */
-        cut = (p[RP_CUT] << 8) + (int32_t)(((int64_t)(r->fenv >> 8) * p[RP_FENV]) >> 14) + lfo;   /* FENV 63: +63 steps */
+        cut = (p[RP_CUT] << 8) + r->mod[RP_CUT] + (int32_t)(((int64_t)(r->fenv >> 8) * RS_M(r, RP_FENV, -64, 63)) >> 14)
+              + lfo;   /* FENV 63: +63 steps */
 
         /* the drift: a twice-smoothed random walk per oscillator, pulled back to centre */
         if (len == r->ctl)
@@ -340,7 +344,7 @@ void reese_render(reese_t *r, int32_t *lr, uint32_t n)
             for (j = 0; j < no; j++)
                 sinc[j] = dinc + (uint32_t)((half * RS_POS[mode][j]) >> 12);
         } else {
-            int32_t x = dn_clamp(p[RP_DTN] << 8, 0, 127 << 8);
+            int32_t x = dn_clamp((p[RP_DTN] << 8) + r->mod[RP_DTN], 0, 127 << 8);
             /* 1/16 cent, x^2 (x up to 32512: x^2 / 1024 * 1600 stays below 2^32) */
             int32_t s16 = (int32_t)((((uint32_t)x * (uint32_t)x) >> 10) * 1600u / 1032256u);
             for (j = 0; j < no; j++) {
@@ -348,7 +352,7 @@ void reese_render(reese_t *r, int32_t *lr, uint32_t n)
                 sinc[j] = inc + (uint32_t)(int32_t)(((int64_t)(int32_t)(inc >> 4) * off) >> 12);
             }
         }
-        rs_ladder_coef(&lc, cut, p[RP_RES]);
+        rs_ladder_coef(&lc, cut, RS_M(r, RP_RES, 0, 127));
         if (xover)
             dn_svf_coef(&xc, RS_XOVER_CUT, RS_XOVER_K);
 
@@ -370,7 +374,7 @@ void reese_render(reese_t *r, int32_t *lr, uint32_t n)
         gain = 4096 + drv * 96;
         x0 = r->xo[0], x1 = r->xo[1], x2 = r->xo[2], x3 = r->xo[3];
         cph = r->cph, cw = r->cw;
-        crate = (uint32_t)(8000u + (uint32_t)p[RP_NTCH] * 520u);
+        crate = (uint32_t)(8000u + (uint32_t)RS_M(r, RP_NTCH, 0, 127) * 520u);
         for (i = 0; i < len; i++) {
             int32_t x = buf[i] >> 1, y;
             if (xover) {

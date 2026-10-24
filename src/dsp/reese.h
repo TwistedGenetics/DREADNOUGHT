@@ -34,6 +34,8 @@ typedef struct {
     int16_t line[RS_COMB];
     uint32_t ctl;                           /* samples left until the next control tick */
     int32_t amp_now, amp_next;              /* the amplitude ramp over the control tick, Q15 */
+    int32_t mod[RP_COUNT];                  /* the LFOs (the app): added to each value, 1/256 of a step */
+    int32_t mod_pitch;                      /* the LFOs on the pitch, 1/256 semitone */
 } reese_t;
 
 void reese_init(reese_t *r);

@@ -306,9 +306,12 @@ void dn_brk_tempo(dn_brk_t *b, uint32_t bpm)
     float f;
     if (!b->loop.n || !b->loop.bars)
         return;
+    b->bpm = bpm;
     f = (float)bpm * (float)b->loop.n / ((float)b->loop.bars * 10584000.0f);   /* 240 s x 44100 a bar */
     {
-        float semi = (float)DN_SEMI_Q16[dn_clamp(b->pitch, -24, 24) + 24];
+        int32_t e = dn_clamp((int32_t)b->pitch * 256 + b->mpitch, -24 * 256, 24 * 256 - 1) + 24 * 256;   /* + LFOs */
+        float s0 = (float)DN_SEMI_Q16[e >> 8], s1 = (float)DN_SEMI_Q16[(e >> 8) + 1];
+        float semi = s0 + (s1 - s0) * (float)(e & 255) / 256.0f;
         float own = (float)(b->loop.rate ? b->loop.rate : 22050u) / 44100.0f;      /* the loop's own speed */
         b->tinc = (uint32_t)(f * 65536.0f);         /* STRETCH: time at the tempo; grains at the pitch */
         b->pinc = (uint32_t)(own * semi);
@@ -479,13 +482,15 @@ static inline int32_t stretch_tick(dn_brk_t *b)
 void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
 {
     uint32_t i, k;
-    uint32_t hold = 1u + b->crush / 9u, shift = b->crush / 11u;
+    int32_t cr = dn_clamp((int32_t)b->crush + b->mcrush, 0, 127), dec = dn_clamp((int32_t)b->decay + b->mdecay, 0, 126);
+    int32_t lv = dn_clamp((int32_t)b->level + b->mlevel, 0, 127);   /* (each + the LFOs) */
+    uint32_t hold = 1u + (uint32_t)cr / 9u, shift = (uint32_t)cr / 11u;
     if (!b->ok)
         return;
     for (i = 0; i < n; i++) {
         int32_t v = 0, o;
         uint8_t was = b->on;
-        k = DN_ENV_K[b->fast ? 30 : dn_clamp(b->decay, 0, 126)] >> 5;   /* per sample (the table: per 32) */
+        k = DN_ENV_K[b->fast ? 30 : dec] >> 5;   /* per sample (the table: per 32) */
         if (b->on) {
             if (b->aud) {                           /* the loop round and round, at its own speed */
                 v = b->a + (((b->b - b->a) * (int32_t)(b->frac >> 1)) >> 15);
@@ -526,7 +531,7 @@ void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
             }
             if (b->stretch != 2u)
                 b->played += b->inc >> 8;           /* (Q8: the screen's playhead) */
-            if (b->crush) {                         /* sample rate down (hold), then bits down */
+            if (cr) {                               /* sample rate down (hold), then bits down */
                 if (b->hold_n == 0u)
                     b->held = v;
                 b->hold_n = (b->hold_n + 1u) % hold;
@@ -545,7 +550,7 @@ void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
             b->dc = o;                              /* stopped mid-wave: it fades from there, no click */
         b->last = o;
         o = (o * 21000) >> 15;                      /* the mix level: under REESE's, a full break stays clear */
-        o = (o * (int32_t)b->level) / 100;
+        o = (o * lv) / 100;
         lr[2u * i] += o;
         lr[2u * i + 1u] += o;
     }

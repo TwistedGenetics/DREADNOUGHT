@@ -7,6 +7,7 @@
 #include "dn_dsp.h"
 #include "dn_seq.h"
 #include "dn_breaks.h"
+#include "dn_lfo.h"
 #include "dn_breaks_builtin.h"   /* (generated: tools/gen_dn_breaks.py) */
 
 void dn_app_init(void);

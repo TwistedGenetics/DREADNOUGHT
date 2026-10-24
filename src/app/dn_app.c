@@ -50,7 +50,8 @@
 #define DN_PG_SLICE (DN_NPAGES + 5u)                /* BRK's third page: the slice editor */
 #define DN_IS_BRKPG(p) ((p) == DN_PG_BRK || (p) == DN_PG_BRK2 || (p) == DN_PG_SLICE)
 #define DN_PG_SET (DN_NPAGES + 6u)                  /* OUT's second page (GLO again): click, count-in, octave */
-#define DN_IS_SNDPG(p) ((p) < DN_NPAGES || (p) == DN_PG_SET)
+#define DN_PG_LFO (DN_NPAGES + 7u)                  /* the LFOs (LFO again from MOD: 1, 2, 3, 4, back to MOD) */
+#define DN_IS_SNDPG(p) ((p) < DN_NPAGES || (p) == DN_PG_SET || (p) == DN_PG_LFO)
 #define DN_ROLL_ROWS 12                             /* the piano roll's pitches in view (an octave) */
 #define DN_DRUM_ROWS 8                              /* the drum grid's slices in view */
 #define DN_NBRK 2u                                  /* BREAKS A and B: tracks 2 and 3 */
@@ -62,6 +63,17 @@
 #define DN_PX_CLICK 103                             /* SETUP: the click (OFF / REC / ON), its level, the count-in */
 #define DN_PX_CLKLVL 104
 #define DN_PX_CIN 105
+#define DN_PX_LSHAPE 130                            /* the LFO page (the selected LFO): shape, rate, dest, depth ... */
+#define DN_PX_LRATE 131
+#define DN_PX_LDEST 132
+#define DN_PX_LDEPTH 133
+#define DN_PX_LSYNC 134                             /* ... and (FX: MORE) sync, mode, phase, smooth */
+#define DN_PX_LMODE 135
+#define DN_PX_LPHASE 136
+#define DN_PX_LSMOOTH 137
+#define DN_PX_L1RATE 140                            /* MOD's KNOB 3 / 4: LFO 1's rate and depth (where LRATE and LFLT
+                                                     * were: a 0.8 sound's filter LFO is LFO 1 now) */
+#define DN_PX_L1DEPTH 141
 #define DN_PX_BSRC 110                              /* the BRK page: the loop, pitch, decay, crush of BREAKS A / B */
 #define DN_PX_BPITCH 111
 #define DN_PX_BDECAY 112
@@ -83,14 +95,24 @@ static const uint8_t DN_PAGE[DN_NPAGES][4] = {
     {RP_OSC, RP_DTN, RP_BEAT, RP_SUB},
     {RP_CUT, RP_RES, RP_DRV, RP_NTCH},
     {RP_ATK, RP_DEC, RP_SUS, RP_REL},
-    {RP_FENV, RP_GLIDE, RP_LRATE, RP_LFLT},
+    {RP_FENV, RP_GLIDE, DN_PX_L1RATE, DN_PX_L1DEPTH},
     {RP_LEVEL, RP_TRANS, DN_PX_BPM, DN_PX_OVL},
 };
 static const uint8_t DN_PAGE_BTN[DN_NPAGES] = {B_SEL, B_EDIT, B_ENV, B_LFO, B_GLO};
 static const uint8_t DN_SET_PAGE[4] = {DN_PX_CLICK, DN_PX_CLKLVL, DN_PX_CIN, DN_PX_OCT};
-#define DN_NSND 6u                                  /* the sound pages, in SELECT's order (the tab row's too) */
-static const uint8_t DN_SND[DN_NSND] = {0, 1, 2, 3, 4, DN_PG_SET};
-static const char *const DN_SND_NAME[DN_NSND] = {"OSC", "FILTER", "AMP", "MOD", "OUT", "SETUP"};
+#define DN_NSND 7u                                  /* the sound pages, in SELECT's order (the tab row's too) */
+static const uint8_t DN_SND[DN_NSND] = {0, 1, 2, 3, DN_PG_LFO, 4, DN_PG_SET};
+static const char *const DN_SND_NAME[DN_NSND] = {"OSC", "FILTER", "AMP", "MOD", "LFO", "OUT", "SETUP"};
+static const uint8_t DN_LFO_PAGE[2][4] = {{DN_PX_LSHAPE, DN_PX_LRATE, DN_PX_LDEST, DN_PX_LDEPTH},
+                                          {DN_PX_LSYNC, DN_PX_LMODE, DN_PX_LPHASE, DN_PX_LSMOOTH}};
+/* where an LFO goes */
+enum { DN_LD_OFF, DN_LD_CUT, DN_LD_RES, DN_LD_DRV, DN_LD_NTCH, DN_LD_DTN, DN_LD_PITCH, DN_LD_SUB, DN_LD_LEVEL,
+       DN_LD_FENV, DN_LD_APITCH, DN_LD_ADECAY, DN_LD_ACRUSH, DN_LD_ALEVEL, DN_LD_BPITCH, DN_LD_BDECAY, DN_LD_BCRUSH,
+       DN_LD_BLEVEL, DN_LD_L1DEPTH, DN_LD_N = DN_LD_L1DEPTH + DN_NLFO };
+static const char *const DN_LD_NAME[DN_LD_N] = {"OFF", "CUTOFF", "RES", "DRIVE", "NOTCH", "DETUNE", "PITCH", "SUB",
+    "LEVEL", "F.ENV", "A PITCH", "A DECAY", "A CRUSH", "A LEVEL", "B PITCH", "B DECAY", "B CRUSH", "B LEVEL",
+    "L1 DEP", "L2 DEP", "L3 DEP", "L4 DEP"};
+static const uint8_t DN_LD_RP[DN_LD_N] = {0, RP_CUT, RP_RES, RP_DRV, RP_NTCH, RP_DTN, 0, RP_SUB, RP_LEVEL, RP_FENV};
 
 typedef struct {
     uint32_t magic;
@@ -102,6 +124,7 @@ typedef struct {
     struct { uint8_t src; int8_t pitch; uint8_t decay, crush; } brk[DN_NBRK];   /* (from 0.5: older saves lack it) */
     struct { uint8_t choke, smode, stretch, level; } brk2[DN_NBRK];             /* (from 0.6) */
     struct { uint8_t click, clk_lvl, cin, pad; } set;                           /* (from 0.9) */
+    dn_lfo_p_t lfo[DN_NLFO];                                                    /* (from 0.9) */
 } dn_save_t;
 #define DN_SAVE_V08 (offsetof(dn_save_t, set))
 #define DN_SAVE_V05 (DN_SAVE_V08 - DN_NBRK * 4u)
@@ -111,6 +134,8 @@ static reese_t dn_rs;
 static dn_seq_t dn_sq;
 static uint32_t dn_rev;                             /* moves on whenever the sound or the pattern changes (the editor) */
 static dn_brk_t dn_bk[DN_NBRK] X0X_POOL;
+static dn_lfo_p_t dn_lp[DN_NLFO];                   /* the LFOs: their settings (part of the sound) ... */
+static dn_lfo_s_t dn_ls[DN_NLFO];                   /* ... and where each one is (audio) */
 static uint8_t dn_bk_src[DN_NBRK];                  /* each one's loop: an index into the sources (dn_src) */
 static struct {
     uint8_t preset, page, dirty, play, ready, rec;
@@ -138,6 +163,11 @@ static struct {
     uint32_t clk_n, clk_ph, clk_last;               /* the click voice (audio): samples left, phase; the step seen */
     uint8_t clk_acc;
     uint32_t clk_count;                             /* (clicks so far: the tests count them) */
+    uint8_t lfo_sel, lfo_view;                      /* the LFO page: which LFO; MAIN / MORE / DRAW (FX) */
+    int8_t pen;                                     /* DRAW: the value a pressed point gets */
+    uint8_t pt_view;                                /* DRAW: points 1-16 / 17-32 on the keys */
+    int8_t pt_held;                                 /* DRAW: the point key held (-1: none) */
+    uint32_t lfo_left;                              /* (audio) samples to the LFOs' next tick */
     const char *msg;                                /* a word on the status line (a refusal, what happened) ... */
     uint32_t msg_t;                                 /* ... shown until this time (ms) */
     uint8_t home_done;
@@ -174,12 +204,95 @@ static void dn_brk_hit(uint32_t k, uint32_t slice, uint32_t vel, int rev)
     dn_brk_trigger(&dn_bk[k], slice, vel, rev);
 }
 
+/* ---- the LFOs ---------------------------------------------------------------------------------------------- */
+/* a 0.8 sound's filter LFO (LRATE, LFLT) becomes LFO 1: free, the same rate, a sine to CUTOFF at the same depth
+ * (the same sweep: LFO depth on CUTOFF is the old LFLT's scale) */
+static void dn_lfo_legacy(void)
+{
+    if (!dn_rs.p[RP_LFLT])
+        return;
+    dn_lfo_default(&dn_lp[0]);
+    dn_lp[0].sync = 0;
+    dn_lp[0].rate = (uint8_t)dn_clamp(dn_rs.p[RP_LRATE], 0, 127);
+    dn_lp[0].dest = DN_LD_CUT;
+    dn_lp[0].depth = (int8_t)dn_clamp(dn_rs.p[RP_LFLT], -64, 63);
+    dn_rs.p[RP_LFLT] = 0;                           /* (REESE's own LFO stays silent from now on) */
+}
+static void dn_lfo_init_all(void)                   /* a new sound: no LFOs, then the old filter LFO's */
+{
+    uint32_t j;
+    for (j = 0; j < DN_NLFO; j++) {
+        dn_lfo_default(&dn_lp[j]);
+        dn_lfo_reset(&dn_ls[j], (int32_t)(0x9E3779B9u * (j + 1u)));
+    }
+    dn_lfo_legacy();
+}
+/* REESE's notes: a note that isn't a slide restarts the RETRIG / 1-SHOT LFOs */
+static void dn_rs_on(uint8_t note, uint8_t vel, int legato)
+{
+    uint32_t j;
+    int slide = legato && dn_rs.gate && dn_rs.active && dn_rs.p[RP_GLIDE];
+    reese_note_on(&dn_rs, note, vel, legato);
+    if (!slide)
+        for (j = 0; j < DN_NLFO; j++)
+            if (dn_lp[j].mode != DN_LM_FREE) {
+                dn_ls[j].acc = 0, dn_ls[j].ph = 0, dn_ls[j].done = 0;
+                dn_ls[j].sh_a = dn_ls[j].sh_b;
+            }
+}
+/* the LFOs' tick (every 32 samples, audio): each one on, then onto its destination. Depth -64..63; full depth:
+ * CUTOFF +-128 steps (the whole range), PITCH +-12 semitones, the other values +-64 steps; Ln DEPTH scales that
+ * LFO's depth (x0 .. x2) */
+static void dn_lfo_tick(uint32_t n)
+{
+    int32_t dm[DN_NLFO] = {0}, rm[RP_COUNT] = {0}, pitch = 0, bp[DN_NBRK] = {0}, bd[DN_NBRK] = {0}, bc[DN_NBRK] = {0};
+    int32_t bl[DN_NBRK] = {0};
+    uint32_t j, k;
+    for (j = 0; j < DN_NLFO; j++)
+        dn_lfo_run(&dn_ls[j], &dn_lp[j], n, dn_sq.bpm);
+    for (j = 0; j < DN_NLFO; j++)                   /* the LFOs on other LFOs' depth first */
+        if (dn_lp[j].dest >= DN_LD_L1DEPTH && dn_lp[j].dest < DN_LD_N)
+            dm[dn_lp[j].dest - DN_LD_L1DEPTH] += (dn_ls[j].out * dn_lp[j].depth) >> 6;
+    for (j = 0; j < DN_NLFO; j++) {
+        uint32_t d = dn_lp[j].dest;
+        int32_t dep = dn_clamp(dn_lp[j].depth * (32767 + dm[j]) / 32767, -128, 127), a = (dn_ls[j].out * dep) >> 6;
+        if (!d || d >= DN_LD_L1DEPTH)
+            continue;
+        if (d == DN_LD_CUT)
+            rm[RP_CUT] += a;
+        else if (d == DN_LD_PITCH)
+            pitch += (a * 3) >> 5;                  /* 12 semitones x 256 at 32767 */
+        else if (d < DN_LD_APITCH)
+            rm[DN_LD_RP[d]] += a >> 1;
+        else {
+            k = d < DN_LD_BPITCH ? 0u : 1u;
+            switch ((d - DN_LD_APITCH) % 4u) {
+            case 0: bp[k] += (a * 3) >> 5; break;
+            case 1: bd[k] += a >> 9; break;
+            case 2: bc[k] += a >> 9; break;
+            default: bl[k] += a >> 9; break;
+            }
+        }
+    }
+    for (k = 0; k < RP_COUNT; k++)
+        dn_rs.mod[k] = rm[k];
+    dn_rs.mod_pitch = pitch;
+    for (k = 0; k < DN_NBRK; k++) {
+        dn_brk_t *b = &dn_bk[k];
+        b->mdecay = (int16_t)bd[k], b->mcrush = (int16_t)bc[k], b->mlevel = (int16_t)bl[k];
+        if (bp[k] != b->mpitch) {
+            b->mpitch = bp[k];
+            dn_brk_tempo(b, b->bpm ? b->bpm : dn_sq.bpm);
+        }
+    }
+}
+
 /* the sequencer's notes: track 1 plays REESE, 2 and 3 BREAKS A / B (the note: the slice; the step's slide: reverse),
  * the others MIDI out on their channel (USB-MIDI event packets) */
 static void dn_sq_on(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t flags)
 {
     if (t == 0u)
-        reese_note_on(&dn_rs, note, vel, slide);
+        dn_rs_on(note, vel, slide);
     else if (DN_IS_BRK(t))
         dn_brk_hit(t - 1u, note, vel, (flags & DN_ST_SLIDE) != 0);
     else
@@ -237,6 +350,12 @@ void dn_app_render(int32_t *lr, uint32_t n)
             }
             k = dn.cin_next < dn.cin_left ? dn.cin_next : dn.cin_left;
         }
+        if (!dn.lfo_left) {
+            dn_lfo_tick(32u);
+            dn.lfo_left = 32u;
+        }
+        if (k > dn.lfo_left)
+            k = dn.lfo_left;
         if (k > n - off)
             k = n - off;
         reese_render(&dn_rs, lr + 2u * off, k);
@@ -251,9 +370,14 @@ void dn_app_render(int32_t *lr, uint32_t n)
         } else {
             dn_seq_run(&dn_sq, k, &DN_SQ_CB);
         }
+        dn.lfo_left -= k;
         if (dn_sq.playing && dn_sq.pos != dn.clk_last) {   /* a step began just now: on a beat, the click */
-            uint32_t st = dn_sq.pos - 1u;
+            uint32_t st = dn_sq.pos - 1u, j;
             dn.clk_last = dn_sq.pos;
+            if (st == 0u)                           /* the pattern starts: the synced LFOs from their start */
+                for (j = 0; j < DN_NLFO; j++)
+                    if (dn_lp[j].sync)
+                        dn_ls[j].acc = 0, dn_ls[j].ph = 0, dn_ls[j].done = 0;
             if (st % 4u == 0u && (dn.click == 2u || (dn.click == 1u && dn.rec)))
                 dn_click_start(st % 16u == 0u);
         }
@@ -272,7 +396,7 @@ void dn_app_midi(uint8_t st, uint8_t d1, uint8_t d2)
     if (!dn.ready)
         return;
     if (t == 0x90u && d2) {
-        reese_note_on(&dn_rs, d1, d2, dn_rs.gate);  /* overlapping notes slide, as a mono synth does */
+        dn_rs_on(d1, d2, dn_rs.gate);               /* overlapping notes slide, as a mono synth does */
         dn.midi_note = d1;
     } else if ((t == 0x80u || t == 0x90u) && d1 == dn.midi_note) {
         dn.midi_note = 0xFF;
@@ -408,6 +532,7 @@ static void dn_sl_fix(void);
 static void dn_chops_remap(uint32_t key, const uint32_t *old, uint32_t old_n);
 static void dn_mark(void);
 static void dn_num(char *o, int32_t v);
+static uint32_t str_len_dn(const char *s);
 static void dn_say(const char *m);
 static void dn_step_drop(uint32_t to);
 
@@ -500,12 +625,127 @@ static uint32_t dn_bsel(void) { return dn.trk == 2u ? 1u : 0u; }   /* the BRK pa
 static uint32_t dn_dial(uint32_t k)
 {
     return dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : dn.page == DN_PG_BRK2 ? DN_BRK2_PAGE[k]
-         : dn.page == DN_PG_SLICE ? DN_SLICE_PAGE[k] : dn.page == DN_PG_SET ? DN_SET_PAGE[k] : DN_PAGE[dn.page % DN_NPAGES][k];
+         : dn.page == DN_PG_SLICE ? DN_SLICE_PAGE[k] : dn.page == DN_PG_SET ? DN_SET_PAGE[k]
+         : dn.page == DN_PG_LFO ? DN_LFO_PAGE[dn.lfo_view & 1u][k] : DN_PAGE[dn.page % DN_NPAGES][k];
 }
 
 /* ------------------------------------------------------------------------------------------------ values --- */
+/* the LFO values: the selected LFO's (the LFO page), or LFO 1's (MOD's shortcuts) */
+#define DN_IS_LPX(id) ((id) >= DN_PX_LSHAPE && (id) <= DN_PX_L1DEPTH)
+static dn_lfo_p_t *dn_lfo_px(uint32_t *id)
+{
+    if (*id == DN_PX_L1RATE || *id == DN_PX_L1DEPTH) {
+        *id = *id == DN_PX_L1RATE ? DN_PX_LRATE : DN_PX_LDEPTH;
+        return &dn_lp[0];
+    }
+    return &dn_lp[dn.lfo_sel % DN_NLFO];
+}
+static int32_t dn_lfo_get(uint32_t id)
+{
+    const dn_lfo_p_t *l = dn_lfo_px(&id);
+    switch (id) {
+    case DN_PX_LSHAPE: return l->shape;
+    case DN_PX_LRATE: return l->rate;
+    case DN_PX_LDEST: return l->dest;
+    case DN_PX_LDEPTH: return l->depth;
+    case DN_PX_LSYNC: return l->sync;
+    case DN_PX_LMODE: return l->mode;
+    case DN_PX_LPHASE: return l->phase;
+    default: return l->smooth;
+    }
+}
+static int32_t dn_lfo_lim(uint32_t id, int hi)
+{
+    const dn_lfo_p_t *l = dn_lfo_px(&id);
+    switch (id) {
+    case DN_PX_LSHAPE: return hi ? DN_LS_N - 1 : 0;
+    case DN_PX_LRATE: return hi ? (l->sync ? (int32_t)DN_LFO_NDIV - 1 : 127) : 0;
+    case DN_PX_LDEST: return hi ? DN_LD_N - 1 : 0;
+    case DN_PX_LDEPTH: return hi ? 63 : -64;
+    case DN_PX_LSYNC: return hi ? 1 : 0;
+    case DN_PX_LMODE: return hi ? DN_LM_N - 1 : 0;
+    default: return hi ? 127 : 0;
+    }
+}
+static void dn_lfo_set(uint32_t id, int32_t v)      /* (inside the lock) */
+{
+    dn_lfo_p_t *l = dn_lfo_px(&id);
+    switch (id) {
+    case DN_PX_LSHAPE:
+        if (v == DN_LS_DRAW && l->shape != DN_LS_DRAW && l->pad[0] == 0u) {
+            l->pad[0] = 1;                          /* (the first DRAW: the points start as the shape it was) */
+            dn_lfo_draw_shape(l, l->shape);
+        }
+        l->shape = (uint8_t)v;
+        break;
+    case DN_PX_LRATE: l->rate = (uint8_t)v; break;
+    case DN_PX_LDEST: l->dest = (uint8_t)v; break;
+    case DN_PX_LDEPTH: l->depth = (int8_t)v; break;
+    case DN_PX_LSYNC:                               /* synced: 1/4; free: ~1 Hz */
+        l->sync = (uint8_t)v;
+        l->rate = v ? 7u : 64u;
+        break;
+    case DN_PX_LMODE: l->mode = (uint8_t)v; break;
+    case DN_PX_LPHASE: l->phase = (uint8_t)v; break;
+    default: l->smooth = (uint8_t)v; break;
+    }
+}
+static void dn_lfo_text(uint32_t id, int32_t v, char out[8])
+{
+    const dn_lfo_p_t *l = dn_lfo_px(&id);
+    const char *w = 0;
+    uint32_t i;
+    switch (id) {
+    case DN_PX_LSHAPE: w = DN_LFO_SHAPE_NAME[dn_clamp(v, 0, DN_LS_N - 1)]; break;
+    case DN_PX_LDEST: w = DN_LD_NAME[dn_clamp(v, 0, DN_LD_N - 1)]; break;
+    case DN_PX_LSYNC: w = v ? "SYNC" : "FREE"; break;
+    case DN_PX_LMODE: w = DN_LFO_MODE_NAME[dn_clamp(v, 0, DN_LM_N - 1)]; break;
+    case DN_PX_LRATE:
+        if (l->sync) {
+            w = DN_LFO_DIV_NAME[dn_clamp(v, 0, DN_LFO_NDIV - 1)];
+        } else {                                    /* 0.05 .. 20 Hz, log (the table's) */
+            float hz = 0.05f;
+            int32_t c;
+            for (i = 0; i < (uint32_t)v; i++)
+                hz *= 1.048309f;                    /* 400 ^ (1 / 127) */
+            c = (int32_t)(hz * 100.0f + 0.5f);
+            if (c < 1000) {
+                out[0] = (char)('0' + c / 100), out[1] = '.', out[2] = (char)('0' + c / 10 % 10);
+                out[3] = (char)('0' + c % 10), out[4] = 'H', out[5] = 'z', out[6] = 0;
+            } else {
+                c = (c + 5) / 10;
+                dn_num(out, c / 10);
+                i = (uint32_t)str_len_dn(out);
+                out[i] = '.', out[i + 1u] = (char)('0' + c % 10), out[i + 2u] = 'H', out[i + 3u] = 'z', out[i + 4u] = 0;
+            }
+            return;
+        }
+        break;
+    case DN_PX_LDEPTH: {
+        char t[8];
+        dn_num(t, v < 0 ? -v : v);
+        out[0] = v < 0 ? '-' : '+';
+        for (i = 0; t[i] && i < 5u; i++)
+            out[i + 1u] = t[i];
+        out[i + 1u] = 0;
+        return;
+    }
+    case DN_PX_LPHASE:
+        dn_num(out, v * 360 / 128);
+        return;
+    default:
+        dn_num(out, v);
+        return;
+    }
+    for (i = 0; w[i] && i < 7u; i++)
+        out[i] = w[i];
+    out[i] = 0;
+}
+
 static int32_t dn_get(uint32_t id)
 {
+    if (DN_IS_LPX(id))
+        return dn_lfo_get(id);
     if (id == DN_PX_BPM)
         return dn_rs.bpm;
     if (id == DN_PX_OCT)
@@ -544,6 +784,8 @@ static int32_t dn_get(uint32_t id)
 }
 static int32_t dn_min(uint32_t id)
 {
+    if (DN_IS_LPX(id))
+        return dn_lfo_lim(id, 0);
     if (id >= DN_PX_SLSEL)
         return 0;
     return id == DN_PX_BPM ? 60 : id == DN_PX_OVL || (id >= DN_PX_CLICK && id <= DN_PX_CIN) ? 0 : id == DN_PX_OCT ? -3 : id == DN_PX_BPITCH ? -24 : id >= DN_PX_BSRC ? 0
@@ -551,6 +793,8 @@ static int32_t dn_min(uint32_t id)
 }
 static int32_t dn_max(uint32_t id)
 {
+    if (DN_IS_LPX(id))
+        return dn_lfo_lim(id, 1);
     if (id >= DN_PX_SLSEL)
         return id == DN_PX_SLSEL ? (int32_t)dn_bk[dn_bsel()].nslices - 1 : id == DN_PX_SLADD ? 6
              : (int32_t)dn_bk[dn_bsel()].loop.n;
@@ -563,6 +807,11 @@ static const char *dn_name(uint32_t id)
 {
     static const char *const BN[8] = {"LOOP", "PITCH", "DECAY", "CRUSH", "CHOKE", "SLICES", "STRETCH", "LEVEL"};
     static const char *const SN[4] = {"CHOP", "CURSOR", "FINE", "ZOOM"};
+    static const char *const LN[8] = {"SHAPE", "RATE", "DEST", "DEPTH", "SYNC", "MODE", "PHASE", "SMOOTH"};
+    if (id == DN_PX_L1RATE || id == DN_PX_L1DEPTH)
+        return id == DN_PX_L1RATE ? "L1 RATE" : "L1 DEPTH";
+    if (DN_IS_LPX(id))
+        return LN[id - DN_PX_LSHAPE];
     if (id >= DN_PX_SLSEL)
         return SN[id - DN_PX_SLSEL];
     return id == DN_PX_BPM ? "BPM" : id == DN_PX_OVL ? "OVERLAP" : id == DN_PX_CLICK ? "CLICK"
@@ -571,6 +820,10 @@ static const char *dn_name(uint32_t id)
 }
 static void dn_text(uint32_t id, int32_t v, char out[8])
 {
+    if (DN_IS_LPX(id)) {
+        dn_lfo_text(id, v, out);
+        return;
+    }
     if (id == DN_PX_BSRC) {
         dn_loop_t L;
         uint32_t i;
@@ -705,8 +958,13 @@ static void dn_set(uint32_t id, int32_t v)
         dn.clk_lvl = (uint8_t)v;
     else if (id == DN_PX_CIN)
         dn.cin = (uint8_t)v;
-    else
+    else if (DN_IS_LPX(id))
+        dn_lfo_set(id, v);
+    else {
         dn_rs.p[id] = (int16_t)v;
+        if (id == RP_LFLT)
+            dn_lfo_legacy();                        /* (the editor's old filter LFO: LFO 1 now) */
+    }
     dn_unlock();
     if (id == DN_PX_BPM || id == DN_PX_BPITCH)      /* the breaks' speed follows the tempo */
         for (k = 0; k < DN_NBRK; k++)
@@ -719,6 +977,7 @@ static void dn_load_preset(uint32_t i)
 {
     dn_lock();
     reese_load_preset(&dn_rs, i);
+    dn_lfo_init_all();                              /* (a factory sound: its old filter LFO, if any, as LFO 1) */
     dn_unlock();
     dn.preset = (uint8_t)i;
     dn.dirty = 0;
@@ -752,6 +1011,8 @@ static void dn_save_fill(dn_save_t *sp)
     s.set.clk_lvl = dn.clk_lvl;
     s.set.cin = dn.cin;
     s.set.pad = 0;
+    for (k = 0; k < DN_NLFO; k++)
+        s.lfo[k] = dn_lp[k];
 #undef s
 }
 
@@ -772,6 +1033,7 @@ void dn_app_init(void)
     uint32_t k;
     int got;
     reese_init(&dn_rs);
+    dn_lfo_init_all();
     for (k = 0; k < DN_NBRK; k++) {
         dn_brk_init(&dn_bk[k]);
         dn_bk_src[k] = (uint8_t)k;                  /* A: ROLLER, B: STEPPER */
@@ -782,6 +1044,8 @@ void dn_app_init(void)
     dn_sq.legato = 0xF9u;                           /* overlaps slide on REESE and MIDI, not on the breaks */
     dn.sounding = dn.midi_note = 0xFF;
     dn.step_held = -1;
+    dn.pt_held = -1;
+    dn.pen = 100;
     dn.entry_len = DN_LEN_STEP;
     dn.click = 1;                                   /* the click while recording; one bar's count-in */
     dn.clk_lvl = 70;
@@ -798,13 +1062,26 @@ void dn_app_init(void)
     if ((got == (int)sizeof s || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 || got == (int)DN_SAVE_V04) &&
         s.magic == DN_SAVE_MAGIC) {
         dn.preset = (uint8_t)(s.preset % reese_preset_count());
-        dn.page = (uint8_t)(s.page % DN_NPAGES);
+        dn.page = (uint8_t)(DN_IS_SNDPG(s.page) ? s.page : 0u);
         dn.oct = (int8_t)dn_clamp(s.oct, -3, 3);
         dn_rs.bpm = (uint16_t)dn_clamp(s.bpm, 60, 200);
         dn_sq.bpm = dn_rs.bpm;
         for (k = 0; k < RP_COUNT; k++)
             dn_rs.p[k] = (int16_t)dn_clamp(s.p[k], reese_param_min(k), reese_param_max(k));
+        dn_lfo_init_all();                          /* (0.8 and older: their filter LFO as LFO 1) */
         if (got == (int)sizeof s) {
+            for (k = 0; k < DN_NLFO; k++) {         /* 0.9: the LFOs, checked */
+                dn_lp[k] = s.lfo[k];
+                dn_lp[k].shape = (uint8_t)dn_clamp(dn_lp[k].shape, 0, DN_LS_N - 1);
+                dn_lp[k].sync = dn_lp[k].sync ? 1u : 0u;
+                dn_lp[k].rate = (uint8_t)dn_clamp(dn_lp[k].rate, 0, dn_lp[k].sync ? DN_LFO_NDIV - 1 : 127);
+                dn_lp[k].dest = (uint8_t)dn_clamp(dn_lp[k].dest, 0, DN_LD_N - 1);
+                dn_lp[k].depth = (int8_t)dn_clamp(dn_lp[k].depth, -64, 63);
+                dn_lp[k].phase &= 127u;
+                dn_lp[k].mode = (uint8_t)dn_clamp(dn_lp[k].mode, 0, DN_LM_N - 1);
+                dn_lp[k].smooth &= 127u;
+                dn_lp[k].npts = dn_lp[k].npts == 32u ? 32u : 16u;
+            }
             dn.click = (uint8_t)dn_clamp(s.set.click, 0, 2);
             dn.clk_lvl = (uint8_t)dn_clamp(s.set.clk_lvl, 0, 127);
             dn.cin = (uint8_t)dn_clamp(s.set.cin, 0, 2);
@@ -869,7 +1146,7 @@ static void dn_play(uint8_t note, int legato)
     if (DN_IS_BRK(dn.trk)) {
         dn_brk_hit(dn.trk - 1u, note, 100, 0);
     } else if (dn.trk == 0u) {
-        reese_note_on(&dn_rs, note, 100, legato);
+        dn_rs_on(note, 100, legato);
     } else {
         uint32_t ch = dn_sq.pat.tr[dn.trk].chan;
         if (dn.sounding != 0xFF)
@@ -1088,6 +1365,78 @@ static void dn_keys_entry(uint32_t keys)
         dn_stop();
 }
 
+/* the LFO page's DRAW: the white keys are the points in view (1-16, or 17-32: black keys 10 / 11). A key sets its
+ * point to the pen (KNOB 1); held, KNOB 1 moves that point (and the pen). Black keys 1-8: SINE, TRI, SAW, SQUARE,
+ * RANDOM into the points, INVERT, REVERSE, CLEAR */
+static void dn_keys_draw(uint32_t keys)
+{
+    uint32_t down = keys & ~dn.keys_prev, up = dn.keys_prev & ~keys, k, i, n;
+    dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
+    n = l->npts == 32u ? 32u : 16u;
+    for (k = 0; k < NKEYS; k++) {
+        int32_t o = dn_key_ord(k);
+        if (dn_is_white(k)) {
+            uint32_t pt = (uint32_t)o + 16u * dn.pt_view;
+            if ((down & (1u << k)) && pt < n) {
+                dn_lock();
+                l->pts[pt] = dn.pen;
+                if (n == 16u)
+                    l->pts[pt + 16u] = dn.pen;      /* (16 points: the second half mirrors, for 32 later) */
+                dn_unlock();
+                dn.pt_held = (int8_t)pt;
+                dn_mark();
+            }
+            if ((up & (1u << k)) && dn.pt_held == (int8_t)pt)
+                dn.pt_held = -1;
+        } else if (down & (1u << k)) {
+            static const uint8_t SH[5] = {DN_LS_SINE, DN_LS_TRI, DN_LS_SAWDN, DN_LS_SQUARE, DN_LS_SH};
+            dn_lock();
+            if (o < 5)
+                dn_lfo_draw_shape(l, SH[o]);
+            else if (o == 5)
+                for (i = 0; i < DN_LFO_PTS; i++)
+                    l->pts[i] = (int8_t)-l->pts[i];
+            else if (o == 6)
+                for (i = 0; i < n / 2u; i++) {
+                    int8_t t = l->pts[i];
+                    l->pts[i] = l->pts[n - 1u - i];
+                    l->pts[n - 1u - i] = t;
+                }
+            else if (o == 7)
+                for (i = 0; i < DN_LFO_PTS; i++)
+                    l->pts[i] = 0;
+            else if (o >= 9)
+                dn.pt_view = (uint8_t)(o == 9 || n == 16u ? 0u : 1u);
+            dn_unlock();
+            dn_mark();
+        }
+    }
+}
+static void dn_lfo_draw_knob(uint32_t k, int32_t d)  /* DRAW: KNOB 1 the pen (or the held point), 2 SMOOTH, 3 POINTS,
+                                                     * 4 the points in view */
+{
+    dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
+    dn_lock();
+    if (k == 0u) {
+        dn.pen = (int8_t)dn_clamp(dn.pen + d * 5, -100, 100);
+        if (dn.pt_held >= 0) {
+            l->pts[dn.pt_held] = dn.pen;
+            if (l->npts != 32u)
+                l->pts[dn.pt_held + 16] = dn.pen;
+        }
+    } else if (k == 1u) {
+        l->smooth = (uint8_t)dn_clamp(l->smooth + d * 4, 0, 127);
+    } else if (k == 2u) {
+        l->npts = d > 0 ? 32u : 16u;
+        if (l->npts == 16u)
+            dn.pt_view = 0;
+    } else {
+        dn.pt_view = (uint8_t)(d > 0 && l->npts == 32u ? 1u : 0u);
+    }
+    dn_unlock();
+    dn_mark();
+}
+
 static void dn_keys(uint32_t keys)
 {
     if (!dn.keys_prev) {                            /* the keys follow the page they were pressed on */
@@ -1096,6 +1445,8 @@ static void dn_keys(uint32_t keys)
     }
     if (dn.key_page == DN_PG_ROLL && dn.key_mode)
         dn_keys_entry(keys);
+    else if (dn.key_page == DN_PG_LFO && dn.lfo_view == 2u)
+        dn_keys_draw(keys);
     else if (DN_IS_SEQPG(dn.key_page))
         dn_keys_seq(keys);
     else
@@ -1691,11 +2042,29 @@ void dn_app_input(void)
         dn_set(DN_PX_OCT, dn.oct - 1);
     else if (press & (1u << B_OCTUP))
         dn_set(DN_PX_OCT, dn.oct + 1);
-    for (k = 0; k < DN_NPAGES; k++)
-        if (press & (1u << DN_PAGE_BTN[k]))
-            dn_goto(k == 4u && dn.page == 4u ? DN_PG_SET : k);   /* GLO again: OUT's second page, SETUP */
+    for (k = 0; k < DN_NPAGES; k++) {
+        if (!(press & (1u << DN_PAGE_BTN[k])))
+            continue;
+        if (k == 3u && (dn.page == 3u || dn.page == DN_PG_LFO)) {   /* LFO again: LFO 1, 2, 3, 4, back to MOD */
+                if (dn.page == DN_PG_LFO && dn.lfo_sel + 1u >= DN_NLFO) {
+                    dn_goto(3u);
+                } else {
+                    dn.lfo_sel = dn.page == DN_PG_LFO ? (uint8_t)(dn.lfo_sel + 1u) : 0u;
+                    dn.lfo_view = 0;
+                    dn_goto(DN_PG_LFO);
+                    dn.redraw |= DN_RD_ALL;
+                }
+            } else
+                dn_goto(k == 4u && dn.page == 4u ? DN_PG_SET : k);   /* GLO again: OUT's second page, SETUP */
+        break;
+    }
     if (press & (1u << B_SEQ))                      /* SEQ: the overview, then ROLL, then DRUM, then round again */
         dn_goto(dn.page == DN_PG_SEQ ? DN_PG_ROLL : dn.page == DN_PG_ROLL ? DN_PG_DRUM : DN_PG_SEQ);
+    if ((press & (1u << B_FX)) && dn.page == DN_PG_LFO) {   /* LFO: the main knobs, MORE, DRAW (a DRAW shape) */
+        dn.lfo_view = (uint8_t)((dn.lfo_view + 1u) % (dn_lp[dn.lfo_sel % DN_NLFO].shape == DN_LS_DRAW ? 3u : 2u));
+        dn.pt_held = -1;
+        dn.redraw |= DN_RD_ALL;
+    }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_ROLL) {
         dn.roll_keys = (uint8_t)!dn.roll_keys;      /* ROLL: STEP <-> KEYS */
         dn.roll_cur = (uint8_t)(16u * dn.view);
@@ -1790,6 +2159,8 @@ void dn_app_input(void)
                 dn_seq_knob(k, d);
             } else if (dn.page == DN_PG_SLICE) {
                 dn_slice_knob(k, d);
+            } else if (dn.page == DN_PG_LFO && dn.lfo_view == 2u) {
+                dn_lfo_draw_knob(k, d);
             } else {
                 uint32_t id = dn_dial(k);
                 dn_set(id, dn_get(id) + (id == DN_PX_BSRC ? (d > 0 ? 1 : -1) : dn_accel(dn_max(id) - dn_min(id), d)));
@@ -1851,6 +2222,19 @@ static void dn_knob(int32_t cx, int32_t cy, uint32_t id, int focus)
     char t[8];
     dn_arc(cx, cy, 19, 22, -DN_KA, DN_KA, DN_C_TRACK);
     dn_arc(cx, cy, 19, 22, a0, av, focus ? DN_C_BLUE : DN_C_BLUE_D);
+    if (id < RP_COUNT) {                            /* an LFO on it: its reach, red outside the ring (as Massive) */
+        uint32_t j;
+        int32_t r = 0;
+        for (j = 0; j < DN_NLFO; j++)
+            if (dn_lp[j].dest && dn_lp[j].dest < DN_LD_APITCH && dn_lp[j].dest != DN_LD_PITCH &&
+                DN_LD_RP[dn_lp[j].dest] == id)
+                r += (dn_lp[j].depth < 0 ? -dn_lp[j].depth : dn_lp[j].depth) * (dn_lp[j].dest == DN_LD_CUT ? 2 : 1);
+        if (r) {
+            int32_t m0 = dn_clamp(v - r, lo, hi), m1 = dn_clamp(v + r, lo, hi);
+            dn_arc(cx, cy, 23, 25, -DN_KA + (2 * DN_KA * (m0 - lo)) / span, -DN_KA + (2 * DN_KA * (m1 - lo)) / span,
+                   DN_C_RED);
+        }
+    }
     dn_disc(cx, cy, 15, DN_C_KNOB);
     dn_disc(cx - 2, cy - 3, 9, DN_C_KNOB_HI);
     dn_disc(cx, cy, 8, DN_C_KNOB);
@@ -2100,6 +2484,29 @@ static void dn_draw_top(void)
             cv_text(219 - text_w(&FONT_S, pos) / 2, 47, &FONT_S, pos, flash ? DN_C_BAR : C_WHITE);
         else
             cv_text(219 - text_w(&FONT_T, pos) / 2, 50, &FONT_T, pos, DN_C_LABEL);
+    }
+    if (dn.page == DN_PG_LFO) {                     /* the LFO: its shape over a cycle, where it is, its value now */
+        const dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
+        const dn_lfo_s_t *ls = &dn_ls[dn.lfo_sel % DN_NLFO];
+        int32_t vy, mx;
+        cv_rect(4, 63, 232, 29, DN_C_WELL);
+        cv_rect(4, 77, 200, 1, DN_C_GRID);
+        for (x = 0; x < 200; x++) {
+            y = 77 - dn_lfo_at(l, (uint32_t)x * 21474836u + ((uint32_t)l->phase << 25), ls->sh_a, ls->sh_b) * 13 / 32767;
+            if (x)
+                cv_line(4 + x, py, 5 + x, y, DN_C_BLUE);
+            py = y;
+        }
+        mx = 4 + (int32_t)(ls->ph >> 16) * 200 / 65536;   /* where it is */
+        cv_rect(mx, 64, 1, 27, C_WHITE);
+        vy = ls->out * 13 / 32767;                  /* its value: a meter at the right */
+        cv_rect(212, 64, 18, 27, DN_C_GRID);
+        if (vy >= 0)
+            cv_rect(214, 77 - vy, 14, vy + 1, l->dest ? DN_C_BLUE : DN_C_DIMTXT);
+        else
+            cv_rect(214, 77, 14, -vy + 1, l->dest ? DN_C_BLUE : DN_C_DIMTXT);
+        cv_blit(0, 0);
+        return;
     }
     /* the scope: the last ~42 ms, from a rising zero crossing so it stands still */
     cv_rect(4, 63, 232, 29, DN_C_WELL);
@@ -2469,8 +2876,11 @@ static uint32_t dn_tabs(uint8_t *ids, const char **nms)
         for (k = 0; k < 3u; k++)
             ids[n] = BRK_T[k], nms[n++] = BRK_N[k];
     else
-        for (k = 0; k < DN_NSND; k++)
-            ids[n] = DN_SND[k], nms[n++] = DN_SND_NAME[k];
+        for (k = 0; k < DN_NSND; k++) {
+            static const char *const LN[DN_NLFO] = {"LFO1", "LFO2", "LFO3", "LFO4"};
+            ids[n] = DN_SND[k];
+            nms[n++] = DN_SND[k] == DN_PG_LFO && dn.page == DN_PG_LFO ? LN[dn.lfo_sel % DN_NLFO] : DN_SND_NAME[k];
+        }
     return n;
 }
 
@@ -2507,6 +2917,39 @@ static void dn_draw_bottom(void)
         cv_blit(0, 96);
         return;
     }
+    if (dn.page == DN_PG_LFO && dn.lfo_view == 2u) {   /* DRAW: the points in view as bars, one a white key */
+        const dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
+        uint32_t n = l->npts == 32u ? 32u : 16u, i;
+        char v[8];
+        cv_rect(0, 17, 240, 104, DN_C_PANEL);
+        cv_rect(6, 22, 228, 92, DN_C_WELL);
+        cv_rect(6, 68, 228, 1, DN_C_GRID);
+        for (i = 0; i < 16u; i++) {
+            uint32_t pt = i + 16u * dn.pt_view;
+            int32_t x = 8 + (int32_t)i * 14, h = pt < n ? l->pts[pt] * 42 / 100 : 0;
+            uint16_t c = (int8_t)pt == dn.pt_held ? C_WHITE : DN_C_BLUE;
+            if (pt >= n)
+                continue;
+            if (h >= 0)
+                cv_rect(x, 68 - h, 12, h + 1, c);
+            else
+                cv_rect(x, 68, 12, -h + 1, c);
+        }
+        {   /* the pen: a red line at its level */
+            int32_t y = 68 - dn.pen * 42 / 100;
+            cv_rect(6, y, 228, 1, DN_C_RED);
+        }
+        cv_rect(0, 121, 240, 23, DN_C_BAR);
+        t[0] = 0;
+        dn_cat(t, "PEN ");
+        dn_num(v, dn.pen);
+        dn_cat(t, v);
+        dn_cat(t, dn.pt_view ? "  17-32" : n == 32u ? "  1-16" : "");
+        cv_text(8, 127, &FONT_T, t, C_WHITE);
+        cv_text(232 - text_w(&FONT_T, "K2 SMOOTH K3 PTS FX"), 127, &FONT_T, "K2 SMOOTH K3 PTS FX", DN_C_LABEL);
+        cv_blit(0, 96);
+        return;
+    }
     /* the four dials: KNOB 1..4 */
     cv_rect(0, 17, 240, 104, DN_C_PANEL);
     cv_rect(0, 17, 240, 1, DN_C_EDGE);
@@ -2519,6 +2962,16 @@ static void dn_draw_bottom(void)
     cv_text(8, 125, &FONT_XS, t, DN_C_LABEL);
     if (dn.play)
         cv_text(70, 125, &FONT_XS, "HOLD", DN_C_BLUE);
+    if (dn.page == DN_PG_LFO) {                     /* the LFO page: which view, what FX does */
+        const dn_lfo_p_t *l = &dn_lp[dn.lfo_sel % DN_NLFO];
+        const char *nx = dn.lfo_view == 0u ? "FX: MORE" : dn.lfo_view == 1u && l->shape == DN_LS_DRAW ? "FX: DRAW"
+                                                                                                    : "FX: BACK";
+        cv_rect(0, 121, 240, 23, DN_C_BAR);
+        cv_text(8, 127, &FONT_T, dn.lfo_view ? "MORE: SYNC MODE PHASE SMOOTH" : "LFO: AGAIN FOR THE NEXT", DN_C_LABEL);
+        cv_text(232 - text_w(&FONT_T, nx), 127, &FONT_T, nx, C_WHITE);
+        cv_blit(0, 96);
+        return;
+    }
     if (dn.page == DN_PG_SLICE) {                   /* chop mode: which chop, where the cursor is, what to do */
         const dn_brk_t *b = &dn_bk[dn_bsel()];
         uint32_t r = b->loop.rate ? b->loop.rate : 22050u, cs = dn.sl_cur / (r / 100u ? r / 100u : 1u);
@@ -2583,7 +3036,9 @@ void dn_app_draw(int force)
         dn_draw_bottom();
     dn.redraw = 0;
     lit |= 1u << (DN_IS_SEQPG(dn.page) ? B_SEQ : DN_IS_BRKPG(dn.page) ? B_ARP : dn.page == DN_PG_SET ? B_GLO
-                  : DN_PAGE_BTN[dn.page]);
+                  : dn.page == DN_PG_LFO ? B_LFO : DN_PAGE_BTN[dn.page]);
+    if (dn.page == DN_PG_LFO && dn.lfo_view)
+        lit |= 1u << B_FX;
     if (dn.page == DN_PG_ROLL && dn.roll_keys)
         lit |= 1u << B_FX;
     if (dn.dirty)

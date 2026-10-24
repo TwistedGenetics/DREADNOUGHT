@@ -469,6 +469,18 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "drumtop")) got = dn.drum_top;
             else if (!strcmp(b, "held")) got = dn.step_held + 1;
             else if (!strcmp(b, "saveheld")) got = dn.save_held;
+            else if (!strncmp(b, "pt.", 3)) {       /* pt.L.I: LFO L's DRAW point I (1-based) */
+                int l = 0, i = 0;
+                sscanf(b + 3, "%d.%d", &l, &i);
+                got = dn_lp[l - 1].pts[i - 1];
+            }
+            else if (!strncmp(b, "lfo.", 4)) got = dn_ls[atoi(b + 4) - 1].out;   /* lfo.L: its value now */
+            else if (!strcmp(b, "modcut")) got = dn_rs.mod[RP_CUT];
+            else if (!strcmp(b, "modpitch")) got = dn_rs.mod_pitch;
+            else if (!strcmp(b, "bmpitch")) got = dn_bk[0].mpitch;
+            else if (!strcmp(b, "lsel")) got = dn.lfo_sel + 1;
+            else if (!strcmp(b, "ldest")) got = dn_lp[dn.lfo_sel].dest;
+            else if (!strcmp(b, "lshape")) got = dn_lp[dn.lfo_sel].shape;
             else if (!strcmp(b, "cin")) got = dn.cin_left != 0;
             else if (!strcmp(b, "clk")) got = (long)dn.clk_count;
             else if (!strcmp(b, "pos")) got = dn_sq.playing ? (long)dn_sq.pos : -1;

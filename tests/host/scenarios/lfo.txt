@@ -1,0 +1,84 @@
+# DREADNOUGHT host scenario (0.9): the LFOs. LFO from MOD: LFO 1, 2, 3, 4, back to MOD; FX: MORE, DRAW.
+tap LFO
+expect page 3
+shot lfo-00-mod.png
+tap LFO
+expect page 12
+expect lsel 1
+shot lfo-01-main.png
+# LFO 1: a 1/4 sine (synced) on the cutoff, depth +60
+turn K3 1
+expect ldest 1
+turn K4 20
+turn K4 20
+turn K4 20
+tap PLAY
+# 100 ms into the pattern (0.29 of a beat): near the top; 275 ms (0.79): near the bottom
+expect modcut >20000
+wait 175
+expect modcut <-20000
+shot lfo-02-cut.png
+tap PLAY
+# LFO 2: on BREAKS A's pitch
+tap LFO
+expect lsel 2
+turn K3 10
+expect ldest 10
+turn K4 20
+turn K4 20
+tap PLAY
+wait 60
+expect bmpitch >100
+tap PLAY
+# LFO 1 again (LFO x3 more: 3, 4, MOD; then 1), DRAW: the sine's points; key 2 sets point 2 to the pen
+tap LFO
+tap LFO
+tap LFO
+expect page 3
+tap LFO
+expect lsel 1
+turn K1 7
+expect lshape 7
+expect pt.1.5 100
+tap FX
+shot lfo-03-more.png
+tap FX
+shot lfo-04-draw.png
+key 2 down
+expect pt.1.2 100
+turn K1 -10
+expect pt.1.2 50
+key 2 up
+# black keys (1-8 = keys 1 3 5 8 10 13 15 17): 6 inverts, 8 clears, 4 a square
+tapkey 13 60
+expect pt.1.2 -50
+tapkey 17 60
+expect pt.1.2 0
+tapkey 8 60
+expect pt.1.2 100
+expect pt.1.10 -100
+shot lfo-05-drawn.png
+# kept: SAVE, a restart
+tap SAVE
+reboot
+expect ldest 1
+expect lshape 7
+expect pt.1.10 -100
+# a 0.8 factory sound with a filter LFO (TECHSTEP: LRATE 40, LFLT 14): LFO 1, free, a sine to CUTOFF, depth 14
+turn PRESET 3
+expect preset 3
+expect p.LFLT 0
+expect ldest 1
+expect lshape 0
+# RETRIG: LFO 1 (that free sine) restarts on a REESE note: just after the key, it's at its start (0)
+tap SEL
+tap LFO
+tap LFO
+expect lsel 1
+tap FX
+turn K2 1
+wait 700
+tapkey 0 5
+expect lfo.1 <3000
+expect lfo.1 >-3000
+shot lfo-06-techstep.png
