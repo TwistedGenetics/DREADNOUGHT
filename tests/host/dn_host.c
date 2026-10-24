@@ -551,6 +551,9 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "sbgate")) got = dn_sb.gate;       /* SUB (0.13) */
             else if (!strcmp(b, "sbpreset")) got = dn.sb_preset;
             else if (!strcmp(b, "smodcut")) got = dn_sb.mod[SP_CUT] != 0;
+            else if (!strcmp(b, "sbsync")) got = dn_sb.esync;
+            else if (!strcmp(b, "rssync")) got = dn_rs.esync;
+            else if (!strcmp(b, "lph")) got = (long)(dn_ls[0].ph >> 24);   /* LFO 1's phase, 0..255 */
             else if (!strcmp(b, "sbnote")) got = dn_sb.gate ? dn_sb.note : -1;
             else if (!strncmp(b, "s.", 2)) {
                 got = -9999;

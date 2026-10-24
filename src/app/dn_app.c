@@ -379,17 +379,29 @@ static void dn_lfo_init_all(void)                   /* a new sound: no LFOs, the
     dn_lfo_legacy();
 }
 /* REESE's notes: a note that isn't a slide restarts the RETRIG / 1-SHOT LFOs */
-static void dn_rs_on(uint8_t note, uint8_t vel, int legato)
+static void dn_lfo_retrig(void)                     /* a new note (not a slide): the RETRIG / 1-SHOT LFOs restart */
 {
     uint32_t j;
+    for (j = 0; j < DN_NLFO; j++)
+        if (dn_lp[j].mode != DN_LM_FREE) {
+            dn_ls[j].acc = 0, dn_ls[j].ph = 0, dn_ls[j].done = 0;
+            dn_ls[j].sh_a = dn_ls[j].sh_b;
+        }
+}
+static void dn_rs_on(uint8_t note, uint8_t vel, int legato)
+{
     int slide = legato && dn_rs.gate && dn_rs.active && dn_rs.p[RP_GLIDE];
     reese_note_on(&dn_rs, note, vel, legato);
     if (!slide)
-        for (j = 0; j < DN_NLFO; j++)
-            if (dn_lp[j].mode != DN_LM_FREE) {
-                dn_ls[j].acc = 0, dn_ls[j].ph = 0, dn_ls[j].done = 0;
-                dn_ls[j].sh_a = dn_ls[j].sh_b;
-            }
+        dn_lfo_retrig();
+}
+/* SUB's notes: the same (0.13: SUB's notes restart the RETRIG LFOs too; a legato note with a key held doesn't) */
+static void dn_sb_on(uint8_t note, uint8_t vel, int legato, int accent)
+{
+    int held = legato && dn_sb.gate && dn_sb.active && dn_sb.stage;
+    dn_sub_note_on(&dn_sb, note, vel, legato, accent);
+    if (!held)
+        dn_lfo_retrig();
 }
 /* the LFOs' tick (every 32 samples, audio): each one on, then onto its destination. Depth -64..63; full depth:
  * CUTOFF +-128 steps (the whole range), PITCH +-12 semitones, the other values +-64 steps; Ln DEPTH scales that
@@ -399,6 +411,7 @@ static void dn_lfo_tick(uint32_t n)
     int32_t dm[DN_NLFO] = {0}, rm[RP_COUNT] = {0}, pitch = 0, bp[DN_NBRK] = {0}, bd[DN_NBRK] = {0}, bc[DN_NBRK] = {0};
     int32_t bl[DN_NBRK] = {0}, sm[SP_COUNT] = {0}, spitch = 0;
     uint32_t j, k;
+    dn_sb.bpm = dn_sq.bpm;                          /* (SUB's synced envelope times) */
     for (j = 0; j < DN_NLFO; j++)
         dn_lfo_run(&dn_ls[j], &dn_lp[j], n, dn_sq.bpm);
     for (j = 0; j < DN_NLFO; j++)                   /* the LFOs on other LFOs' depth first */
@@ -453,7 +466,7 @@ static void dn_sq_on(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t f
     if (DN_IS_RS(t))
         dn_rs_on(note, vel, slide);
     else if (DN_IS_SUB(t))
-        dn_sub_note_on(&dn_sb, note, vel, slide, (flags & DN_ST_ACC) != 0);
+        dn_sb_on(note, vel, slide, (flags & DN_ST_ACC) != 0);
     else if (DN_IS_BRK(t))
         dn_brk_hit(DN_BK(t), note, vel, (flags & DN_ST_SLIDE) != 0);
     else if (DN_IS_MIDI(t))
@@ -1237,6 +1250,17 @@ static const char *dn_name(uint32_t id)
 }
 static void dn_text(uint32_t id, int32_t v, char out[8])
 {
+    static const char *const ES[DN_ESYNC_N] = {"1/64", "1/32T", "1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4",
+                                               "1/2T", "1/2", "1 BAR", "2 BARS", "4 BARS", "8 BARS"};
+    if (((id == RP_ATK || id == RP_DEC || id == RP_REL) && dn_rs.esync) ||
+        ((id == DN_S(SP_ATK) || id == DN_S(SP_DEC) || id == DN_S(SP_REL)) && dn_sb.esync)) {
+        const char *w = ES[dn_esync_idx(v)];        /* synced: the note length */
+        uint32_t i;
+        for (i = 0; w[i] && i < 7u; i++)
+            out[i] = w[i];
+        out[i] = 0;
+        return;
+    }
     if (DN_IS_SPX(id)) {
         dn_sub_param_text(id - DN_PX_SUB0, v, out);
         return;
@@ -1497,7 +1521,9 @@ static void dn_save_fill(dn_save_t *sp)
     s.proj.fx[0] = dn_fxp[0];
     s.proj.fx[1] = dn_fxp[1];
     s.sub.preset = dn.sb_preset;                    /* (0.13: SUB) */
-    s.sub.pad[0] = s.sub.pad[1] = s.sub.pad[2] = 0;
+    s.sub.pad[0] = dn_rs.esync;                     /* (the envelopes synced) */
+    s.sub.pad[1] = dn_sb.esync;
+    s.sub.pad[2] = 0;
     for (k = 0; k < SP_COUNT; k++)
         s.sub.p[k] = dn_sb.p[k];
 #undef s
@@ -1782,6 +1808,8 @@ void dn_app_init(void)
             dn_proj_restore(&s);                    /* 0.12: the project */
         if (got == (int)sizeof s) {                 /* 0.13: SUB */
             dn.sb_preset = (uint8_t)(s.sub.preset % dn_sub_preset_count());
+            dn_rs.esync = s.sub.pad[0] ? 1u : 0u;
+            dn_sb.esync = s.sub.pad[1] ? 1u : 0u;
             for (k = 0; k < SP_COUNT; k++)
                 dn_sb.p[k] = (int16_t)dn_clamp(s.sub.p[k], dn_sub_param_min(k), dn_sub_param_max(k));
         }
@@ -1867,7 +1895,7 @@ static void dn_play(uint8_t note, int legato)
     } else if (DN_IS_RS(dn.trk)) {
         dn_rs_on(note, 100, legato);
     } else if (DN_IS_SUB(dn.trk)) {
-        dn_sub_note_on(&dn_sb, note, 100, legato, 0);
+        dn_sb_on(note, 100, legato, 0);
     } else if (DN_IS_MIDI(dn.trk)) {
         uint32_t ch = dn_sq.pat.tr[dn.trk].chan;
         if (dn.sounding != 0xFF)
@@ -3083,6 +3111,15 @@ void dn_app_input(void)
             }
             dn.back_page = (uint8_t)back;
         }
+    }
+    if ((press & (1u << B_FX)) && dn.page == 2u && DN_IS_SYN(dn.trk)) {   /* AMP: FX locks the envelope's times to the
+                                                     * tempo (ATK DEC REL as note lengths) or frees them */
+        uint8_t *e = DN_IS_SUB(dn.trk) ? &dn_sb.esync : &dn_rs.esync;
+        dn_lock();
+        *e = (uint8_t)!*e;
+        dn_unlock();
+        dn_say(*e ? "ENV SYNC: NOTE LENGTHS" : "ENV FREE: MS");
+        dn_mark();
     }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_FX) {   /* FX: MIX, FX A, FX B */
         dn.fx_view = (uint8_t)((dn.fx_view + 1u) % 3u);
@@ -4332,6 +4369,8 @@ void dn_app_draw(int force)
                   : DN_PAGE_BTN[dn.page % DN_NPAGES]);
     if ((dn.page == DN_PG_LFO && dn.lfo_view) || (dn.page == DN_PG_FX && dn.fx_view))
         lit |= 1u << B_FX;
+    if (dn.page == 2u && DN_IS_SYN(dn.trk) && (DN_IS_SUB(dn.trk) ? dn_sb.esync : dn_rs.esync))
+        lit |= 1u << B_FX;                          /* (AMP: the envelope synced) */
     if (dn.page == DN_PG_PROJ && dn.peng != 0xFFu && (plat_ms() / 250u) % 2u)
         lit |= 1u << B_FX;                          /* (an instrument chosen: FX blinks to put it in) */
     if (dn.page == DN_PG_ROLL && dn.roll_keys)

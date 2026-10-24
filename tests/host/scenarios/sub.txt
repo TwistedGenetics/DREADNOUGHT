@@ -124,3 +124,28 @@ wait 300
 expect smodcut 0
 shot sub-09-lfo-reese-cutoff.png
 key 0 up
+# ENV SYNC (0.13): FX on SUB's AMP page locks ATK DEC REL to note lengths (FX lit), FX again frees them; kept by SAVE
+press SEQ
+tapkey 7 40
+release SEQ
+tap ENV
+expect page 2
+tap FX
+expect sbsync 1
+expect rssync 0
+shot sub-12-amp-sync.png
+# LFO 1 on RETRIG: a SUB note restarts it (0.13: only REESE's did)
+tap LFO
+tap LFO
+tap FX
+turn K2 1
+expect page 12
+wait 500
+key 0 down
+wait 5
+expect lph <8
+key 0 up
+tap FX
+tap SAVE
+reboot
+expect sbsync 1

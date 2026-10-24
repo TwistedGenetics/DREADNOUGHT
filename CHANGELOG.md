@@ -309,3 +309,17 @@ tracking the keys, SPLIT under drive, accent, the gate VCA, AUTO portamento, all
 `build/host/sub_presets.wav`, each sound on a jungle bass line to listen to), the `sub` scenario (on a track, its
 pages, PRESETS, the keys and the sequencer playing it, kept by SAVE), every earlier test, and the editor's end-to-end
 run. Not yet tested on a real FM-1.
+
+## 0.14 — envelopes locked to the tempo; SUB's notes retrigger the LFOs (2026-10-24)
+
+- **ENV SYNC:** on a synth's AMP page (REESE or SUB), FX locks its envelope to the tempo: ATK, DEC and REL become
+  note lengths (1/64, 1/32T, 1/32, 1/16T, 1/16, 1/8T, 1/8, 1/4T, 1/4, 1/2T, 1/2, 1 BAR, 2, 4, 8 BARS; up to 10 s)
+  and follow the BPM; FX lit while it's on, FX again frees them (ms). Each synth keeps its own; saved with the sound.
+  REESE's filter envelope follows its amp's times, synced too.
+- **The LFOs were already tempo-synced** (the LFO page, FX: MORE, SYNC; 8 bars … 1/32 with dotted and triplets, the
+  default) and could already restart on a note (MODE: RETRIG, or 1-SHOT): now **SUB's notes restart them too**, not
+  only REESE's (a note sliding in with a key held doesn't).
+
+Tested on the host: `sub_test` (ATK on 1/4 takes twice as long at 60 BPM as at 120, and as long as the same time free),
+the `sub` scenario (FX on AMP, the knobs reading note lengths, kept by SAVE; a SUB note restarting an LFO on RETRIG),
+every earlier test. Not yet tested on a real FM-1.

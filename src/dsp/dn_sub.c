@@ -157,6 +157,7 @@ void dn_sub_init(dn_sub_t *s)
     for (i = 0; i < sizeof *s; i++)
         b[i] = 0;
     s->rnd = 0x101101;
+    s->bpm = 172;
     dn_sub_load_preset(s, 0);
 }
 
@@ -240,8 +241,15 @@ void dn_sub_note_off(dn_sub_t *s)
 static void sb_control(dn_sub_t *s)
 {
     const int16_t *p = s->p;
-    int32_t ka = DN_ENV_K[dn_clamp(p[SP_ATK], 14, 127)], kd = DN_ENV_K[dn_clamp(p[SP_DEC], 0, 127)];
-    int32_t kr = DN_ENV_K[dn_clamp(p[SP_REL], 0, 127)], sus = dn_clamp(p[SP_SUS], 0, 127) * (SB_FULL / 127), a;
+    int32_t ka, kd, kr, sus = dn_clamp(p[SP_SUS], 0, 127) * (SB_FULL / 127), a;
+    if (s->esync) {
+        ka = s->stage == 1 ? dn_esync_k(p[SP_ATK], s->bpm, 14) : 0;
+        kd = s->stage == 2 ? dn_esync_k(p[SP_DEC], s->bpm, 0) : 0;
+        kr = s->stage == 3 ? dn_esync_k(p[SP_REL], s->bpm, 0) : 0;
+    } else {
+        ka = DN_ENV_K[dn_clamp(p[SP_ATK], 14, 127)], kd = DN_ENV_K[dn_clamp(p[SP_DEC], 0, 127)];
+        kr = DN_ENV_K[dn_clamp(p[SP_REL], 0, 127)];
+    }
     switch (s->stage) {
     case 1:
         s->env += dn_mulq16((SB_FULL + SB_FULL / 4) - s->env, (uint32_t)ka);

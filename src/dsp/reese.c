@@ -258,8 +258,16 @@ void reese_note_off(reese_t *r)
 static void rs_control(reese_t *r)
 {
     const int16_t *p = r->p;
-    int32_t ka = DN_ENV_K[dn_clamp(p[RP_ATK], 0, 127)], kd = DN_ENV_K[dn_clamp(p[RP_DEC], 0, 127)];
-    int32_t kr = DN_ENV_K[dn_clamp(p[RP_REL], 0, 127)], sus = dn_clamp(p[RP_SUS], 0, 127) * (RS_FULL / 127);
+    int32_t ka, kd, kr, sus = dn_clamp(p[RP_SUS], 0, 127) * (RS_FULL / 127);
+    if (r->esync) {                                       /* (the stage running decides which time is needed) */
+        int32_t st = r->astage > r->fstage ? r->astage : r->fstage;
+        ka = st == 1 ? dn_esync_k(p[RP_ATK], r->bpm, 0) : 0;
+        kd = st >= 1 ? dn_esync_k(p[RP_DEC], r->bpm, 0) : 0;
+        kr = st == 3 ? dn_esync_k(p[RP_REL], r->bpm, 0) : 0;
+    } else {
+        ka = DN_ENV_K[dn_clamp(p[RP_ATK], 0, 127)], kd = DN_ENV_K[dn_clamp(p[RP_DEC], 0, 127)];
+        kr = DN_ENV_K[dn_clamp(p[RP_REL], 0, 127)];
+    }
     /* amplitude: attack to an overshoot target (an analog curve), decay to sustain, release to zero */
     switch (r->astage) {
     case 1:

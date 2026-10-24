@@ -154,6 +154,22 @@ int main(int argc, char **argv)
         render(&s, 64);
         check("AUTO: a fresh note jumps", s.pitch256 == 45 * 256, s.pitch256, 45 * 256);
     }
+    /* 6a: envelope times locked to the tempo (0.13): ATK on 1/4 takes twice as long at 60 BPM as at 120, and as long as
+     * a quarter at 120 does free (the table's 500 ms) */
+    {
+        uint32_t tt[3];
+        for (int m = 0; m < 3; m++) {
+            zero_all(&s);
+            s.p[SP_SAW] = 100, s.p[SP_ATK] = m < 2 ? 69 : 85;   /* 69: the 9th length (1/4); free 85: ~500 ms */
+            s.esync = m < 2, s.bpm = m == 1 ? 60 : 120;
+            dn_sub_note_on(&s, 45, 100, 0, 0);
+            for (tt[m] = 0; tt[m] < 3u * FS && s.stage == 1; tt[m] += 32u)
+                dn_sub_render(&s, lr, 32);
+        }
+        check("ENV SYNC: ATK 1/4 at 60 BPM takes 2x as long as at 120", fabs((double)tt[1] / tt[0] - 2.0) < 0.15,
+              (double)tt[1] / tt[0], 2);
+        check("... and as long as ~500 ms free (ratio)", fabs((double)tt[0] / tt[2] - 1.0) < 0.1, (double)tt[0] / tt[2], 1);
+    }
     /* 6b: every value an LFO can reach on SUB changes the sound (its modulation, as the app sets it) */
     {
         static const int K[] = {SP_CUT, SP_RES, SP_DRIVE, SP_LEVEL, SP_PW, SP_ENV, SP_SUB, SP_CRUSH, SP_TONE, SP_PULSE, SP_NOISE};

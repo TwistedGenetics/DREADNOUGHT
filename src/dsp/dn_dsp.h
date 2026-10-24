@@ -116,3 +116,21 @@ static inline uint32_t dn_pitch_inc(int32_t note256)
     uint32_t a = DN_NOTE_INC[i], b = DN_NOTE_INC[i + 1];
     return a + (uint32_t)(((uint64_t)(b - a) * (uint32_t)f) >> 8);
 }
+
+/* ---- envelope times locked to the tempo (0.13): a value 0..127 picks one of DN_ESYNC_N note lengths, and the
+ * envelope covers ~99 % of its way in that long at the tempo (as DN_ENV_K does for its times; 10 s at most) */
+#define DN_ESYNC_N 15
+static const uint8_t DN_ESYNC[DN_ESYNC_N][2] = {{1, 16}, {1, 12}, {1, 8}, {1, 6}, {1, 4}, {1, 3}, {1, 2}, {2, 3}, {1, 1},
+                                                {4, 3}, {2, 1}, {4, 1}, {8, 1}, {16, 1}, {32, 1}};   /* beats: num / den */
+static inline uint32_t dn_esync_idx(int32_t v) { return (uint32_t)dn_clamp(v, 0, 127) * DN_ESYNC_N / 128u; }
+static inline int32_t dn_esync_k(int32_t v, uint32_t bpm, int32_t lo)   /* lo: the quickest table index allowed */
+{
+    const uint8_t *d = DN_ESYNC[dn_esync_idx(v)];
+    float ms = (float)d[0] * 60000.0f / ((float)(bpm ? bpm : 120u) * (float)d[1]), t = 1.0f;
+    int32_t i = 0;
+    while (i < 127 && t * 1.0369f < ms) {           /* the table's time nearest it (1.075254 ^ i ms; 1.0369: half a step) */
+        t *= 1.075254f;
+        i++;
+    }
+    return DN_ENV_K[i < lo ? lo : i];
+}

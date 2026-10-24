@@ -21,6 +21,8 @@ enum { SB_GOFF, SB_GAUTO, SB_GON };                 /* portamento: off, legato n
 typedef struct {
     int16_t p[SP_COUNT];
     uint8_t gate, note, active, acc, vel, vsens;
+    uint8_t esync;                                  /* 1: ATK DEC REL are note lengths at the tempo (0.13) */
+    uint16_t bpm;
     int32_t pitch256, target256;
     int32_t env;                                    /* Q24: one envelope, for the filter and the amp (the 101's) */
     uint8_t stage;                                  /* 0 off, 1 attack, 2 decay / sustain, 3 release */
