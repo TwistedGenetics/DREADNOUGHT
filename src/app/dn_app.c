@@ -46,7 +46,8 @@
 #define DN_PG_DRUM (DN_NPAGES + 3u)
 #define DN_IS_SEQPG(p) ((p) == DN_PG_SEQ || (p) == DN_PG_ROLL || (p) == DN_PG_DRUM)
 #define DN_PG_BRK2 (DN_NPAGES + 4u)                 /* BRK's second page (ARP again): its tab is BRK's */
-#define DN_IS_BRKPG(p) ((p) == DN_PG_BRK || (p) == DN_PG_BRK2)
+#define DN_PG_SLICE (DN_NPAGES + 5u)                /* BRK's third page: the slice editor */
+#define DN_IS_BRKPG(p) ((p) == DN_PG_BRK || (p) == DN_PG_BRK2 || (p) == DN_PG_SLICE)
 #define DN_ROLL_ROWS 12                             /* the piano roll's pitches in view (an octave) */
 #define DN_DRUM_ROWS 8                              /* the drum grid's slices in view */
 #define DN_NBRK 2u                                  /* BREAKS A and B: tracks 2 and 3 */
@@ -62,10 +63,15 @@
 #define DN_PX_BSMODE 115
 #define DN_PX_BSTRETCH 116
 #define DN_PX_BLEVEL 117
+#define DN_PX_SLSEL 120                             /* SLICE: the slice, its start (coarse, fine), add / delete */
+#define DN_PX_SLMOVE 121
+#define DN_PX_SLFINE 122
+#define DN_PX_SLADD 123
 
 static const char *const DN_PAGE_NAME[DN_NTABS] = {"OSC", "FILTER", "AMP", "MOD", "OUT", "SEQ", "BRK"};
 static const uint8_t DN_BRK_PAGE[4] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH};
 static const uint8_t DN_BRK2_PAGE[4] = {DN_PX_BCHOKE, DN_PX_BSMODE, DN_PX_BSTRETCH, DN_PX_BLEVEL};
+static const uint8_t DN_SLICE_PAGE[4] = {DN_PX_SLSEL, DN_PX_SLMOVE, DN_PX_SLFINE, DN_PX_SLADD};
 static const uint8_t DN_PAGE[DN_NPAGES][4] = {
     {RP_OSC, RP_DTN, RP_BEAT, RP_SUB},
     {RP_CUT, RP_RES, RP_DRV, RP_NTCH},
@@ -106,6 +112,7 @@ static struct {
     uint8_t roll_cur;                               /* ROLL KEYS: the cursor (a step) */
     uint8_t entry_len;                              /* ROLL KEYS: the length a key writes (quarter steps) */
     uint8_t drum_row, drum_top;                     /* DRUM: the slice row selected, the first in view */
+    uint8_t sl_sel;                                 /* SLICE: the slice being edited */
     uint8_t save_held, save_chord;                  /* SAVE down; it was used with OCT (copy / paste): no save */
     uint8_t clip_ok;
     dn_step_t clip[16];                             /* copy / paste: one bar of one track */
@@ -254,6 +261,63 @@ static int dn_src_get(uint32_t i, dn_loop_t *L)
     return 0;
 }
 /* BREAKS k plays loop src (main loop): the audio lets go of it first, the new loop is read, the speed set */
+/* MANUAL slices, kept per loop (by its identity, dn_brk_key) in their own storage object, so the sample slots stay in
+ * X0X's format and other firmwares still read them. Up to DN_MAN_N loops; the oldest one is forgotten first. */
+#define DN_MAN_MAGIC 0x31534E44u                    /* "DNS1" */
+#define DN_MAN_N 24u
+typedef struct {
+    uint32_t key;
+    uint8_t n, pad[3];
+    uint16_t st[DN_BRK_MAXSL];                      /* where each slice starts, in 4-sample units */
+} dn_man_t;
+static struct {
+    uint32_t magic, count;
+    dn_man_t t[DN_MAN_N];
+} dn_man X0X_POOL;
+typedef char dn_man_fits[sizeof dn_man <= PLAT_STORE_MAX ? 1 : -1];
+
+static dn_man_t *dn_man_find(uint32_t key)
+{
+    uint32_t i;
+    for (i = 0; i < dn_man.count && i < DN_MAN_N; i++)
+        if (dn_man.t[i].key == key)
+            return &dn_man.t[i];
+    return 0;
+}
+/* the loop's manual slices into its voice (with the lock: the audio reads the table in use) */
+static void dn_man_restore(dn_brk_t *b)
+{
+    const dn_man_t *m = dn_man_find(b->key);
+    uint32_t i;
+    dn_lock();
+    b->n_man = 0;
+    if (m && m->n) {
+        for (i = 0; i < m->n && i < DN_BRK_MAXSL; i++)
+            b->man_start[i] = (uint32_t)m->st[i] * 4u;
+        b->n_man = m->n;
+    }
+    dn_brk_slices_apply(b);
+    dn_unlock();
+}
+/* the voice's manual slices into the store (the newest last; full: the oldest goes) */
+static void dn_man_keep(const dn_brk_t *b)
+{
+    dn_man_t *m = dn_man_find(b->key);
+    uint32_t i;
+    if (!m) {
+        if (dn_man.count >= DN_MAN_N) {
+            for (i = 0; i + 1u < DN_MAN_N; i++)
+                dn_man.t[i] = dn_man.t[i + 1u];
+            dn_man.count = DN_MAN_N - 1u;
+        }
+        m = &dn_man.t[dn_man.count++];
+        m->key = b->key;
+    }
+    m->n = b->n_man;
+    for (i = 0; i < b->n_man; i++)
+        m->st[i] = (uint16_t)(b->man_start[i] / 4u);
+}
+
 static void dn_brk_select(uint32_t k, uint32_t src)
 {
     dn_loop_t L;
@@ -266,6 +330,7 @@ static void dn_brk_select(uint32_t k, uint32_t src)
     dn_bk[k].on = 0;
     dn_unlock();
     dn_brk_load(&dn_bk[k], &L);
+    dn_man_restore(&dn_bk[k]);                      /* (the slices set by hand for this loop, if any) */
     dn_brk_tempo(&dn_bk[k], dn_sq.bpm);
     dn_bk_src[k] = (uint8_t)src;
 }
@@ -311,15 +376,26 @@ static int32_t dn_get(uint32_t id)
         return dn_bk[dn_bsel()].stretch;
     if (id == DN_PX_BLEVEL)
         return dn_bk[dn_bsel()].level;
+    if (id == DN_PX_SLSEL)
+        return dn.sl_sel;
+    if (id == DN_PX_SLMOVE || id == DN_PX_SLFINE)
+        return (int32_t)dn_bk[dn_bsel()].start[dn.sl_sel];
+    if (id == DN_PX_SLADD)
+        return dn_bk[dn_bsel()].nslices;
     return dn_rs.p[id];
 }
 static int32_t dn_min(uint32_t id)
 {
+    if (id >= DN_PX_SLSEL)
+        return id == DN_PX_SLADD ? 1 : 0;
     return id == DN_PX_BPM ? 60 : id == DN_PX_OCT ? -3 : id == DN_PX_BPITCH ? -24 : id >= DN_PX_BSRC ? 0
          : reese_param_min(id);
 }
 static int32_t dn_max(uint32_t id)
 {
+    if (id >= DN_PX_SLSEL)
+        return id == DN_PX_SLSEL ? (int32_t)dn_bk[dn_bsel()].nslices - 1 : id == DN_PX_SLADD ? (int32_t)DN_BRK_MAXSL
+             : (int32_t)dn_bk[dn_bsel()].loop.n;
     return id == DN_PX_BPM ? 200 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (int32_t)dn_src_count() - 1
          : id == DN_PX_BPITCH ? 24 : id == DN_PX_BCHOKE ? 4 : id == DN_PX_BSMODE || id == DN_PX_BSTRETCH ? 2
          : id >= DN_PX_BDECAY ? 127 : reese_param_max(id);
@@ -327,6 +403,9 @@ static int32_t dn_max(uint32_t id)
 static const char *dn_name(uint32_t id)
 {
     static const char *const BN[8] = {"LOOP", "PITCH", "DECAY", "CRUSH", "CHOKE", "SLICES", "STRETCH", "LEVEL"};
+    static const char *const SN[4] = {"SLICE", "MOVE", "FINE", "ADD/DEL"};
+    if (id >= DN_PX_SLSEL)
+        return SN[id - DN_PX_SLSEL];
     return id == DN_PX_BPM ? "BPM" : id == DN_PX_OCT ? "OCT" : id >= DN_PX_BSRC ? BN[id - DN_PX_BSRC]
          : reese_param_name(id);
 }
@@ -340,6 +419,18 @@ static void dn_text(uint32_t id, int32_t v, char out[8])
         for (i = 0; i < 7u && L.name[i]; i++)
             out[i] = L.name[i];
         out[i] = 0;
+        return;
+    }
+    if (id == DN_PX_SLSEL || id == DN_PX_SLADD) {
+        reese_param_text(RP_LEVEL, id == DN_PX_SLSEL ? v + 1 : v, out);
+        return;
+    }
+    if (id == DN_PX_SLMOVE || id == DN_PX_SLFINE) {   /* where the slice starts, in ms into the loop */
+        uint32_t r = dn_bk[dn_bsel()].loop.rate ? dn_bk[dn_bsel()].loop.rate : 22050u, i = 0;
+        reese_param_text(RP_LEVEL, (int32_t)((uint32_t)v / (r / 1000u ? r / 1000u : 1u)), out);
+        while (out[i] && i < 4u)
+            i++;
+        out[i] = 'm', out[i + 1u] = 's', out[i + 2u] = 0;
         return;
     }
     if (id == DN_PX_BCHOKE || id == DN_PX_BSMODE || id == DN_PX_BSTRETCH) {
@@ -397,8 +488,10 @@ static void dn_set(uint32_t id, int32_t v)
         dn_bk[k].crush = (uint8_t)v;
     else if (id == DN_PX_BCHOKE)
         dn_bk[k].choke = (uint8_t)v;
-    else if (id == DN_PX_BSMODE)
+    else if (id == DN_PX_BSMODE) {
         dn_bk[k].smode = (uint8_t)v;
+        dn_brk_slices_apply(&dn_bk[k]);             /* (inside the lock) */
+    }
     else if (id == DN_PX_BSTRETCH)
         dn_bk[k].stretch = (uint8_t)v;
     else if (id == DN_PX_BLEVEL)
@@ -450,7 +543,9 @@ static void dn_save(void)
         s.brk2[k].stretch = dn_bk[k].stretch;
         s.brk2[k].level = dn_bk[k].level;
     }
-    if (plat_store_save(OBJ_SOUND, &s, sizeof s) == 0 && plat_store_save(OBJ_PAT0, &dn_sq.pat, sizeof dn_sq.pat) == 0)
+    dn_man.magic = DN_MAN_MAGIC;
+    if (plat_store_save(OBJ_SOUND, &s, sizeof s) == 0 && plat_store_save(OBJ_PAT0, &dn_sq.pat, sizeof dn_sq.pat) == 0 &&
+        plat_store_save(OBJ_SONG, &dn_man, sizeof dn_man) == 0)
         dn.dirty = 0;
     dn.redraw |= DN_RD_ALL;
 }
@@ -476,6 +571,9 @@ void dn_app_init(void)
     if (plat_store_load(OBJ_PAT0, &dn_sq.pat, sizeof dn_sq.pat) != (int)sizeof dn_sq.pat || !dn_pattern_valid(&dn_sq.pat))
         dn_pattern_demo(&dn_sq.pat);                /* first boot (or a pattern from another firmware): the demo */
     dn.redraw = DN_RD_ALL;
+    if (plat_store_load(OBJ_SONG, &dn_man, sizeof dn_man) != (int)sizeof dn_man || dn_man.magic != DN_MAN_MAGIC ||
+        dn_man.count > DN_MAN_N)
+        dn_man.magic = dn_man.count = 0;            /* (no manual slices yet) */
     got = plat_store_load(OBJ_SOUND, &s, sizeof s);
     if ((got == (int)sizeof s || got == (int)DN_SAVE_V05 || got == (int)DN_SAVE_V04) && s.magic == DN_SAVE_MAGIC) {
         dn.preset = (uint8_t)(s.preset % reese_preset_count());
@@ -674,7 +772,9 @@ static void dn_keys_seq(uint32_t keys)
                     tr->st[i].flags |= DN_ST_ON;
                     tr->st[i].len = 3;              /* a fresh step: three quarters of a step (breaks: a whole one) */
                     if (DN_IS_BRK(dn.trk)) {         /* a break: the slice that belongs on this step (DRUM: the row's) */
-                        tr->st[i].note = (uint8_t)(drum ? dn.drum_row : i % dn_slices(dn.trk));
+                        const dn_brk_t *bk = &dn_bk[dn.trk - 1u];
+                        uint32_t gs = dn_brk_grid_slices(bk);     /* (AUTO / MANUAL: the hit nearest the step) */
+                        tr->st[i].note = (uint8_t)(drum ? dn.drum_row : dn_brk_slice_at(bk, i % gs, gs));
                         tr->st[i].len = DN_LEN_STEP;
                     } else {
                         tr->st[i].note = tr->last_note;
@@ -898,6 +998,73 @@ static void dn_goto(uint32_t page)
     }
 }
 
+/* SLICE: editing the slice points makes the loop's slices MANUAL (starting from the ones in use); every change is
+ * heard at once (the slice plays) and kept for the loop */
+static void dn_slice_knob(uint32_t k, int32_t d)
+{
+    uint32_t bi = dn_bsel(), i, ns, n;
+    dn_brk_t *b = &dn_bk[bi];
+    if (!b->ok)
+        return;
+    if (k == 0u) {
+        dn.sl_sel = (uint8_t)dn_clamp(dn.sl_sel + d, 0, (int32_t)b->nslices - 1);
+    } else {
+        dn_lock();
+        if (b->smode != 2u) {
+            if (!b->n_man) {
+                for (i = 0; i < b->nslices; i++)
+                    b->man_start[i] = b->start[i];
+                b->n_man = b->nslices;
+            }
+            b->smode = 2;
+        }
+        dn_unlock();
+        ns = b->n_man;
+        n = b->loop.n;
+        if (k == 1u || k == 2u) {                   /* MOVE (coarse, to a zero crossing) / FINE (two samples a step) */
+            if (dn.sl_sel > 0u && dn.sl_sel < ns) {
+                int32_t lo = (int32_t)b->man_start[dn.sl_sel - 1u] + 64,
+                        hi = (int32_t)(dn.sl_sel + 1u < ns ? b->man_start[dn.sl_sel + 1u] : n) - 64;
+                int32_t at = (int32_t)b->man_start[dn.sl_sel] + d * (k == 1u ? (d > 2 || d < -2 ? 256 : 64) : 2);
+                at = dn_clamp(at, lo, hi);
+                if (k == 1u)
+                    at = dn_clamp((int32_t)dn_brk_zero_near(b, (uint32_t)at, 32u), lo, hi);
+                dn_lock();
+                b->man_start[dn.sl_sel] = (uint32_t)at;
+                dn_unlock();
+            }
+        } else if (d > 0 && ns < DN_BRK_MAXSL && dn.sl_sel < ns) {   /* ADD: a point halfway into the slice */
+            uint32_t a = b->man_start[dn.sl_sel], e = dn.sl_sel + 1u < ns ? b->man_start[dn.sl_sel + 1u] : n,
+                     at = dn_brk_zero_near(b, (a + e) / 2u, 32u);
+            if (at > a + 64u && at + 64u < e) {
+                dn_lock();
+                for (i = ns; i > dn.sl_sel + 1u; i--)
+                    b->man_start[i] = b->man_start[i - 1u];
+                b->man_start[dn.sl_sel + 1u] = at;
+                b->n_man = (uint8_t)(ns + 1u);
+                dn_unlock();
+                dn.sl_sel++;
+            }
+        } else if (d < 0 && dn.sl_sel > 0u && dn.sl_sel < ns) {   /* DEL: this point goes (its slice joins the one before) */
+            dn_lock();
+            for (i = dn.sl_sel; i + 1u < ns; i++)
+                b->man_start[i] = b->man_start[i + 1u];
+            b->n_man = (uint8_t)(ns - 1u);
+            dn_unlock();
+            dn.sl_sel--;
+        }
+        dn_lock();
+        dn_brk_slices_apply(b);
+        dn_unlock();
+        dn_man_keep(b);
+        dn_mark();
+    }
+    dn_lock();
+    dn_brk_hit(bi, dn.sl_sel, 100, 0);              /* hear it */
+    dn_unlock();
+    dn.redraw |= DN_RD_ALL;
+}
+
 /* copy / paste: SAVE held with OCT- copies the bar in view of the selected track, with OCT+ pastes it there */
 static void dn_copy_paste(int paste)
 {
@@ -967,7 +1134,8 @@ void dn_app_input(void)
     if (press & (1u << B_ARP)) {                    /* BRK: BREAKS A (or B, with track 3 selected) */
         if (!DN_IS_BRK(dn.trk))
             dn.trk = 1;
-        dn_goto(dn.page == DN_PG_BRK ? DN_PG_BRK2 : DN_PG_BRK);   /* ARP again: BRK's second page, and back */
+        dn_goto(dn.page == DN_PG_BRK ? DN_PG_BRK2 : dn.page == DN_PG_BRK2 ? DN_PG_SLICE : DN_PG_BRK);   /* ARP again:
+                                                     * BRK's second page, the slice editor, and back */
         dn.redraw |= DN_RD_ALL;
     }
     if (press & (1u << B_PLAY)) {                   /* the transport */
@@ -1032,6 +1200,8 @@ void dn_app_input(void)
         if ((d = plat_enc(EN_K1 + (int)k)) != 0) {
             if (DN_IS_SEQPG(dn.page)) {
                 dn_seq_knob(k, d);
+            } else if (dn.page == DN_PG_SLICE) {
+                dn_slice_knob(k, d);
             } else {
                 uint32_t id = dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : dn.page == DN_PG_BRK2 ? DN_BRK2_PAGE[k]
                               : DN_PAGE[dn.page][k];
@@ -1138,29 +1308,63 @@ static void dn_note_name(char *o, int32_t n)
 
 static void dn_draw_overview(void);
 
+/* SLICE: the selected slice's start zoomed in (twice the slice's length), every slice point in view, the selected one
+ * white with its number */
+static void dn_draw_slice_zoom(const dn_brk_t *b)
+{
+    static uint8_t pk[232];
+    uint32_t i, sel = dn.sl_sel < b->nslices ? dn.sl_sel : 0u, len, w, from;
+    char t[8];
+    cv_rect(4, 50, 232, 42, DN_C_WELL);
+    if (!b->ok)
+        return;
+    len = b->start[sel + 1u] - b->start[sel];
+    w = 2u * len;
+    w = w < 1024u ? 1024u : w > b->loop.n ? b->loop.n : w;
+    from = b->start[sel] > w / 4u ? b->start[sel] - w / 4u : 0u;
+    dn_brk_range_peaks(b, from, w, pk, 232u);
+    cv_rect(4, 71, 232, 1, DN_C_GRID);
+    for (i = 0; i < 232u; i++) {
+        int32_t h = pk[i] * 20 / 255;
+        cv_rect(4 + (int32_t)i, 71 - h, 1, 2 * h + 1, DN_C_BLUE);
+    }
+    for (i = 0; i < b->nslices; i++)
+        if (b->start[i] >= from && b->start[i] < from + w) {
+            int32_t x = 4 + (int32_t)((b->start[i] - from) * 232u / w);
+            cv_rect(x, 50, i == sel ? 2 : 1, 42, i == sel ? C_WHITE : DN_C_LABEL);
+            if (i == sel) {
+                dn_num(t, (int32_t)i + 1);
+                cv_text(x + 4, 51, &FONT_T, t, C_WHITE);
+            }
+        }
+}
+
 /* BRK: the loop's picture, its slices (bars brighter), the slice playing lit and where it has got to */
 static void dn_draw_loop(const dn_brk_t *b, int32_t sel)
 {
-    uint32_t i, ns = b->nslices ? b->nslices : 16u;
+    uint32_t i, ns = b->nslices ? b->nslices : 16u, n = b->loop.n ? b->loop.n : 1u, per = n / 232u + 1u;
     cv_rect(4, 50, 232, 42, DN_C_WELL);
     if (!b->ok) {
         cv_text(120 - text_w(&FONT_T, "NO LOOP") / 2, 64, &FONT_T, "NO LOOP", DN_C_DIMTXT);
         return;
     }
-    if (b->on)
-        cv_rect(4 + (int32_t)(b->slice * 232u / ns), 50, (int32_t)(232u / ns), 42, DN_C_GRID);
-    if (sel >= 0)                                   /* DRUM: the slice row selected */
-        cv_rect(4 + (int32_t)((uint32_t)sel * 232u / ns), 50, (int32_t)(232u / ns), 42, DN_C_BLUE_D);
-    for (i = 1; i < ns; i++)
-        cv_rect(4 + (int32_t)(i * 232u / ns), 50, 1, 42, (i % 16u) ? (i % 4u ? DN_C_GRID : DN_C_TRACK) : DN_C_BLUE_D);
+    if (b->on)                                      /* the slice playing, and the one selected (DRUM / SLICE) */
+        cv_rect(4 + (int32_t)(b->start[b->slice] / per), 50,
+                (int32_t)((b->start[b->slice + 1u] - b->start[b->slice]) / per) + 1, 42, DN_C_GRID);
+    if (sel >= 0 && (uint32_t)sel < ns)
+        cv_rect(4 + (int32_t)(b->start[sel] / per), 50, (int32_t)((b->start[sel + 1] - b->start[sel]) / per) + 1, 42,
+                DN_C_BLUE_D);
     for (i = 0; i < DN_BRK_PEAKS; i++) {
         int32_t h = b->peaks[i] * 20 / 255;
         cv_rect(4 + (int32_t)i, 71 - h, 1, 2 * h + 1, DN_C_BLUE);
     }
-    if (b->on && b->loop.n) {
-        uint32_t at = b->slice * (b->loop.n / ns) + (b->rev ? 0u : b->played >> 8);
-        if (at < b->loop.n)
-            cv_rect(4 + (int32_t)(at / (b->loop.n / 232u + 1u)), 50, 1, 42, C_WHITE);
+    for (i = 1; i < ns; i++)                        /* the slice points (bars of the grid brighter) */
+        cv_rect(4 + (int32_t)(b->start[i] / per), 50, 1, 42,
+                b->smode ? DN_C_LABEL : (i % 16u) ? (i % 4u ? DN_C_GRID : DN_C_TRACK) : DN_C_BLUE_D);
+    if (b->on) {
+        uint32_t at = b->start[b->slice] + (b->rev ? 0u : b->played >> 8);
+        if (at < n)
+            cv_rect(4 + (int32_t)(at / per), 50, 1, 42, C_WHITE);
     }
 }
 
@@ -1231,6 +1435,11 @@ static void dn_draw_top(void)
             dn_disc(dn_sq.playing ? px - 24 : 228, 34, 4, DN_C_RED);
     } else {
         cv_text(234 - text_w(&FONT_T, "PRESETS"), 29, &FONT_T, "PRESETS", DN_C_DIMTXT);
+    }
+    if (dn.page == DN_PG_SLICE) {
+        dn_draw_slice_zoom(bk);
+        cv_blit(0, 0);
+        return;
     }
     if (brk) {
         dn_draw_loop(bk, dn.page == DN_PG_DRUM ? (int32_t)dn.drum_row : -1);
@@ -1598,9 +1807,10 @@ static void dn_draw_bottom(void)
     /* the page tabs */
     for (k = 0, x = 0; k < DN_NTABS; k++) {
         int32_t w = k == DN_NTABS - 1u ? 240 - x : 34;
-        int on = k == dn.page || (k == DN_PG_SEQ && DN_IS_SEQPG(dn.page)) || (k == DN_PG_BRK && dn.page == DN_PG_BRK2);
+        int on = k == dn.page || (k == DN_PG_SEQ && DN_IS_SEQPG(dn.page)) || (k == DN_PG_BRK && DN_IS_BRKPG(dn.page));
         const char *nm = k == DN_PG_SEQ && dn.page == DN_PG_ROLL ? "ROLL" : k == DN_PG_SEQ && dn.page == DN_PG_DRUM
-                         ? "DRUM" : k == DN_PG_BRK && dn.page == DN_PG_BRK2 ? "BRK2" : DN_PAGE_NAME[k];
+                         ? "DRUM" : k == DN_PG_BRK && dn.page == DN_PG_BRK2 ? "BRK2"
+                         : k == DN_PG_BRK && dn.page == DN_PG_SLICE ? "SLICE" : DN_PAGE_NAME[k];
         cv_rect(x, 0, w - 1, 17, on ? DN_C_BLUE : DN_C_PANEL);
         cv_text(x + (w - 1 - text_w(&FONT_T, nm)) / 2, 3, &FONT_T, nm, on ? DN_C_BAR : DN_C_LABEL);
         x += w;
@@ -1620,7 +1830,7 @@ static void dn_draw_bottom(void)
     cv_rect(0, 17, 240, 1, DN_C_EDGE);
     for (k = 0; k < 4u; k++)
         dn_knob(30 + 60 * (int32_t)k, 67, dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : dn.page == DN_PG_BRK2 ? DN_BRK2_PAGE[k]
-                : DN_PAGE[dn.page][k], 1);
+                : dn.page == DN_PG_SLICE ? DN_SLICE_PAGE[k] : DN_PAGE[dn.page][k], 1);
     /* the status line */
     cv_rect(0, 121, 240, 23, DN_C_BAR);
     t[0] = 'O'; t[1] = 'C'; t[2] = 'T'; t[3] = ' ';

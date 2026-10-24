@@ -48,6 +48,225 @@ uint8_t dn_brk_bars_of(uint32_t n, uint32_t rate)
     return (uint8_t)best;
 }
 
+/* ---- the loop's hits: an onset detector over 64-sample frames (~3 ms at 22 kHz) of the decoded loop ---------------
+ * A frame whose level rises well above the two before it is a hit (a kick after a kick still counts: the rise is
+ * against what came just before, not the loop's loudest); the strongest rise within ~6 ms wins; hits closer than
+ * ~30 ms merge (the stronger stays). The slice then starts at the first sample that rises a quarter of the way from
+ * the level before to the hit's peak, moved back to the zero crossing just before it (no click, no lost attack). */
+#define DN_ON_HOP 64u
+#define DN_ON_FRAMES (DN_BRK_CK * 256u / DN_ON_HOP)
+static uint16_t on_e[DN_ON_FRAMES];                 /* (main loop only: dn_brk_load) */
+static uint16_t on_d[DN_ON_FRAMES];
+
+uint32_t dn_brk_zero_near(const dn_brk_t *b, uint32_t at, uint32_t range)
+{
+    int32_t pred, idx, prev = 0, s;
+    uint32_t from = at > range ? at - range : 0u, to = at + range < b->loop.n ? at + range : b->loop.n, i,
+             best = at, bestd = 0xFFFFFFFFu, c = b->ck[from >> 8];
+    pred = (int16_t)(c & 0xFFFFu);
+    idx = (int32_t)(c >> 16);
+    for (i = from & ~255u; i < to; i++) {
+        s = ima(b->loop.adpcm, i, &pred, &idx);
+        if (i > from && ((prev < 0 && s >= 0) || (prev > 0 && s <= 0))) {
+            uint32_t d = i > at ? i - at : at - i;
+            if (d < bestd)
+                best = i, bestd = d;
+        }
+        prev = s;
+    }
+    return best;
+}
+
+/* the zero crossing at or before `at` (within `range`) */
+static uint32_t zero_before(const dn_brk_t *b, uint32_t at, uint32_t range)
+{
+    int32_t pred, idx, prev = 0, s;
+    uint32_t from = at > range ? at - range : 0u, i, best = at, c = b->ck[from >> 8];
+    pred = (int16_t)(c & 0xFFFFu);
+    idx = (int32_t)(c >> 16);
+    for (i = from & ~255u; i <= at && i < b->loop.n; i++) {
+        s = ima(b->loop.adpcm, i, &pred, &idx);
+        if (i > from && ((prev < 0 && s >= 0) || (prev > 0 && s <= 0)))
+            best = i;
+        prev = s;
+    }
+    return best;
+}
+
+static void find_hits(dn_brk_t *b)
+{
+    uint32_t nf = b->loop.n / DN_ON_HOP, f, i, n = 0, mx = 0;
+    int32_t pred = 0, idx = 0;
+    uint32_t pos[DN_BRK_MAXSL], str[DN_BRK_MAXSL];
+    if (nf > DN_ON_FRAMES)
+        nf = DN_ON_FRAMES;
+    {
+        int32_t last = 0;
+        for (f = 0; f < nf; f++) {                  /* each frame's brightness: the mean of |s[n] - s[n-1]| (the
+                                                     * attack's edge counts, a kick's slow swing hardly) */
+            uint32_t e = 0;
+            for (i = 0; i < DN_ON_HOP; i++) {
+                int32_t v = ima(b->loop.adpcm, f * DN_ON_HOP + i, &pred, &idx), dv = v - last;
+                e += (uint32_t)(dv < 0 ? -dv : dv);
+                last = v;
+            }
+            on_e[f] = (uint16_t)(e / DN_ON_HOP > 32767u ? 32767u : e / DN_ON_HOP);
+        }
+    }
+    for (f = nf; f-- > 1u;)                         /* two frames together (~6 ms) */
+        on_e[f] = (uint16_t)(on_e[f] + on_e[f - 1u] > 65535u ? 65535u : on_e[f] + on_e[f - 1u]);
+    for (f = 0; f < nf; f++) {                      /* the rise over the level just before (frames f-2, f-3) */
+        uint32_t before = f > 1u ? on_e[f - 2u] : 0u;
+        if (f > 2u && on_e[f - 3u] > before)
+            before = on_e[f - 3u];
+        on_d[f] = (uint16_t)(on_e[f] > before ? on_e[f] - before : 0u);
+        mx = on_d[f] > mx ? on_d[f] : mx;
+    }
+    for (f = 0; f < nf; f++) {
+        uint32_t j, local = 0, cnt = 0, thr, pk = 1;
+        for (j = f > 16u ? f - 16u : 0u; j < f + 17u && j < nf; j++)
+            local += on_d[j], cnt++;
+        thr = local * 3u / (2u * (cnt ? cnt : 1u));
+        if (thr < mx / 20u)
+            thr = mx / 20u;                         /* (quiet frames: only real hits count) */
+        for (j = f > 2u ? f - 2u : 0u; j <= f + 2u && j < nf; j++)
+            if (j != f && (on_d[j] > on_d[f] || (on_d[j] == on_d[f] && j < f)))
+                pk = 0;
+        if (!pk || on_d[f] <= thr)
+            continue;
+        {
+            uint32_t from = f ? (f - 1u) * DN_ON_HOP : 0u, end = (f + 2u) * DN_ON_HOP, top = 0, k, c, lvl, pre = 0;
+            int32_t p2, i2, v;
+            if (end > b->loop.n)
+                end = b->loop.n;
+            c = b->ck[from >> 8];
+            p2 = (int16_t)(c & 0xFFFFu);
+            i2 = (int32_t)(c >> 16);
+            for (k = from & ~255u; k < from; k++)
+                ima(b->loop.adpcm, k, &p2, &i2);
+            {                                       /* the level before (the frame's first 16 samples) and the peak */
+                int32_t pp = p2, ii = i2;
+                for (k = from; k < end; k++) {
+                    v = ima(b->loop.adpcm, k, &pp, &ii);
+                    if (k < from + 16u)
+                        pre = (uint32_t)(v < 0 ? -v : v) > pre ? (uint32_t)(v < 0 ? -v : v) : pre;
+                    top = (uint32_t)(v < 0 ? -v : v) > top ? (uint32_t)(v < 0 ? -v : v) : top;
+                }
+                pre /= 2u;
+            }
+            lvl = 2u * pre + (top > 2u * pre ? (top - 2u * pre) / 4u : 0u);
+            for (k = from; k < end; k++) {
+                v = ima(b->loop.adpcm, k, &p2, &i2);
+                if ((uint32_t)(v < 0 ? -v : v) > lvl)
+                    break;
+            }
+            k = zero_before(b, k, 32u);
+            if (n && k < pos[n - 1u] + 10u * DN_ON_HOP) {   /* within ~30 ms of the last: the stronger stays */
+                if (on_d[f] > str[n - 1u])
+                    pos[n - 1u] = k, str[n - 1u] = on_d[f];
+                continue;
+            }
+            if (n < DN_BRK_MAXSL) {
+                pos[n] = k;
+                str[n++] = on_d[f];
+            } else {                                /* full: the weakest goes */
+                uint32_t w = 0;
+                for (j = 1; j < n; j++)
+                    if (str[j] < str[w])
+                        w = j;
+                if (str[w] < on_d[f]) {
+                    for (j = w; j + 1u < n; j++)
+                        pos[j] = pos[j + 1u], str[j] = str[j + 1u];
+                    pos[n - 1u] = k;
+                    str[n - 1u] = on_d[f];
+                }
+            }
+        }
+    }
+    if (!n || pos[0] > 10u * DN_ON_HOP) {           /* the loop's start is always a slice */
+        if (n == DN_BRK_MAXSL)
+            n--;
+        for (i = n; i > 0; i--)
+            pos[i] = pos[i - 1u];
+        n++;
+    }
+    pos[0] = 0;
+    for (i = 0; i < n; i++)
+        b->auto_start[i] = pos[i];
+    b->n_auto = (uint8_t)n;
+}
+
+uint32_t dn_brk_key(const dn_loop_t *loop)
+{
+    uint32_t h = 2166136261u, i;
+    for (i = 0; i < 64u && i < loop->n / 2u; i++)
+        h = (h ^ loop->adpcm[i]) * 16777619u;       /* FNV-1a */
+    return h ^ loop->n;
+}
+
+uint32_t dn_brk_grid_slices(const dn_brk_t *b) { return 16u * (b->loop.bars ? b->loop.bars : 1u); }
+
+void dn_brk_slices_apply(dn_brk_t *b)
+{
+    uint32_t i, ns;
+    if (b->smode == 2u && !b->n_man) {              /* the first time MANUAL: start from what AUTO found */
+        for (i = 0; i < b->n_auto; i++)
+            b->man_start[i] = b->auto_start[i];
+        b->n_man = b->n_auto;
+    }
+    if (b->smode == 1u && b->n_auto) {
+        ns = b->n_auto;
+        for (i = 0; i < ns; i++)
+            b->start[i] = b->auto_start[i];
+    } else if (b->smode == 2u && b->n_man) {
+        ns = b->n_man;
+        for (i = 0; i < ns; i++)
+            b->start[i] = b->man_start[i];
+    } else {
+        ns = dn_brk_grid_slices(b);
+        for (i = 0; i < ns; i++)
+            b->start[i] = i * (b->loop.n / ns);
+    }
+    b->start[ns] = b->loop.n;
+    b->nslices = (uint8_t)ns;
+}
+
+uint32_t dn_brk_slice_at(const dn_brk_t *b, uint32_t num, uint32_t den)
+{
+    uint32_t dd = den ? den : 1u, at = (b->loop.n / dd) * num + (b->loop.n % dd) * num / dd, i, best = 0,
+             bd = 0xFFFFFFFFu;                      /* (32-bit: n / den x num, no 64-bit divide) */
+    for (i = 0; i < b->nslices; i++) {
+        uint32_t d = b->start[i] > at ? b->start[i] - at : at - b->start[i];
+        if (d < bd)
+            bd = d, best = i;
+    }
+    return best;
+}
+
+void dn_brk_range_peaks(const dn_brk_t *b, uint32_t from, uint32_t n, uint8_t *out, uint32_t cols)
+{
+    uint32_t c = b->ck[(from < b->loop.n ? from : 0u) >> 8], i, col = 0, pk = 0;
+    int32_t pred = (int16_t)(c & 0xFFFFu), idx = (int32_t)(c >> 16), v;
+    for (i = 0; i < cols; i++)
+        out[i] = 0;
+    if (!b->ok || from >= b->loop.n || !n || !cols)
+        return;
+    for (i = from & ~255u; i < from; i++)
+        ima(b->loop.adpcm, i, &pred, &idx);
+    for (i = 0; i < n && from + i < b->loop.n; i++) {
+        uint32_t cc = i * cols / n;
+        v = ima(b->loop.adpcm, from + i, &pred, &idx);
+        if (cc != col) {
+            out[col] = (uint8_t)(pk >> 7);
+            col = cc;
+            pk = 0;
+        }
+        pk = (uint32_t)(v < 0 ? -v : v) > pk ? (uint32_t)(v < 0 ? -v : v) : pk;
+    }
+    if (col < cols)
+        out[col] = (uint8_t)(pk >> 7);
+}
+
 void dn_brk_load(dn_brk_t *b, const dn_loop_t *loop)
 {
     uint32_t i, col = 0, pk = 0, n;
@@ -60,7 +279,6 @@ void dn_brk_load(dn_brk_t *b, const dn_loop_t *loop)
         return;
     if (n > DN_BRK_CK * 256u)                       /* longer than the table: the rest is not played */
         n = b->loop.n = DN_BRK_CK * 256u;
-    b->nslices = (uint8_t)(16u * (loop->bars ? loop->bars : 1u));
     for (i = 0; i < n; i++) {
         int32_t s;
         uint32_t c = i * DN_BRK_PEAKS / n;          /* (i < 2^18: fits) */
@@ -76,6 +294,10 @@ void dn_brk_load(dn_brk_t *b, const dn_loop_t *loop)
             pk = (uint32_t)(s < 0 ? -s : s);
     }
     b->peaks[col] = (uint8_t)(pk >> 7);
+    b->key = dn_brk_key(&b->loop);
+    b->n_man = 0;                                   /* (the app gives back a loop's manual slices after this) */
+    find_hits(b);
+    dn_brk_slices_apply(b);
     __asm__ volatile("" ::: "memory");              /* the tables are written before the audio may read them */
     b->ok = 1;
 }
@@ -113,7 +335,7 @@ void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse)
     if (!b->ok)
         return;
     slice %= b->nslices;
-    start = slice * (b->loop.n / b->nslices);
+    start = b->start[slice];
     b->dc = b->on ? b->last : b->dc;                /* the cut: what was sounding fades in ~1 ms, not a click */
     b->slice = (uint8_t)slice;
     b->rev = (uint8_t)(reverse != 0);
@@ -124,7 +346,7 @@ void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse)
     b->hold_n = 0;
     seek(b, start);
     if (b->rev) {                                   /* the slice into RAM, then played backwards */
-        uint32_t len = b->loop.n / b->nslices, i;
+        uint32_t len = b->start[slice + 1u] - start, i;
         if (len > DN_BRK_RBUF)
             len = DN_BRK_RBUF;
         for (i = 0; i < len; i++)

@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "dn_breaks.h"
+#define DN_BRK_TRUTH 1
 #include "dn_breaks_builtin.h"
 
 static dn_brk_t B;
@@ -192,6 +193,45 @@ int main(int argc, char **argv)
         }
         snprintf(path, sizeof path, "%s/breaks-chop.wav", dir);
         wav(path, acc, 64 * step);
+    }
+    /* AUTO slices: the onset detector finds the generator's own kicks and snares (within 5 ms) on both built-in loops */
+    for (uint32_t li = 0; li < DN_BRK_BUILTIN; li++) {
+        dn_loop_t M = {DN_BRK_BUILTIN_LOOPS[li].adpcm, DN_BRK_BUILTIN_LOOPS[li].n, DN_BRK_BUILTIN_LOOPS[li].rate, 2, ""};
+        uint32_t found = 0, h, j, tol = M.rate * 5u / 1000u, extra = 0;
+        dn_brk_load(&B, &M);
+        for (h = 0; h < DN_BRK_NHITS[li]; h++) {
+            int ok = 0;
+            for (j = 0; j < B.n_auto; j++)
+                ok |= (B.auto_start[j] + tol >= DN_BRK_HITS[li][h]) && (B.auto_start[j] <= DN_BRK_HITS[li][h] + tol);
+            found += (uint32_t)ok;
+        }
+        for (j = 0; j < B.n_auto; j++) {            /* (slices that are no kick or snare: hats, rides, ghosts) */
+            int near = 0;
+            for (h = 0; h < DN_BRK_NHITS[li]; h++)
+                near |= B.auto_start[j] + tol >= DN_BRK_HITS[li][h] && B.auto_start[j] <= DN_BRK_HITS[li][h] + tol;
+            extra += (uint32_t)!near;
+        }
+        printf("     %s: %u slices found, %u of %u kicks / snares, %u others\n", DN_BRK_BUILTIN_LOOPS[li].name,
+               B.n_auto, found, (unsigned)DN_BRK_NHITS[li], extra);
+        check("AUTO slices find >= 95 % of the kicks and snares", found * 100u >= 95u * DN_BRK_NHITS[li],
+              100.0 * found / DN_BRK_NHITS[li], 95);
+        B.smode = 1;
+        dn_brk_slices_apply(&B);
+        check("AUTO in use: the slices are the hits", B.nslices == B.n_auto && B.start[1] == B.auto_start[1], B.nslices,
+              B.n_auto);
+        /* a slice moved by hand plays from its new place */
+        B.smode = 2;
+        B.n_man = 0;
+        dn_brk_slices_apply(&B);
+        B.man_start[3] += 500;
+        dn_brk_slices_apply(&B);
+        dn_brk_tempo(&B, 136);
+        B.ok = 1;
+        dn_brk_trigger(&B, 3, 127, 0);
+        check("MANUAL: slice 3 starts where it was moved to", B.p == B.man_start[3] + 2u, B.p, B.man_start[3] + 2u);
+        B.smode = 0;
+        dn_brk_slices_apply(&B);
+        check("GRID: 16 a bar again", B.nslices == 32u && B.start[1] == M.n / 32u, B.nslices, 32);
     }
     printf(fails ? "BREAKS: %d FAILED\n" : "BREAKS: slices, reverse, sync, release, cuts, crush all ok\n", fails);
     return fails ? 1 : 0;

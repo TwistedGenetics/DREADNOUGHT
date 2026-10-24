@@ -91,6 +91,7 @@ SOUNDS = {"K": kick(), "S": snare(), "H": hat(int(0.06 * RATE), 0.022), "O": hat
 def render(lanes, swing=0.0, flams=()):
     """lanes: {sound: 32-char string}: X accent, x hit, g ghost, . rest. swing: the off sixteenths' delay (of a step)"""
     out = np.zeros(N + RATE)
+    hits = {}                                    # the true hit places: kick and snare, not ghosts (the onset test)
     for snd, pat in lanes.items():
         s = SOUNDS[snd]
         for i, c in enumerate(pat):
@@ -102,6 +103,8 @@ def render(lanes, swing=0.0, flams=()):
                 pre = max(0, at - int(0.018 * RATE))
                 out[pre:pre + len(s)] += s * g * 0.35
             out[at:at + len(s)] += s * g
+            if snd in "KS" and g >= 0.75:
+                hits[at] = max(hits.get(at, 0), g)
     tail = out[N:].copy()                        # the loop's tail wraps onto its start: it loops seamlessly
     out = out[:N]
     out[:len(tail)] += tail[:N]
@@ -110,7 +113,7 @@ def render(lanes, swing=0.0, flams=()):
         room[d:] += out[:-d] * g
     out = out + onepole_lp(room, 5000)
     out = np.tanh(1.1 * out / np.max(np.abs(out))) # a little tape: the peaks rounded
-    return out / np.max(np.abs(out)) * 0.95
+    return out / np.max(np.abs(out)) * 0.95, sorted(hits)
 
 
 LOOPS = [
@@ -167,7 +170,7 @@ def main():
          f" * {BARS} bars at {BPM:g} BPM, {RATE} Hz, IMA ADPCM low nibble first from predictor 0 / index 0. */",
          "#pragma once", "#include <stdint.h>", f"#define DN_BRK_BUILTIN {len(LOOPS)}"]
     total = 0
-    for k, (name, x) in enumerate(LOOPS):
+    for k, (name, (x, hits)) in enumerate(LOOPS):
         pcm = [int(v) for v in np.round(x * 32767)]
         b = ima(pcm)
         total += len(b)
@@ -175,6 +178,9 @@ def main():
         for i in range(0, len(b), 24):
             h.append("    " + ", ".join(str(v) for v in b[i:i + 24]) + ",")
         h.append("};")
+        h.append(f"#ifdef DN_BRK_TRUTH  /* the host test only: where the generator put each kick and snare */")
+        h.append(f"static const uint32_t DN_BRK_HITS{k}[{len(hits)}] = {{{', '.join(str(v) for v in hits)}}};")
+        h.append("#endif")
         if wav_dir:
             import wave
             wav_dir.mkdir(parents=True, exist_ok=True)
@@ -183,9 +189,15 @@ def main():
                 w.writeframes(np.array(pcm, dtype="<i2").tobytes())
     h.append("static const struct { const char *name; const uint8_t *adpcm; uint32_t n, rate; uint8_t bars; } "
              "DN_BRK_BUILTIN_LOOPS[DN_BRK_BUILTIN] = {")
-    for k, (name, x) in enumerate(LOOPS):
+    for k, (name, (x, hits)) in enumerate(LOOPS):
         h.append(f'    {{"{name}", DN_BRK_DATA{k}, {len(x)}u, {RATE}u, {BARS}}},')
     h.append("};")
+    h.append("#ifdef DN_BRK_TRUTH")
+    h.append("static const uint32_t *const DN_BRK_HITS[DN_BRK_BUILTIN] = {" +
+             ", ".join(f"DN_BRK_HITS{k}" for k in range(len(LOOPS))) + "};")
+    h.append("static const uint32_t DN_BRK_NHITS[DN_BRK_BUILTIN] = {" +
+             ", ".join(f"sizeof DN_BRK_HITS{k} / 4" for k in range(len(LOOPS))) + "};")
+    h.append("#endif")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(h) + "\n")
     print(f"breaks: {len(LOOPS)} loops, {total} B of flash")

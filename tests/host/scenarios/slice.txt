@@ -1,0 +1,33 @@
+# DREADNOUGHT host scenario: slicing (0.6). BRK2's SLICES: GRID / AUTO / MANUAL; the SLICE page edits by hand.
+tap ARP
+tap ARP
+expect page 9
+expect ns.1 32
+# AUTO: the loop's own hits
+turn K2 1
+expect smode.1 1
+expect ns.1 21
+shot slice-01-auto.png
+# the SLICE editor (ARP again): slice 4, moved later (coarse), one more point, kept as MANUAL
+tap ARP
+expect page 10
+turn K1 3
+shot slice-02-editor.png
+expect sl.1.4 12200
+turn K2 2
+expect smode.1 2
+expect sl.1.4 >12300
+turn K4 1
+expect ns.1 22
+shot slice-03-added.png
+# a point taken away
+turn K4 -1
+expect ns.1 21
+turn K4 1
+expect ns.1 22
+# kept over a restart (SAVE), for this loop
+tap SAVE
+reboot
+expect smode.1 2
+expect ns.1 22
+expect sl.1.4 >12300

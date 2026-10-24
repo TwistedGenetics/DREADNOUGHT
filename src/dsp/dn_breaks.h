@@ -18,6 +18,7 @@
 #define DN_BRK_CK 640u                              /* decoder states, one per 256 samples: loops up to ~7 s */
 #define DN_BRK_RBUF 4096u                           /* a reversed slice, samples (~186 ms of a 22 kHz loop) */
 #define DN_BRK_PEAKS 232u                           /* the screen's picture of the loop: one peak per column */
+#define DN_BRK_MAXSL 64u                            /* slices a loop at most */
 
 typedef struct {
     const uint8_t *adpcm;
@@ -31,7 +32,12 @@ typedef struct {
     /* the loop */
     dn_loop_t loop;
     uint8_t ok;                                     /* loaded: the audio may play it */
-    uint8_t nslices;                                /* 16 a bar */
+    uint8_t nslices;                                /* the slices in use (start[] has nslices + 1 entries: the end) */
+    uint32_t start[DN_BRK_MAXSL + 1u];              /* where each slice starts, samples (the table in use) */
+    uint8_t n_auto, n_man;
+    uint32_t auto_start[DN_BRK_MAXSL];              /* AUTO: the loop's hits (found by dn_brk_load) */
+    uint32_t man_start[DN_BRK_MAXSL];               /* MANUAL: set by hand (the app keeps them per loop) */
+    uint32_t key;                                   /* the loop's identity for its manual slices: dn_brk_key */
     uint32_t ck[DN_BRK_CK];                         /* decoder state before sample 256 i: pred (16 bits), index */
     uint8_t peaks[DN_BRK_PEAKS];
     /* the sound */
@@ -64,6 +70,17 @@ void dn_brk_init(dn_brk_t *b);
 void dn_brk_load(dn_brk_t *b, const dn_loop_t *loop);
 uint8_t dn_brk_bars_of(uint32_t n, uint32_t rate);  /* 1, 2 or 4: the tempo nearest 120 inside 80..180 (X0X's guess) */
 void dn_brk_tempo(dn_brk_t *b, uint32_t bpm);        /* main loop: after a tempo, pitch or loop change */
+uint32_t dn_brk_key(const dn_loop_t *loop);         /* a loop's identity: its length and a hash of its first bytes */
+/* main loop: put the table smode asks for in use (GRID: 16 a bar; AUTO: the hits found; MANUAL: man_start, or if there
+ * is none yet, a copy of AUTO). The app holds its lock around it (the audio reads start[]) */
+void dn_brk_slices_apply(dn_brk_t *b);
+uint32_t dn_brk_grid_slices(const dn_brk_t *b);     /* 16 a bar */
+/* the slice nearest a place in the loop given as num / den of its length (the sequencer's default for a step) */
+uint32_t dn_brk_slice_at(const dn_brk_t *b, uint32_t num, uint32_t den);
+/* the peaks of samples from .. from + n into cols columns (0..255): the slice editor's zoom (main loop) */
+void dn_brk_range_peaks(const dn_brk_t *b, uint32_t from, uint32_t n, uint8_t *out, uint32_t cols);
+/* the sample nearest `at` where the wave crosses zero, within +-range */
+uint32_t dn_brk_zero_near(const dn_brk_t *b, uint32_t at, uint32_t range);
 /* audio interrupt */
 void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse);
 void dn_brk_release(dn_brk_t *b);

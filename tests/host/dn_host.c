@@ -345,6 +345,13 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "rollkeys")) got = dn.roll_keys;
             else if (!strcmp(b, "row")) got = dn.drum_row;
             else if (!strncmp(b, "bon.", 4)) got = dn_bk[atoi(b + 4) - 1].on;   /* BREAKS A (1) / B (2) sounding */
+            else if (!strncmp(b, "ns.", 3)) got = dn_bk[atoi(b + 3) - 1].nslices;
+            else if (!strncmp(b, "smode.", 6)) got = dn_bk[atoi(b + 6) - 1].smode;
+            else if (!strncmp(b, "sl.", 3)) {       /* sl.K.I: where slice I (1-based) of BREAKS K starts */
+                int k = 0, i = 0;
+                sscanf(b + 3, "%d.%d", &k, &i);
+                got = (long)dn_bk[k - 1].start[i - 1];
+            }
             else if (!strcmp(b, "clocks")) got = (long)clock_n;
             else if (!strcmp(b, "midinotes")) got = (long)midi_notes_n;
             else if (!strncmp(b, "len.", 4)) got = dn_sq.pat.tr[atoi(b + 4) - 1].len;
