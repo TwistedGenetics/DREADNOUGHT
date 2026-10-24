@@ -107,6 +107,57 @@ static void dn_unlock(void) {}
 #include "../../src/app/dn_app.c"
 #include "../../src/app/dn_splash.c"
 
+/* ---------------------------------------------------------------------------------------- editor frames --- */
+static uint8_t ed_reply[1024];
+static uint32_t ed_n;
+static void ed_put(uint32_t v) { if (ed_n < sizeof ed_reply) ed_reply[ed_n++] = (uint8_t)(v & 0x7Fu); }
+static int ed(uint32_t cmd, const uint8_t *a, uint32_t na)
+{
+    ed_n = 0;
+    return dn_ed_cmd(cmd, a, na, ed_put);
+}
+/* the whole pattern through PAT_READ, as the page reads it */
+static uint32_t ed_read_pattern(uint8_t *out)
+{
+    uint32_t off = 0, size = sizeof(dn_pattern_t);
+    while (off < size) {
+        uint8_t a[3] = {(uint8_t)(off & 127u), (uint8_t)(off >> 7), 200};
+        uint32_t i = 2, k = 0;
+        if (!ed(63, a, 3))
+            return 0;
+        while (i < ed_n) {
+            uint32_t m = ed_reply[i++], j;
+            for (j = 0; j < 7u && i < ed_n; j++)
+                out[off + k++] = (uint8_t)(ed_reply[i++] | ((m >> j) & 1u) << 7);
+        }
+        off += k;
+    }
+    return off;
+}
+/* ... and back with PAT_WRITE (200 bytes a frame) and PAT_COMMIT; the commit's rc */
+static int ed_write_pattern(const uint8_t *in)
+{
+    uint32_t off, size = sizeof(dn_pattern_t);
+    for (off = 0; off < size; off += 200) {
+        uint8_t a[2 + 240];
+        uint32_t na = 2, n = size - off < 200 ? size - off : 200, i, j;
+        a[0] = (uint8_t)(off & 127u);
+        a[1] = (uint8_t)(off >> 7);
+        for (i = 0; i < n; i += 7) {
+            uint32_t m = 0;
+            for (j = 0; j < 7u && i + j < n; j++)
+                m |= (uint32_t)(in[off + i + j] >> 7) << j;
+            a[na++] = (uint8_t)m;
+            for (j = 0; j < 7u && i + j < n; j++)
+                a[na++] = in[off + i + j] & 0x7Fu;
+        }
+        if (!ed(64, a, na) || ed_reply[0])
+            return -1;
+    }
+    ed(65, 0, 0);
+    return ed_reply[0];
+}
+
 /* ------------------------------------------------------------------------------------------------ output --- */
 static uint32_t crc_tab[256];
 static uint32_t crc32(uint32_t c, const uint8_t *p, size_t n)
@@ -335,6 +386,58 @@ int main(int argc, char **argv)
             }
             printf("  sliceset %c: %u slices, rc %d\n", b[0], cnt, dn_app_slices_set(dn_bk[k].key, cnt, st));
             run(1);
+        } else if (!strcmp(a, "sysex") && n >= 2) {  /* sysex CMD [b ...]: an editor frame (decimal); the reply kept */
+            uint8_t args[64];
+            uint32_t na = 0;
+            char *q = ln + 5;
+            long cmd = strtol(q, &q, 10);
+            for (;;) {
+                char *e;
+                long v = strtol(q, &e, 10);
+                if (e == q || na >= sizeof args) break;
+                args[na++] = (uint8_t)v;
+                q = e;
+            }
+            {
+                int ok = ed((uint32_t)cmd, args, na);
+                printf("  sysex %ld: %s, %u bytes back\n", cmd, ok ? "answered" : "not answered", ed_n);
+            }
+            run(1);
+        } else if (!strcmp(a, "edround")) {          /* the page's round trip: read the pattern, change step 2 of
+                                                     * track 1 to note 60 / 2 steps / on, write it back, commit */
+            static uint8_t pat[sizeof(dn_pattern_t)];
+            uint32_t got = ed_read_pattern(pat), at = 8u + 4u * 1u;   /* magic, swing, pad; then track 0's step 1 */
+            int rc;
+            pat[at] = 60;
+            pat[at + 1] = DN_ST_ON;
+            pat[at + 2] = 8;
+            rc = ed_write_pattern(pat);
+            printf("  edround: read %u bytes, commit rc %d\n", got, rc);
+            fails += !(got == sizeof(dn_pattern_t) && rc == 0);
+            run(1);
+        } else if (!strcmp(a, "golden") && n >= 2) {  /* the replies the web editor's tests decode */
+            static uint8_t pat[sizeof(dn_pattern_t)];
+            FILE *g;
+            snprintf(path, sizeof path, "%s/%s", dir, b);
+            g = fopen(path, "w");
+            if (!g) { perror(path); return 2; }
+            ed(60, 0, 0);
+            fprintf(g, "{\"state\":[");
+            for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+            fprintf(g, "],\"bpm\":%u,\"params\":[", dn_sq.bpm);
+            ed(61, 0, 0);
+            for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+            fprintf(g, "],\"dtn\":%d,\"pattern\":[", dn_rs.p[RP_DTN]);
+            ed_read_pattern(pat);
+            for (uint32_t i = 0; i < sizeof pat; i++) fprintf(g, "%s%u", i ? "," : "", pat[i]);
+            fprintf(g, "],\"names\":[");
+            {
+                uint8_t q2[2] = {0, 0};
+                ed(69, q2, 2);
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+            }
+            fprintf(g, "]}\n");
+            fclose(g);
         } else if (!strcmp(a, "reboot")) {
             memset(&dn, 0, sizeof dn);
             held_btn = held_keys = 0;
@@ -356,6 +459,8 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "trk")) got = dn.trk + 1;
             else if (!strcmp(b, "view")) got = dn.view;
             else if (!strcmp(b, "swing")) got = dn_sq.pat.swing;
+            else if (!strncmp(b, "reply.", 6)) got = ed_reply[atoi(b + 6)];
+            else if (!strcmp(b, "replylen")) got = (long)ed_n;
             else if (!strcmp(b, "reclen")) got = dn_sq.pat.tr[dn.trk].st[dn.rec_last].len;
             else if (!strcmp(b, "rollkeys")) got = dn.roll_keys;
             else if (!strcmp(b, "row")) got = dn.drum_row;

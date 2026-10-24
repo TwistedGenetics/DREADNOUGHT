@@ -1,0 +1,42 @@
+# DREADNOUGHT host scenario: the web editor's commands (0.7), as web/editor sends them (src/app/dn_editor.c).
+sysex 60
+expect replylen 22
+expect reply.5 44
+expect reply.6 1
+expect reply.19 35
+sysex 61
+expect replylen 71
+expect reply.0 35
+# PARAM_SET: REESE DTN (1) to 80 (+8192 = 80, 64); BREAKS A PITCH (20) to +5
+sysex 62 1 80 64
+expect reply.0 0
+expect p.DTN 80
+sysex 62 20 5 64
+sysex 61
+expect reply.41 5
+expect reply.42 64
+# the pattern: read, change, write, commit
+edround
+expect nt.1.2 60
+expect ln.1.2 8
+expect st.1.2 1
+# a broken pattern is refused, the one in use stays
+sysex 64 0 0 0 0 0 0 0 0 0
+sysex 65
+expect reply.0 1
+expect nt.1.2 60
+# transport, presets, names
+sysex 66 1
+expect playing 1
+wait 300
+sysex 66 0
+expect playing 0
+sysex 68 3
+expect preset 3
+sysex 69 0 0
+expect reply.0 9
+sysex 69 1 0
+expect reply.0 2
+sysex 99
+expect replylen 0
+golden editor-golden.json

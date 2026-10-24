@@ -96,6 +96,7 @@ typedef struct {
 
 static reese_t dn_rs;
 static dn_seq_t dn_sq;
+static uint32_t dn_rev;                             /* moves on whenever the sound or the pattern changes (the editor) */
 static dn_brk_t dn_bk[DN_NBRK] X0X_POOL;
 static uint8_t dn_bk_src[DN_NBRK];                  /* each one's loop: an index into the sources (dn_src) */
 static struct {
@@ -518,6 +519,7 @@ static void dn_set(uint32_t id, int32_t v)
     v = dn_clamp(v, dn_min(id), dn_max(id));
     if (v == dn_get(id))
         return;
+    dn_rev++;
     if (id == DN_PX_BSRC) {                         /* (outside the lock: reading the loop takes a few ms) */
         dn_brk_select(k, (uint32_t)v);
         dn.dirty = 1;
@@ -675,6 +677,7 @@ static int32_t dn_key_ord(uint32_t k)               /* which white (or black) ke
 
 static void dn_mark(void)
 {
+    dn_rev++;
     dn.dirty = 1;
     dn.redraw |= DN_RD_ALL;
 }
@@ -1949,3 +1952,5 @@ void dn_app_draw(int force)
     plat_keys_dim(dim);
     plat_leds(lit, keys);
 }
+
+#include "dn_editor.c"                              /* the web editor's commands */
