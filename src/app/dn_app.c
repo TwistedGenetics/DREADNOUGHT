@@ -408,6 +408,8 @@ static void dn_sl_fix(void);
 static void dn_chops_remap(uint32_t key, const uint32_t *old, uint32_t old_n);
 static void dn_mark(void);
 static void dn_num(char *o, int32_t v);
+static void dn_say(const char *m);
+static void dn_step_drop(uint32_t to);
 
 int dn_app_slices_set(uint32_t key, uint32_t n, const uint32_t *starts)
 {
@@ -996,6 +998,10 @@ static void dn_keys_seq(uint32_t keys)
         int32_t o = dn_key_ord(k);
         if (dn_is_white(k)) {
             uint32_t i = (uint32_t)o + 16u * dn.view;
+            if ((down & (1u << k)) && i < tr->len && dn.step_held >= 0 && dn.step_key != (int8_t)k) {
+                dn_step_drop(i);                    /* a step held, another pressed: the note goes there */
+                continue;
+            }
             if ((down & (1u << k)) && i < tr->len) {
                 dn.step_held = (int8_t)i;
                 dn.step_key = (int8_t)k;
@@ -1120,6 +1126,31 @@ static void dn_view_follow(uint32_t note)
         if (note >= dn.drum_top + DN_DRUM_ROWS)
             dn.drum_top = (uint8_t)(note - DN_DRUM_ROWS + 1u);
     }
+    dn.redraw |= DN_RD_ALL;
+}
+
+/* pick up and drop: with a step held, pressing another step's key moves the note there (SAVE held: copies it), in
+ * this bar or, with black keys 10 / 11, another; onto a note it swaps them (nothing is lost). The held key keeps the
+ * note, so pressing on moves it on. */
+static void dn_step_drop(uint32_t to)
+{
+    dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    uint32_t from = (uint32_t)dn.step_held;
+    int copy = dn.save_held != 0u;
+    dn_step_t a = tr->st[from], b = tr->st[to];
+    if (to == from)
+        return;
+    dn_lock();
+    tr->st[to] = a;
+    if (!copy)
+        tr->st[from] = (b.flags & DN_ST_ON) ? b : (dn_step_t){a.note, 0, a.len, a.vel};
+    dn_unlock();
+    if (copy)
+        dn.save_chord = 1;                          /* (SAVE was a modifier: no save when it comes up) */
+    dn.step_held = (int8_t)to;
+    dn.step_edited = 1;
+    dn_say(copy ? "COPIED" : (b.flags & DN_ST_ON) ? "SWAPPED" : "MOVED");
+    dn_mark();
     dn.redraw |= DN_RD_ALL;
 }
 
@@ -1653,7 +1684,10 @@ void dn_app_input(void)
     }
     if ((btn & (1u << B_OCTDN)) && (btn & (1u << B_OCTUP)))
         press &= ~((1u << B_OCTDN) | (1u << B_OCTUP));          /* both: the update-mode hold, not an octave */
-    else if (press & (1u << B_OCTDN))
+    else if ((press & ((1u << B_OCTDN) | (1u << B_OCTUP))) && DN_IS_SEQPG(dn.page) && dn.step_held >= 0 &&
+             !DN_IS_BRK(dn.trk)) {
+        dn_seq_knob(0, (press & (1u << B_OCTUP)) ? 12 : -12);   /* a step held: its note an octave up / down */
+    } else if (press & (1u << B_OCTDN))
         dn_set(DN_PX_OCT, dn.oct - 1);
     else if (press & (1u << B_OCTUP))
         dn_set(DN_PX_OCT, dn.oct + 1);
@@ -2465,6 +2499,11 @@ static void dn_draw_bottom(void)
             dn_draw_roll();
         else
             dn_draw_drum();
+        if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0) {   /* a word (MOVED, SWAPPED, ...) over the right end */
+            int32_t mw = text_w(&FONT_T, dn.msg);
+            cv_rect(226 - mw, 123, mw + 12, 19, DN_C_BAR);
+            cv_text(232 - mw, 127, &FONT_T, dn.msg, DN_C_RED);
+        }
         cv_blit(0, 96);
         return;
     }

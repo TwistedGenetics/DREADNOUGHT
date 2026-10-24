@@ -468,6 +468,7 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "rolllo")) got = dn.roll_lo;
             else if (!strcmp(b, "drumtop")) got = dn.drum_top;
             else if (!strcmp(b, "held")) got = dn.step_held + 1;
+            else if (!strcmp(b, "saveheld")) got = dn.save_held;
             else if (!strcmp(b, "cin")) got = dn.cin_left != 0;
             else if (!strcmp(b, "clk")) got = (long)dn.clk_count;
             else if (!strcmp(b, "pos")) got = dn_sq.playing ? (long)dn_sq.pos : -1;
