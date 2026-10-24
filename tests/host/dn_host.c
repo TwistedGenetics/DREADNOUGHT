@@ -453,6 +453,21 @@ int main(int argc, char **argv)
                 fprintf(g, "],\"long\":[");
                 for (uint32_t c = 60; c <= 72; c++) fprintf(g, "%s%d", c > 60 ? "," : "", dn_ed_long(c));
             }
+            {   /* 0.16: PROJ, and every effect's values at their defaults: name, top, text (172 BPM) */
+                fprintf(g, "],\"proj\":[");
+                ed(75, 0, 0);
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                fprintf(g, "],\"fxp\":[");
+                for (uint32_t t = 1; t < DN_FX_N; t++)
+                    for (uint32_t i = 0; i < DN_FX_NP; i++) {
+                        dn_fx_p_t fp;
+                        char tx[8];
+                        dn_fx_default(&fp, t);
+                        dn_fx_ptext(0, &fp, i, 172, tx);
+                        fprintf(g, "%s[%u,%u,\"%s\",%d,\"%s\"]", t > 1 || i ? "," : "", t, i, dn_fx_pname(&fp, i),
+                                dn_fx_pmax(&fp, i), tx);
+                    }
+            }
             fprintf(g, "]}\n");
             fclose(g);
         } else if (!strcmp(a, "reboot")) {
@@ -544,9 +559,13 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "fxview")) got = dn.fx_view;
             else if (!strcmp(b, "fxa")) got = dn_fxp[0].type;
             else if (!strcmp(b, "fxb")) got = dn_fxp[1].type;
+            else if (!strncmp(b, "fxap.", 5)) got = dn_fxp[0].p[atoi(b + 5) % DN_FX_NP];   /* (0.16) */
+            else if (!strncmp(b, "fxbp.", 5)) got = dn_fxp[1].p[atoi(b + 5) % DN_FX_NP];
+            else if (!strcmp(b, "fxbkb")) got = (long)(dn_fxs[1].bytes / 1024u);   /* FX B's memory, KB */
+            else if (!strcmp(b, "fxbout")) got = dn_fxs[1].u.m.y_l * 32768.f > 4.f || dn_fxs[1].u.m.y_l * 32768.f < -4.f;   /* (MASSIVE sounding) */
             else if (!strncmp(b, "senda.", 6)) got = dn_send[0][(atoi(b + 6) - 1) & 7];
             else if (!strcmp(b, "dly")) {           /* the delay's output now, both sides */
-                got = labs((long)dn_fxs[0].o_l) + labs((long)dn_fxs[0].o_r);
+                got = labs((long)dn_fxs[0].u.d.o_l) + labs((long)dn_fxs[0].u.d.o_r);
             } else if (!strcmp(b, "legato")) got = dn_sq.legato;
             else if (!strcmp(b, "sbgate")) got = dn_sb.gate;       /* SUB (0.13) */
             else if (!strcmp(b, "sbpreset")) got = dn.sb_preset;

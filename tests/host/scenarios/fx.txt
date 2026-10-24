@@ -1,0 +1,84 @@
+# DREADNOUGHT host scenario (0.16): the FX rack's new effects from the panel. FX B takes MASSIVE beside FX A's DELAY
+# (it gets the 80 KB left), its seven values on two views (FX again: FX B 2), REESE sent to it rings; its MODE to DUB;
+# FX B to CELESTIAL; FX A to TUMULUS beside it (two reverbs fit); a third big one refused; SAVE keeps the effects and all
+# seven values over a reboot.
+tap GLO
+tap GLO
+expect page 14
+expect fxa 1
+expect fxb 0
+# FX A's page, then FX B's (DELAY has three values: no second view)
+tap FX
+expect fxview 1
+tap FX
+expect fxview 3
+turn K1 11
+expect fxb 11
+expect fxbkb 80
+shot fx-01-massive.png
+tap FX
+expect fxview 4
+shot fx-02-massive-more.png
+turn K4 -10
+expect fxbp.6 <54
+tap FX
+expect fxview 0
+# REESE's send B: the hall rings after the note
+turn K2 30
+wav fx-massive-reese.wav
+key 0 down
+wait 300
+key 0 up
+wait 1500
+expect fxbout 1
+# MODE to DUB (FX B's first view, KNOB 2)
+tap FX
+tap FX
+expect fxview 3
+turn K2 8
+expect fxbp.0 9
+key 7 down
+wait 200
+key 7 up
+wait 1500
+wavstop
+shot fx-03-massive-dub.png
+# FX B to CELESTIAL (KNOB 1 down to it: memory for it beside DELAY)
+turn K1 -4
+expect fxb 7
+expect fxbkb 76
+expect fxbp.0 90
+tap FX
+expect fxview 4
+tap FX
+expect fxview 0
+# FX A to TUMULUS (FX A's view; from DELAY up): beside CELESTIAL it fits (73 + 76 KB)
+tap FX
+expect fxview 1
+turn K1 8
+expect fxa 9
+shot fx-04-a-tumulus.png
+# FX B to MASSIVE: beside TUMULUS it still has 103 KB
+tap FX
+tap FX
+expect fxview 3
+turn K1 4
+expect fxb 11
+expect fxbkb 103
+# FX A to DELAY beside a QUADRA on B: fits (96 + 52); then B to CELESTIAL: 96 + 76 fits; FX A to DELAY was refused
+# never; a CELESTIAL on A beside B's CELESTIAL: fits (152 KB)
+turn K1 -1
+expect fxb 10
+turn K2 3
+expect fxbp.0 3
+shot fx-05-quadra-flange.png
+# SAVE, reboot: kept
+tap SAVE
+wait 100
+reboot
+expect fxa 9
+expect fxb 10
+expect fxbp.0 3
+tap GLO
+tap GLO
+expect page 14

@@ -47,12 +47,12 @@ int main(void)
     dn_fx_p_t p;
     uint32_t at = 0, d, i;
     printf("FX: the DELAY needs %u bytes of the arena\n", dn_fx_ram(DN_FX_DELAY));
-    check("DELAY's memory fits the 144 KB arena (with room for a reverb)", dn_fx_ram(DN_FX_DELAY) <= 100u * 1024u,
+    check("DELAY's memory: 96 KB (the 176 KB arena keeps 80 KB for the other slot)", dn_fx_ram(DN_FX_DELAY) <= 100u * 1024u,
           dn_fx_ram(DN_FX_DELAY), 98304);
     /* 1: an impulse; the first repeat at 1/8D of 172 BPM (0.75 beat = 11538 samples), on the right, then the left */
     dn_fx_default(&p, DN_FX_DELAY);
     p.p[1] = 60, p.p[2] = 127;
-    dn_fx_init(&s, DN_FX_DELAY, mem);
+    dn_fx_init(&s, DN_FX_DELAY, mem, dn_fx_ram(DN_FX_DELAY));
     memset(in, 0, sizeof in);
     in[0] = in[1] = 20000;
     in[2] = in[3] = 20000;
@@ -78,7 +78,7 @@ int main(void)
     /* 3: pushed: FEEDBACK 127 on loud noise for 10 s: it howls but never wraps */
     {
         int32_t seed = 1, mx = 0;
-        dn_fx_init(&s, DN_FX_DELAY, mem);
+        dn_fx_init(&s, DN_FX_DELAY, mem, dn_fx_ram(DN_FX_DELAY));
         p.p[1] = 127;
         for (i = 0; i < FS * 10u; i++) {
             seed = seed * 1103515245 + 12345;
@@ -94,7 +94,7 @@ int main(void)
     /* 4: a new TIME glides: a steady sine in, the time moved from 1/8D to 1/4: no step bigger than the sine's own */
     {
         int32_t step = 0, own = 0;
-        dn_fx_init(&s, DN_FX_DELAY, mem);
+        dn_fx_init(&s, DN_FX_DELAY, mem, dn_fx_ram(DN_FX_DELAY));
         p.p[0] = 7, p.p[1] = 50;
         for (i = 0; i < FS * 4u; i++)
             in[2u * i] = in[2u * i + 1u] = (int32_t)(12000.0 * sin(2.0 * M_PI * 220.0 * i / FS));

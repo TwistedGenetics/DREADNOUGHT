@@ -217,7 +217,7 @@ Report these to Jamie in plain words before Part 1, along with the revised per-e
   - Self-oscillation pitch tracking within a few cents over 3 octaves.
   - The clean-sub split keeps the fundamental intact under hard drive.
 
-## Part 3 (0.14). Effects
+## Part 3 (0.14). Effects — done in 0.16 (Carnac's eight, QUADRA, MASSIVE; FX memory 176 KB)
 
 1. **Carnac OS's FX** (Carnac OS is GPL-3.0, from the same family; port the code and credit it in `docs/UPSTREAM.md`):
    - reverbs: SPRING, TOMB, MOD, CELESTIAL, DOLMEN, TUMULUS;

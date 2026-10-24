@@ -4,7 +4,7 @@ import {
   connect, REESE, BPM_INDEX, brkParams, brkIndex, KIND, ST_ON, ST_SLIDE, ST_ACC, LEN_STEP, LEN_MAX, noteEnd, lenText,
   noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
   lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
-  PF, FX_NAMES, FX_PARAMS, E, SUB, subIndex, NPARAM_13, nLfos,
+  PF, FX_NAMES, fxParams, E, SUB, subIndex, NPARAM_13, nLfos,
 } from "./protocol.js";
 import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
@@ -920,11 +920,11 @@ function refreshProject() {
       ty.value = f.type;
       ty.onchange = () => projSet(PF.fx(k, 0), +ty.value);
       row("TYPE", ty);
-      (FX_PARAMS[f.type] || []).forEach(([name, lo, hi, text], i) => {
+      fxParams(f.type, f.p).forEach(({ i, name, max, text }) => {
         const d = row(name, document.createElement("span"));
         d.lastChild.remove();
-        d.insertAdjacentHTML("beforeend", `<input type="range" min="${lo}" max="${hi}"><span class="v"></span>`);
-        const r = d.querySelector("input"), v = d.querySelector(".v"), show = () => { v.textContent = text ? text(+r.value) : r.value; };
+        d.insertAdjacentHTML("beforeend", `<input type="range" min="0" max="${max}"><span class="v"></span>`);
+        const r = d.querySelector("input"), v = d.querySelector(".v"), show = () => { v.textContent = text(+r.value); };
         r.value = f.p[i]; show();
         r.oninput = () => { show(); projSet(PF.fx(k, i + 1), +r.value); };
       });

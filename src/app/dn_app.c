@@ -92,7 +92,9 @@ static uint8_t dn_eng[8] = {DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_MI
 #define DN_PX_RETB 155
 #define DN_PX_FXA 156                               /* FX A: its type, then its three values (156..159) */
 #define DN_PX_FXB 160                               /* FX B: the same (160..163) */
-#define DN_IS_PPX(id) ((id) >= DN_PX_PTRK && (id) <= DN_PX_FXB + 3u)
+#define DN_PX_FXA2 200                              /* 0.16: FX A's next four values (its 4th..7th: 200..203) */
+#define DN_PX_FXB2 204                              /* FX B's (204..207) */
+#define DN_IS_PPX(id) (((id) >= DN_PX_PTRK && (id) <= DN_PX_FXB + 3u) || ((id) >= DN_PX_FXA2 && (id) <= DN_PX_FXB2 + 3u))
 #define DN_PX_SUB0 170                              /* SUB's values: 170 + SP_* (0.13) */
 #define DN_IS_SPX(id) ((id) >= DN_PX_SUB0 && (id) < DN_PX_SUB0 + SP_COUNT)
 #define DN_S(k) (DN_PX_SUB0 + (k))
@@ -146,9 +148,12 @@ static const uint8_t DN_SUB_DIRT[4] = {DN_S(SP_DRIVE), DN_S(SP_DTYPE), DN_S(SP_C
 static const uint8_t DN_SET_PAGE[4] = {DN_PX_CLICK, DN_PX_CLKLVL, DN_PX_CIN, DN_PX_VSENS};
 static const uint8_t DN_MIDI_PAGE[4] = {DN_PX_MSEL, DN_PX_MCHAN, DN_PX_MOVL, DN_PX_NONE};
 static const uint8_t DN_PROJ_PAGE[4] = {DN_PX_PTRK, DN_PX_PENG, DN_PX_NONE, DN_PX_NONE};
-static const uint8_t DN_FX_PAGE[3][4] = {{DN_PX_SENDA, DN_PX_SENDB, DN_PX_RETA, DN_PX_RETB},
+/* the FX page's views (FX: the next): MIX, FX A, its next values (when it has more than 3), FX B, its next */
+static const uint8_t DN_FX_PAGE[5][4] = {{DN_PX_SENDA, DN_PX_SENDB, DN_PX_RETA, DN_PX_RETB},
                                          {DN_PX_FXA, DN_PX_FXA + 1u, DN_PX_FXA + 2u, DN_PX_FXA + 3u},
-                                         {DN_PX_FXB, DN_PX_FXB + 1u, DN_PX_FXB + 2u, DN_PX_FXB + 3u}};
+                                         {DN_PX_FXA2, DN_PX_FXA2 + 1u, DN_PX_FXA2 + 2u, DN_PX_FXA2 + 3u},
+                                         {DN_PX_FXB, DN_PX_FXB + 1u, DN_PX_FXB + 2u, DN_PX_FXB + 3u},
+                                         {DN_PX_FXB2, DN_PX_FXB2 + 1u, DN_PX_FXB2 + 2u, DN_PX_FXB2 + 3u}};
 #define DN_NSND 7u                                  /* the sound pages, in SELECT's order (the tab row's too) */
 static const uint8_t DN_SND[DN_NSND] = {0, 1, 2, 3, DN_PG_LFO, 4, DN_PG_SET};
 static const char *const DN_SND_NAME[DN_NSND] = {"OSC", "FILTER", "AMP", "MOD", "LFO", "OUT", "SETUP"};
@@ -215,12 +220,14 @@ typedef struct {
         uint8_t eng[8];                             /* each track's instrument (DN_E_*) */
         uint8_t send[2][8];                         /* each track's sends to FX A, B */
         uint8_t ret[2], pad[2];
-        dn_fx_p_t fx[2];
+        struct { uint8_t type, p[3]; } fx[2];      /* (each effect's first three values; the rest: fx_more) */
     } proj;
     struct { uint8_t preset, pad[3]; int16_t p[SP_COUNT]; } sub;                /* SUB (from 0.13) */
     dn_lfo_p_t sublfo[DN_NLFO];                                                 /* SUB's own LFOs (from 0.15) */
     dn_patch_t user[2][DN_NUSER];                                               /* the user sounds (from 0.15) */
+    uint8_t fx_more[2][4];                                                      /* FX A / B's 4th..7th values (0.16) */
 } dn_save_t;
+#define DN_SAVE_V015 (offsetof(dn_save_t, fx_more))
 #define DN_SAVE_V014 (offsetof(dn_save_t, sublfo))
 #define DN_SAVE_V012 (offsetof(dn_save_t, sub))
 #define DN_SAVE_V011 (offsetof(dn_save_t, proj))
@@ -241,7 +248,7 @@ static dn_brk_t dn_bk[DN_NBRK] X0X_POOL;
 static dn_lfo_p_t dn_lp[DN_NLFO_ALL];               /* their settings ... */
 static dn_lfo_s_t dn_ls[DN_NLFO_ALL];               /* ... and where each one is (audio) */
 /* ---- the project (0.12): its name, each track's sends, the FX rack (two send slots in one memory arena) ---- */
-#define DN_FX_ARENA (144u * 1024u)
+#define DN_FX_ARENA (176u * 1024u)                  /* (0.16: DELAY's 96 KB and the biggest reverb's 77 KB) */
 static uint32_t dn_fx_mem[DN_FX_ARENA / 4u] X0X_POOL;
 static dn_fx_p_t dn_fxp[2];                         /* FX A, B: their settings (the project's) ... */
 static dn_fx_s_t dn_fxs[2];                         /* ... and their state (audio) */
@@ -281,7 +288,7 @@ static struct {
     uint8_t midi_sel;                               /* the MIDI page: MIDI 1..n (the tracks that play MIDI, in order) */
     uint8_t bk_last;                                /* the break the BRK pages showed last (0 A, 1 B) */
     uint8_t bk_force;                               /* the editor: the BRK values read B (2) / A (1) whatever is shown */
-    uint8_t fx_view;                                /* the FX page: MIX, FX A, FX B */
+    uint8_t fx_view;                                /* the FX page: MIX, FX A, FX A's next, FX B, FX B's next */
     uint8_t sb_preset;                              /* SUB's factory sound */
     uint8_t syn_last;                               /* the synth whose pages were shown last (DN_E_REESE / SUB) */
     uint8_t peng;                                   /* PROJECT: the instrument chosen for the track, not yet in (0xFF) */
@@ -974,6 +981,16 @@ static uint32_t dn_bsel(void)
     return DN_IS_BRK(dn.trk) ? (dn.bk_last = (uint8_t)DN_BK(dn.trk)) : dn.bk_last;
 }
 
+/* the FX page's dial under KNOB k: none where the effect has no value */
+static int dn_fx_pi(uint32_t id, uint32_t *slot);
+static uint32_t dn_fx_dial(uint32_t k)
+{
+    uint32_t id = DN_FX_PAGE[dn.fx_view % 5u][k], slot;
+    int pi = dn.fx_view ? dn_fx_pi(id, &slot) : -1;
+    if (pi >= 0 && dn_fx_pname(&dn_fxp[slot], (uint32_t)pi)[0] == '-')
+        return DN_PX_NONE;
+    return id;
+}
 /* the dial under KNOB k on this page */
 static uint32_t dn_dial(uint32_t k)
 {
@@ -983,8 +1000,7 @@ static uint32_t dn_dial(uint32_t k)
          : dn.page == DN_PG_SOSC2 ? DN_SUB_OSC2[k] : dn.page == DN_PG_DIRT ? DN_SUB_DIRT[k]
          : dn.page < DN_NPAGES && DN_IS_SUB(dn.trk) ? DN_SUB_PAGE[dn.page][k]
          : dn.page == DN_PG_PROJ ? DN_PROJ_PAGE[k]
-         : dn.page == DN_PG_FX ? (dn.fx_view && k && dn_fxp[dn.fx_view == 2u].type == DN_FX_OFF ? DN_PX_NONE
-                                                                                         : DN_FX_PAGE[dn.fx_view % 3u][k])
+         : dn.page == DN_PG_FX ? dn_fx_dial(k)
          : DN_PAGE[dn.page % DN_NPAGES][k];
 }
 
@@ -1106,12 +1122,42 @@ static void dn_lfo_text(uint32_t id, int32_t v, char out[8])
 
 /* ---- the project's values: PROJECT (the track, its instrument) and FX (the sends, returns, the two slots) ---- */
 static int dn_fx_fits(uint32_t a, uint32_t b) { return dn_fx_ram(a) + dn_fx_ram(b) <= DN_FX_ARENA; }
-static void dn_fx_layout(void)                      /* (inside the lock) the arena: FX A's memory, then FX B's */
+static void dn_fx_layout(void)                      /* (inside the lock) the arena: FX A's memory, then FX B's; MASSIVE
+                                                     * takes what the other leaves (two: half each) */
 {
     uint8_t *m = (uint8_t *)dn_fx_mem;
-    uint32_t a = (dn_fx_ram(dn_fxp[0].type) + 3u) & ~3u;
-    dn_fx_init(&dn_fxs[0], dn_fxp[0].type, a ? m : 0);
-    dn_fx_init(&dn_fxs[1], dn_fxp[1].type, dn_fx_ram(dn_fxp[1].type) ? m + a : 0);
+    uint32_t ta = dn_fxp[0].type, tb = dn_fxp[1].type;
+    uint32_t a = (dn_fx_ram(ta) + 3u) & ~3u, b = (dn_fx_ram(tb) + 3u) & ~3u;
+    if (dn_fx_flex(ta) && dn_fx_flex(tb))
+        a = b = (DN_FX_ARENA / 2u) & ~3u;
+    else if (dn_fx_flex(ta))
+        a = DN_FX_ARENA - b;
+    else if (dn_fx_flex(tb))
+        b = DN_FX_ARENA - a;
+    dn_fx_init(&dn_fxs[0], ta, a ? m : 0, a);
+    dn_fx_init(&dn_fxs[1], tb, b ? m + a : 0, b);
+}
+/* an FX value's slot and its place among the effect's values (-1: the effect itself); -2: not an FX value */
+static int dn_fx_pi(uint32_t id, uint32_t *slot)
+{
+    if (id >= DN_PX_FXA && id <= DN_PX_FXB + 3u) {
+        *slot = id >= DN_PX_FXB;
+        return (int)((id - DN_PX_FXA) % 4u) - 1;
+    }
+    if (id >= DN_PX_FXA2 && id <= DN_PX_FXB2 + 3u) {
+        *slot = id >= DN_PX_FXB2;
+        return 3 + (int)((id - DN_PX_FXA2) % 4u);
+    }
+    *slot = 0;
+    return -2;
+}
+static void dn_fx_check(uint32_t k)                 /* an effect's values within their ranges */
+{
+    uint32_t i;
+    if (dn_fxp[k].type >= DN_FX_N)
+        dn_fx_default(&dn_fxp[k], DN_FX_OFF);
+    for (i = 0; i < DN_FX_NP; i++)
+        dn_fxp[k].p[i] = (uint8_t)dn_clamp(dn_fxp[k].p[i], 0, dn_fx_pmax(&dn_fxp[k], i));
 }
 static void dn_eng_set(uint32_t t, uint32_t e);
 static void dn_legato_fix(void);
@@ -1129,9 +1175,9 @@ static int32_t dn_pj_get(uint32_t id)
     if (id == DN_PX_RETA || id == DN_PX_RETB)
         return dn_ret[id - DN_PX_RETA];
     {
-        const dn_fx_p_t *f = &dn_fxp[id >= DN_PX_FXB];
-        uint32_t i = (id - DN_PX_FXA) % 4u;
-        return i ? f->p[i - 1u] : f->type;
+        uint32_t k;
+        int i = dn_fx_pi(id, &k);
+        return i < 0 ? dn_fxp[k].type : dn_fxp[k].p[i];
     }
 }
 static int32_t dn_pj_lim(uint32_t id, int hi)
@@ -1145,26 +1191,22 @@ static int32_t dn_pj_lim(uint32_t id, int hi)
     if (id < DN_PX_FXA)
         return 127;
     {
-        const dn_fx_p_t *f = &dn_fxp[id >= DN_PX_FXB];
-        uint32_t i = (id - DN_PX_FXA) % 4u;
-        if (!i)
-            return DN_FX_N - 1;
-        if (f->type == DN_FX_DELAY)
-            return i == 1u ? (int32_t)DN_FX_NDIV - 1 : 127;
-        return 0;
+        uint32_t k;
+        int i = dn_fx_pi(id, &k);
+        return i < 0 ? DN_FX_N - 1 : dn_fx_pmax(&dn_fxp[k], (uint32_t)i);
     }
 }
 static const char *dn_pj_name(uint32_t id)
 {
     static const char *const N[6] = {"TRACK", "INSTR", "SEND A", "SEND B", "RETURN A", "RETURN B"};
-    static const char *const DLY[3] = {"TIME", "FEEDBACK", "TONE"};
-    uint32_t i;
+    uint32_t k;
+    int i;
     if (id < DN_PX_FXA)
         return N[id - DN_PX_PTRK];
-    i = (id - DN_PX_FXA) % 4u;
-    if (!i)
-        return id >= DN_PX_FXB ? "FX B" : "FX A";
-    return dn_fxp[id >= DN_PX_FXB].type == DN_FX_DELAY ? DLY[i - 1u] : "-";
+    i = dn_fx_pi(id, &k);
+    if (i < 0)
+        return k ? "FX B" : "FX A";
+    return dn_fx_pname(&dn_fxp[k], (uint32_t)i);
 }
 static void dn_pj_text(uint32_t id, int32_t v, char out[8])
 {
@@ -1177,13 +1219,16 @@ static void dn_pj_text(uint32_t id, int32_t v, char out[8])
     if (id == DN_PX_PENG)
         w = DN_E_NAME[dn_clamp(v, 0, DN_E_N - 1)];
     else if (id >= DN_PX_FXA) {
-        uint32_t k = (id - DN_PX_FXA) % 4u;
-        if (!k)
+        uint32_t k;
+        int pi = dn_fx_pi(id, &k);
+        if (pi < 0)
             w = DN_FX_NAME[dn_clamp(v, 0, DN_FX_N - 1)];
-        else if (dn_fxp[id >= DN_PX_FXB].type == DN_FX_OFF)
-            w = "-";
-        else if (k == 1u)
-            w = DN_FX_DIV_NAME[dn_clamp(v, 0, DN_FX_NDIV - 1)];
+        else {                                      /* (the value as the effect reads it: v may be the one turned to) */
+            dn_fx_p_t f = dn_fxp[k];
+            f.p[pi] = (uint8_t)v;
+            dn_fx_ptext(&dn_fxs[k], &f, (uint32_t)pi, dn_sq.bpm, out);
+            return;
+        }
     }
     if (!w) {
         dn_num(out, v);
@@ -1215,9 +1260,10 @@ static void dn_pj_set(uint32_t id, int32_t v)
     else if (id == DN_PX_RETA || id == DN_PX_RETB)
         dn_ret[id - DN_PX_RETA] = (uint8_t)v;
     else {
-        uint32_t k = id >= DN_PX_FXB, i = (id - DN_PX_FXA) % 4u;
+        uint32_t k;
+        int i = dn_fx_pi(id, &k);
         dn_fx_p_t *f = &dn_fxp[k];
-        if (!i) {                                   /* a new effect: its memory, or no */
+        if (i < 0) {                                /* a new effect: its memory, or no */
             if (!dn_fx_fits(k ? dn_fxp[0].type : (uint32_t)v, k ? (uint32_t)v : dn_fxp[1].type)) {
                 dn_say("NO MEMORY: FX OFF FIRST");
                 dn.redraw |= DN_RD_ALL;
@@ -1228,7 +1274,7 @@ static void dn_pj_set(uint32_t id, int32_t v)
             dn_fx_layout();
             dn_unlock();
         } else {
-            f->p[i - 1u] = (uint8_t)v;
+            f->p[i] = (uint8_t)v;
         }
     }
     dn_mark();
@@ -1653,8 +1699,14 @@ static void dn_save_fill(dn_save_t *sp)
     s.proj.ret[0] = dn_ret[0];
     s.proj.ret[1] = dn_ret[1];
     s.proj.pad[0] = s.proj.pad[1] = 0;
-    s.proj.fx[0] = dn_fxp[0];
-    s.proj.fx[1] = dn_fxp[1];
+    for (k = 0; k < 2u; k++) {                      /* (0.16: seven values: three here, four at the end) */
+        uint32_t j;
+        s.proj.fx[k].type = dn_fxp[k].type;
+        for (j = 0; j < 3u; j++)
+            s.proj.fx[k].p[j] = dn_fxp[k].p[j];
+        for (j = 0; j < 4u; j++)
+            s.fx_more[k][j] = dn_fxp[k].p[3u + j];
+    }
     s.sub.preset = dn.sb_preset;                    /* (0.13: SUB) */
     s.sub.pad[0] = dn_rs.esync;                     /* (the envelopes synced) */
     s.sub.pad[1] = dn_sb.esync;
@@ -1862,13 +1914,13 @@ static void dn_proj_restore(const dn_save_t *sp)
     }
     dn_ret[0] = sp->proj.ret[0] & 127u;
     dn_ret[1] = sp->proj.ret[1] & 127u;
-    for (k = 0; k < 2u; k++) {
-        dn_fxp[k] = sp->proj.fx[k];
-        if (dn_fxp[k].type >= DN_FX_N)
-            dn_fx_default(&dn_fxp[k], DN_FX_OFF);
-        dn_fxp[k].p[0] = (uint8_t)dn_clamp(dn_fxp[k].p[0], 0, DN_FX_NDIV - 1);
-        dn_fxp[k].p[1] &= 127u;
-        dn_fxp[k].p[2] &= 127u;
+    for (k = 0; k < 2u; k++) {                      /* (the rest of the values: the effect's defaults, until
+                                                     * a 0.16 save's fx_more, dn_app_init) */
+        uint32_t j;
+        dn_fx_default(&dn_fxp[k], sp->proj.fx[k].type < DN_FX_N ? sp->proj.fx[k].type : (uint32_t)DN_FX_OFF);
+        for (j = 0; j < 3u && dn_fxp[k].type; j++)
+            dn_fxp[k].p[j] = sp->proj.fx[k].p[j];
+        dn_fx_check(k);
     }
     if (!dn_fx_fits(dn_fxp[0].type, dn_fxp[1].type))
         dn_fx_default(&dn_fxp[1], DN_FX_OFF);
@@ -1936,7 +1988,7 @@ void dn_app_init(void)
         dn_man.count > DN_MAN_N)
         dn_man.magic = dn_man.count = 0;            /* (no manual slices yet) */
     got = plat_store_load(OBJ_SOUND, &s, sizeof s);
-    if ((got == (int)sizeof s || got == (int)DN_SAVE_V014 || got == (int)DN_SAVE_V012 || got == (int)DN_SAVE_V011 || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 ||
+    if ((got == (int)sizeof s || got == (int)DN_SAVE_V015 || got == (int)DN_SAVE_V014 || got == (int)DN_SAVE_V012 || got == (int)DN_SAVE_V011 || got == (int)DN_SAVE_V08 || got == (int)DN_SAVE_V05 ||
          got == (int)DN_SAVE_V04) &&
         s.magic == DN_SAVE_MAGIC) {
         dn.preset = (uint8_t)(s.preset % (reese_preset_count() + DN_NUSER));
@@ -1956,13 +2008,20 @@ void dn_app_init(void)
             for (k = 0; k < SP_COUNT; k++)
                 dn_sb.p[k] = (int16_t)dn_clamp(s.sub.p[k], dn_sub_param_min(k), dn_sub_param_max(k));
         }
-        if (got == (int)sizeof s)                   /* 0.15: the user sounds */
+        if (got >= (int)DN_SAVE_V015)               /* 0.15: the user sounds */
             for (k = 0; k < 2u * DN_NUSER; k++)
                 dn_user[k / DN_NUSER][k % DN_NUSER] = s.user[k / DN_NUSER][k % DN_NUSER];
+        if (got == (int)sizeof s)                   /* 0.16: the effects' other values */
+            for (k = 0; k < 2u; k++) {
+                uint32_t j;
+                for (j = 0; j < 4u; j++)
+                    dn_fxp[k].p[3u + j] = s.fx_more[k][j];
+                dn_fx_check(k);
+            }
         if (got >= (int)DN_SAVE_V011) {
             for (k = 0; k < DN_NLFO; k++) {         /* 0.9: the LFOs, checked */
                 dn_lp[k] = s.lfo[k];
-                if (got == (int)sizeof s)
+                if (got >= (int)DN_SAVE_V015)
                     dn_lp[DN_NLFO + k] = s.sublfo[k];   /* (0.15: SUB's) */
                 dn_lfo_fix(&dn_lp[k]);
                 dn_lfo_fix(&dn_lp[DN_NLFO + k]);
@@ -3279,8 +3338,11 @@ void dn_app_input(void)
         dn_say(*e ? "ENV SYNC: NOTE LENGTHS" : "ENV FREE: MS");
         dn_mark();
     }
-    if ((press & (1u << B_FX)) && dn.page == DN_PG_FX) {   /* FX: MIX, FX A, FX B */
-        dn.fx_view = (uint8_t)((dn.fx_view + 1u) % 3u);
+    if ((press & (1u << B_FX)) && dn.page == DN_PG_FX) {   /* FX: MIX, FX A (and its next values when it has more
+                                                     * than three), FX B (and its next) */
+        do
+            dn.fx_view = (uint8_t)((dn.fx_view + 1u) % 5u);
+        while ((dn.fx_view == 2u || dn.fx_view == 4u) && dn_fx_np(dn_fxp[dn.fx_view == 4u].type) <= 3u);
         dn.redraw |= DN_RD_ALL;
     }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_PROJ) {   /* PROJECT: the instrument chosen goes on the track */
@@ -3726,15 +3788,14 @@ static void dn_draw_top(void)
         ch[str_len_dn(ch)] = (char)('0' + c);
         pn = ch;
     } else if (dn.page == DN_PG_PROJ || dn.page == DN_PG_FX) {   /* the project's name; FX: the rack */
-        static char fx[20];
+        static char fx[32];
         const char *tag = dn.page == DN_PG_PROJ ? "PROJECT" : "FX";
         cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
         pn = dn_pname;
         if (dn.page == DN_PG_FX) {
             fx[0] = 0;
-            dn_cat(fx, "A ");
             dn_cat(fx, DN_FX_NAME[dn_fxp[0].type % DN_FX_N]);
-            dn_cat(fx, "  B ");
+            dn_cat(fx, " / ");
             dn_cat(fx, DN_FX_NAME[dn_fxp[1].type % DN_FX_N]);
             pn = fx;
         }
@@ -4318,7 +4379,7 @@ static uint32_t dn_tabs(uint8_t *ids, const char **nms)
     static const uint8_t BRK_T[3] = {DN_PG_BRK, DN_PG_BRK2, DN_PG_SLICE};
     static const char *const BRK_N[3] = {"BRK", "BRK2", "SLICE"};
     static const char *const MN[8] = {"MIDI 1", "MIDI 2", "MIDI 3", "MIDI 4", "MIDI 5", "MIDI 6", "MIDI 7", "MIDI 8"};
-    static const char *const FN[3] = {"MIX", "FX A", "FX B"};
+    static const char *const FN[5] = {"MIX", "FX A", "FX A 2", "FX B", "FX B 2"};
     uint32_t k, n = 0;
     if (dn.page == DN_PG_MIDI) {                    /* the MIDI instruments (SELECT: the next) */
         for (k = 0; k < dn_midi_n() && k < 8u; k++)
@@ -4326,8 +4387,10 @@ static uint32_t dn_tabs(uint8_t *ids, const char **nms)
         if (!n)
             ids[n] = DN_PG_MIDI, nms[n++] = "NO MIDI TRACK";
     } else if (dn.page == DN_PG_FX) {               /* the rack: MIX, FX A, FX B (FX: the next) */
-        for (k = 0; k < 3u; k++)
-            ids[n] = k == dn.fx_view ? DN_PG_FX : 0xFFu, nms[n++] = FN[k];
+        for (k = 0; k < 3u; k++) {                  /* (FX A's next values in FX A's place) */
+            uint32_t v = k == 0u ? 0u : k == 1u ? (dn.fx_view == 2u ? 2u : 1u) : (dn.fx_view == 4u ? 4u : 3u);
+            ids[n] = v == dn.fx_view ? DN_PG_FX : 0xFFu, nms[n++] = FN[v];
+        }
     } else if (dn.page == DN_PG_PROJ) {
         ids[n] = DN_PG_PROJ, nms[n++] = "PROJECT";
     }
@@ -4480,7 +4543,7 @@ static void dn_draw_bottom(void)
         dn_num(v, (int32_t)cap);
         dn_cat(c, v);
         dn_cat(c, "K  FX ");
-        dn_num(v, (int32_t)((dn_fx_ram(dn_fxp[0].type) + dn_fx_ram(dn_fxp[1].type)) / 1024u));
+        dn_num(v, (int32_t)((dn_fxs[0].bytes + dn_fxs[1].bytes) / 1024u));
         dn_cat(c, v);
         dn_cat(c, "/");
         dn_num(v, (int32_t)(DN_FX_ARENA / 1024u));

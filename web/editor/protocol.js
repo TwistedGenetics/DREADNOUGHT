@@ -255,19 +255,55 @@ export function noteName(n) {
 }
 
 // ---- the project (0.12): PROJ ---------------------------------------------------------------------------------
-export const FX_NAMES = ["OFF", "DELAY"];
+// the FX rack's effects (src/dsp/dn_fx.h; 0.16 adds Carnac OS's echoes and reverbs, QUADRA and MASSIVE)
+export const FX_NAMES = ["OFF", "DELAY", "TAPE", "BBD", "SPRING", "TOMB", "MOD", "CELESTIAL", "DOLMEN", "TUMULUS", "QUADRA",
+  "MASSIVE"];
+export const FX_KB = [0, 96, 32, 32, 17, 20, 73, 77, 73, 73, 52, 64];   // memory (MASSIVE: at least; it takes the rest)
+export const FX_ARENA_KB = 176;
+export const FX_DEFAULTS = [[0, 0, 0, 0, 0, 0, 0], [7, 60, 70, 0, 0, 0, 0], [7, 70, 36, 1, 0, 0, 0], [7, 70, 36, 1, 0, 0, 0],
+  [60, 40, 0, 30, 0, 0, 0], [70, 50, 10, 30, 0, 0, 0], [80, 50, 10, 30, 0, 0, 0], [90, 40, 20, 40, 0, 0, 0],
+  [64, 30, 0, 30, 0, 0, 0], [90, 70, 20, 30, 0, 0, 0], [0, 70, 7, 40, 40, 64, 0], [1, 89, 96, 108, 120, 50, 54]];
 export const FX_DIVS = ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"];
-export const FX_PARAMS = { 1: [["TIME", 0, 11, (v) => FX_DIVS[v]], ["FEEDBACK", 0, 127], ["TONE", 0, 127]] };
+export const QUADRA_CFG = ["CHORUS", "REVERB", "5EQ>REV", "FLANGE", "DETUNE", "DLY>REV"];
+export const MASSIVE_MODES = ["ROOM", "HALL", "HALO", "SWELL", "ABYSS", "ECHOVRB", "ORBIT", "PRISM", "PONG", "DUB"];
+const MDIVS = [...FX_DIVS, "1/2D"];
+const sgn64 = (v) => `${v - 64}`;
+const onoff = (v) => (v ? "ON" : "OFF");
+const div = (v) => FX_DIVS[Math.min(11, v)];
+const QN = [["DECAY", "TIME", "FEEDBACK", "MOD", "TONE", "16-BIT"], ["DECAY", "PREDELAY", "-", "-", "TONE", "16-BIT"],
+  ["DECAY", "LOW", "LO MID", "MID", "HI MID", "HIGH"], ["DECAY", "TIME", "FEEDBACK", "MOD", "TONE", "16-BIT"],
+  ["DECAY", "TIME", "FEEDBACK", "DETUNE", "TONE", "16-BIT"], ["DECAY", "TIME", "FEEDBACK", "REV LVL", "TONE", "16-BIT"]];
+// an effect's values as the FM-1 names them (dn_fx_pname / pmax / ptext): [{i (its place), name, max, text}]
+export function fxParams(type, p = []) {
+  const P = (name, max, text) => ({ name, max, text: text || ((v) => `${v}`) });
+  let l = [];
+  if (type === 1) l = [P("TIME", 11, div), P("FEEDBACK", 127), P("TONE", 127)];
+  else if (type === 2 || type === 3) l = [P("TIME", 11, div), P("FEEDBACK", 127), P("DEGRADE", 127), P("PINGPONG", 1, onoff)];
+  else if (type >= 4 && type <= 9)
+    l = [P("TIME", 127), P("DAMP", 127), P("PREDELAY", 127, (v) => `${Math.floor((v * 350) / 441)}ms`),
+      P("LOW CUT", 127, (v) => (v ? `${30 + Math.floor((v * v * 770) / 16129)}Hz` : "OFF"))];
+  else if (type === 10) {
+    const c = (p[0] || 0) % 6;
+    l = [P("CONFIG", 5, (v) => QUADRA_CFG[v % 6]), ...QN[c].map((n) => (n === "TIME" ? P(n, 11, div) : n === "16-BIT" ? P(n, 1, onoff)
+      : /^(TONE|LOW|LO MID|MID|HI MID|HIGH)$/.test(n) ? P(n, 127, sgn64) : n === "-" ? P(n, 0) : P(n, 127)))];
+  } else if (type === 11)
+    l = [P("MODE", 9, (v) => MASSIVE_MODES[v % 10]),
+      P("TIME", 127, (v) => (v < 13 ? MDIVS[v] : `${Math.round(10 * Math.pow(125, (v - 13) / 114))}ms`)),
+      P("FEEDBACK", 127), P("WARP", 127), P("DENSITY", 127), P("MOD", 127), P("TONE", 127, sgn64)];
+  return l.map((x, i) => ({ i, ...x })).filter((x) => x.name !== "-");
+}
 export function parseProj(r) {
   let name = "";
   for (let i = 0; i < 12 && r[i]; i++) name += String.fromCharCode(r[i]);
   const eng = r.slice(12, 20), send = [r.slice(20, 28), r.slice(28, 36)], ret = [r[36], r[37]];
-  const fx = [r.slice(38, 42), r.slice(42, 46)].map((f) => ({ type: f[0], p: f.slice(1) }));
+  const more = r.length >= 67 ? [r.slice(59, 63), r.slice(63, 67)] : [[0, 0, 0, 0], [0, 0, 0, 0]];   // (0.16)
+  const fx = [r.slice(38, 42), r.slice(42, 46)].map((f, k) => ({ type: f[0], p: [...f.slice(1), ...more[k]] }));
   return { name, eng, send, ret, fx, smpUsed: num(r, 46, 3), smpCap: num(r, 49, 3), fxUsed: num(r, 52, 2), fxCap: num(r, 54, 2),
     cpu: r[56], nEng: r[57], nFx: r[58] };
 }
-// PROJ_SET's fields
-export const PF = { eng: (t) => t, sendA: (t) => 8 + t, sendB: (t) => 16 + t, ret: (k) => 24 + k, fx: (k, i) => 26 + 4 * k + i };
+// PROJ_SET's fields: an effect's type (i 0) and its values (i 1..7: 1-3 then, from 0.16, 4-7)
+export const PF = { eng: (t) => t, sendA: (t) => 8 + t, sendB: (t) => 16 + t, ret: (k) => 24 + k,
+  fx: (k, i) => (i < 4 ? 26 + 4 * k + i : 34 + 4 * k + (i - 4)) };
 
 // ---- the link --------------------------------------------------------------------------------------------------
 // one request at a time; a reply is the next editor frame with the same command

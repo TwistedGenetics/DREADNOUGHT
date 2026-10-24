@@ -2,7 +2,7 @@
 // A simulated FM-1 running DREADNOUGHT, for the editor's demo mode and its tests: a Web MIDI access object with one
 // port that answers the editor's commands (src/app/dn_editor.c) the way the firmware does. Copyright (C) 2026 Jamie
 // (TwistedGenetics).
-import { HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, newStep, MAGIC } from "./protocol.js";
+import { HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
 
 const PRESETS = ["CLASSIC RS", "OG REESE", "HOLLOW RS", "TECHSTEP", "NEURO RS", "SYNC RS", "DARK RS", "SUB REESE", "HOOVER RS", "INIT"];
 const USERS = Array.from({ length: 8 }, (_, i) => `USER ${i + 1} -`);   // (0.15: the user sounds, empty)
@@ -21,6 +21,9 @@ const LIMITS = [[0, 5], [0, 127], [0, 7], [0, 127], [0, 127], [0, 127], [0, 127]
 const SUB_PRESETS = ["DREAD", "DONK", "ROLLER", "WOBBLE", "ACID 101", "808 SUB", "GROWL", "SQUARE SB", "PUNCH", "TECH SUB", "CRUSHED", "RAVE STAB", "INIT"];
 const SUB_DREAD = [40, 90, 110, 0, 30, 0, 0, 0, 48, 30, 20, 40, 70, 0, 0, 90, 0, 70, 110, 30, 40, 1, 60, 0, 100, -24, 70];
 const LFO0 = 18 + 1 + 16, SLFO0 = LFO0 + 32 + 27;
+
+// the FX arena as the FM-1 lays it out: MASSIVE takes what the other leaves
+const fxMem = (a, b) => (a === 11 || b === 11 ? FX_ARENA_KB : FX_KB[a] + FX_KB[b]);
 
 export function demoPattern() {
   const steps = () => Array.from({ length: 64 }, () => newStep());
@@ -46,7 +49,7 @@ export class MockFM1 {
     this.rev = 1; this.playing = 0; this.preset = 0; this.dirty = 0; this.step = 0; this.saved = 0;
     // the project (0.12): each track's instrument, sends, returns, the two FX slots; the sample slots (X0X's layout)
     this.proj = { name: "PROJECT 1", eng: [1, 2, 3, 4, 4, 4, 4, 4], send: [Array(8).fill(0), Array(8).fill(0)], ret: [100, 100],
-      fx: [[1, 7, 60, 70], [0, 7, 60, 70]] };
+      fx: [[1, 7, 60, 70, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0]] };
     this.slots = [0, 1, 2].map(() => ({ buf: new Uint8Array(0x14000).fill(0xFF), ok: false }));
     this.log = [];
     const self = this;
@@ -158,9 +161,10 @@ export class MockFM1 {
       case CMD.PROJ: {
         const P = this.proj, nm = P.name.padEnd(12, "\0").slice(0, 12).split("").map((c) => c.charCodeAt(0) & 127);
         const used = this.slots.reduce((acc, sl) => acc + (sl.ok ? 512 + new DataView(sl.buf.buffer).getUint32(16, true) : 0), 0);
-        const fxk = P.fx.reduce((acc, f) => acc + (f[0] === 1 ? 96 : 0), 0);
-        return [...nm, ...P.eng, ...P.send[0], ...P.send[1], ...P.ret, ...P.fx[0], ...P.fx[1], ...digits(used, 3),
-          ...digits(3 * (0x14000 - 512), 3), ...digits(fxk, 2), ...digits(144, 2), 12, 6, 2];
+        const fxk = fxMem(P.fx[0][0], P.fx[1][0]);
+        return [...nm, ...P.eng, ...P.send[0], ...P.send[1], ...P.ret, ...P.fx[0].slice(0, 4), ...P.fx[1].slice(0, 4), ...digits(used, 3),
+          ...digits(3 * (0x14000 - 512), 3), ...digits(fxk, 2), ...digits(FX_ARENA_KB, 2), 12, 6, FX_NAMES.length,
+          ...P.fx[0].slice(4, 8), ...P.fx[1].slice(4, 8)];
       }
       case CMD.PROJ_SET: {
         const f = a[0], v = a[1] | a[2] << 7, P = this.proj;
@@ -174,12 +178,16 @@ export class MockFM1 {
         if (f < 16) { P.send[0][f - 8] = Math.min(127, v); return [0]; }
         if (f < 24) { P.send[1][f - 16] = Math.min(127, v); return [0]; }
         if (f < 26) { P.ret[f - 24] = Math.min(127, v); return [0]; }
-        if (f < 34) {
-          const k = f < 30 ? 0 : 1, i = (f - 26) % 4;
+        if (f < 42) {
+          const k = f < 34 ? (f < 30 ? 0 : 1) : (f < 38 ? 0 : 1), i = f < 34 ? (f - 26) % 4 : 4 + ((f - 34) % 4);
           if (i === 0) {
-            if (v === 1 && P.fx[1 - k][0] === 1) return [1];   // two delays: no memory for the second
-            P.fx[k] = [v, 7, 60, 70];
-          } else P.fx[k][i] = Math.min(i === 1 ? 11 : 127, v);
+            if (v >= FX_NAMES.length) return [1];
+            if (FX_KB[v] + FX_KB[P.fx[1 - k][0]] > FX_ARENA_KB) return [1];   // no memory for it beside the other
+            P.fx[k] = [v, ...FX_DEFAULTS[v]];
+          } else {
+            const pr = fxParams(P.fx[k][0], P.fx[k].slice(1)).find((x) => x.i === i - 1);
+            P.fx[k][i] = Math.min(pr ? pr.max : 0, v);
+          }
           return [0];
         }
         return [1];
@@ -220,7 +228,7 @@ export class MockFM1 {
         return [...a.slice(0, 5), 0];
       }
       case CMD.NAMES: {
-        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB"], ["OFF", "DELAY"],
+        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB"], FX_NAMES,
           ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], [...SUB_PRESETS, ...USERS]][a[0]] || [];
         const out = [list.length, a[1]];
         for (let i = a[1]; i < list.length; i++) out.push(...list[i].split("").map((c) => c.charCodeAt(0)), 0);

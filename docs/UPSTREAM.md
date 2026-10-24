@@ -28,6 +28,8 @@ M-UPGRADE update entry and the update loader, the package maker and the build ch
 | Breaks upload page (`web/breaks/index.html`, made by `tools/make_breaks_page.py`) | X0X `web/x0x_breaks.html`, `x0x_breaks.js` (encoder and packing unchanged) | via the submodule | GPL-3.0-only |
 | IMA ADPCM decode step (`src/dsp/dn_breaks.c`) | Felucca `eng_sample.c` (the standard IMA tables), as X0X uses it | | GPL-3.0-only |
 | Web flasher's update-protocol modules (`web/flasher/vendor/`) | SLOOP / Felucca `web/fm1ota.js`, `web/fm1pkg.js` | SLOOP v2.8.1 | GPL-3.0-only |
+| FX: TAPE, BBD, SPRING, TOMB, MOD, CELESTIAL, DOLMEN, TUMULUS and the send limiter (`src/dsp/dn_fxc.c`, `dn_fx.c`) | Carnac OS `src/dsp/fx.c` (its ROOM after Felucca's `fx.c` `rev_room`); made per-instance, one core, tempo-synced times, a LOW CUT, float high-passes in the tape (what changed: the file's header) | `6387a21` | GPL-3.0-only |
+| FX: MASSIVE (`src/dsp/dn_fxm.c`) | Jamie's own Horizon / Super-Massive (`core/horizon_engine.h`, `horizon_modes.h`, `horizon_sync.h`), ported to C at half rate | TwistedGenetics/Super-Massive | Jamie's (GPL-3.0-only here) |
 
 ## What the build changes on the way through
 

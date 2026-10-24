@@ -86,7 +86,7 @@ export async function writeProject(link, o, { onPart = () => {}, say = () => {} 
   }
   for (let k = 0; k < 2; k++) {
     await link.projSet(PF.fx(k, 0), o.proj.fx[k].type);
-    for (let i = 0; i < 3; i++) await link.projSet(PF.fx(k, i + 1), o.proj.fx[k].p[i]);
+    for (let i = 0; i < Math.min(7, o.proj.fx[k].p.length); i++) await link.projSet(PF.fx(k, i + 1), o.proj.fx[k].p[i]);
     await link.projSet(PF.ret(k), o.proj.ret[k]);
   }
   for (let t = 0; t < TRACKS; t++) {

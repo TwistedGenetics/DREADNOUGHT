@@ -336,3 +336,24 @@ every earlier test. Not yet tested on a real FM-1.
 
 Tested: host scenario `patches.txt` (a preset change resets that synth's LFOs, store / recall / empty slot, over a
 reboot, REESE's and SUB's slots apart), the editor's tests and its end-to-end run.
+
+## 0.16 — the effects: Carnac's echoes and reverbs, QUADRA, MASSIVE (2026-10-24)
+
+- **Eleven effects for the two FX slots.** From Carnac OS: **TAPE** and **BBD** (wow, flutter, DEGRADE, ping-pong, a
+  runaway past FEEDBACK 100), **SPRING**, **TOMB**, **MOD**, **CELESTIAL** (shimmer), **DOLMEN**, **TUMULUS**. New:
+  **QUADRA**, Quadraverb-style chains (CHORUS, REVERB, 5EQ>REV, FLANGE, DETUNE, DLY>REV) with a 16-BIT grain switch.
+  **MASSIVE**: Jamie's Super-Massive (Horizon) with its ten modes, at half rate. DELAY stays.
+- **Seven values an effect**, on two views of the FX page (FX: MIX, FX A, FX A 2, FX B, FX B 2). TIMEs synced to the
+  tempo; the reverbs get PREDELAY and a LOW CUT for the sub.
+- **FX memory 176 KB** (was 144): DELAY beside any reverb, two big reverbs together. MASSIVE takes what the other slot
+  leaves; its TIME shows in ms when the lines can't hold the division asked.
+- Every effect's send is limited (no clipping inside a reverb on a loud chord); DELAY's tail now ends in exact silence
+  (it left ±1–3 LSB).
+- Editor: every effect and value on the Project tab; projects keep all seven values. Saves from 0.15 load with their
+  effects as they were.
+
+Tested: `fx2_test` (each effect's memory, host cost, a golden render, its tail dying to silence, a hot 8-voice chord
+no harsher than a quiet one, TAPE / BBD / QUADRA echoes and MASSIVE's ORBIT on the beat, MASSIVE fitting TIME to its
+memory and changing mode without a click, ABYSS held at FEEDBACK 127, CELESTIAL's octaves climbing), host scenario
+`fx.txt` (the panel, memory refusals, kept over a reboot), the editor against the firmware's names and texts for every
+value. Not yet measured: the CPU load on the FM-1 (the PROJECT page shows it).

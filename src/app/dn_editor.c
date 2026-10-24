@@ -26,10 +26,12 @@
  *                                                                    its pattern ends) (0.11; 8 patterns a track)
  *   75 PROJ                    -> name (12 chars, 0-padded), eng x8, send A x8, send B x8, return A, B, FX A {type,
  *                                 p0, p1, p2}, FX B {...}, samples used (3), samples room (3), FX memory used KB (2),
- *                                 FX memory KB (2), cpu %, kinds of instrument, kinds of FX   (0.12)
+ *                                 FX memory KB (2), cpu %, kinds of instrument, kinds of FX   (0.12),
+ *                                 FX A {p3..p6}, FX B {p3..p6}                                (0.16)
  *   76 PROJ_SET field v(2)     -> rc (0 set; 1 refused: no memory for that FX, or a bad field)
  *                                 fields: 0-7 track n's instrument (REESE / BRK A / BRK B swap), 8-15 send A,
- *                                 16-23 send B, 24-25 returns, 26-29 FX A type p0 p1 p2, 30-33 FX B's
+ *                                 16-23 send B, 24-25 returns, 26-29 FX A type p0 p1 p2, 30-33 FX B's,
+ *                                 34-37 FX A p3..p6, 38-41 FX B's (0.16)
  *   77 PROJ_NAME chars...      -> rc (0)                             up to 11 characters, 32-126
  * NAMES kinds from 0.12: 2 the instruments, 3 the effects, 4 the delay's times; 5 SUB's factory sounds (0.13).
  *   78 SUB_PRESET i            -> rc                                 SUB's factory sound i (0.13)
@@ -290,11 +292,14 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         }
         dn_ed_num(put, dn_smp_used(), 3);
         dn_ed_num(put, dn_smp_cap(), 3);
-        dn_ed_num(put, (dn_fx_ram(dn_fxp[0].type) + dn_fx_ram(dn_fxp[1].type)) / 1024u, 2);
+        dn_ed_num(put, (dn_fxs[0].bytes + dn_fxs[1].bytes) / 1024u, 2);
         dn_ed_num(put, DN_FX_ARENA / 1024u, 2);
         put(plat_cpu_pct() > 127u ? 127u : plat_cpu_pct());
         put(DN_E_N);
         put(DN_FX_N);
+        for (k = 0; k < 2u; k++)                    /* (0.16: each effect's 4th..7th values) */
+            for (i = 3; i < DN_FX_NP; i++)
+                put(dn_fxp[k].p[i] & 0x7Fu);
         return 1;
     }
     case ED_PROJ_SET: {
@@ -310,7 +315,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
             put(dn_eng[f] == (uint32_t)v ? 0u : 1u);
             return 1;
         }
-        if (f >= 34u) {
+        if (f >= 42u) {
             put(1);
             return 1;
         }
@@ -318,7 +323,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         dn.trk = (uint8_t)t;                        /* (the sends are the selected track's) */
         {
             uint32_t id = f < 16u ? DN_PX_SENDA : f < 24u ? DN_PX_SENDB : f < 26u ? DN_PX_RETA + (f - 24u)
-                        : DN_PX_FXA + (f - 26u);
+                        : f < 34u ? DN_PX_FXA + (f - 26u) : f < 38u ? DN_PX_FXA2 + (f - 34u) : DN_PX_FXB2 + (f - 38u);
             dn_set(id, v);
             put(dn_get(id) == dn_clamp(v, dn_min(id), dn_max(id)) ? 0u : 1u);
         }

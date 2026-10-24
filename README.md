@@ -57,7 +57,7 @@ The FM-1 restarts on the DREADNOUGHT screen. Press **PLAY** to hear the demo ree
 | SEQ held + white key 1–8 | **track 1–8**: its instrument's page (on a sequencer page: its sequencer page) |
 | SUB's pages (its track selected; SEL / EDIT / ENV / LFO / GLO as REESE's) | **OSC** SAW, PULSE, SUB, NOISE (the 101's mixer; **SEL again: OSC2** PW, PWM, PWM RATE, SUB MODE −1 OCT / −2 OCT / −2 25%) · **FILTER** CUT, RES (self-oscillates in tune near the top), ENV, KEY (**EDIT again: DIRT** DRIVE, TYPE SOFT / HARD / FOLD / RECT, CRUSH, TONE) · **AMP** ATK, DEC, SUS, REL (one envelope for filter and amp, the 101's) · **MOD** GLIDE, PORTA OFF / AUTO / ON, ACCENT (the sequencer's ACC steps), VCA ENV / GATE · **OUT** LEVEL, TRANS, SPLIT (below it the signal goes round the dirt: the low end stays clean), OVERLAP. PRESETS: its 12 factory sounds, INIT, then USER 1–8. **FX on AMP** (REESE's too): **ENV SYNC**, ATK DEC REL as note lengths at the tempo (1/64 … 8 bars; FX lit), FX again: free, in ms. Its LFO destinations: S CUT, S RES, S DRIVE, S PITCH, S LEVEL, S PW (the others are REESE's and the breaks') |
 | PROJECT (GLO ×5) | the project's 8 tracks and what each plays. KNOB 1 the track, KNOB 2 an instrument for it (OFF, REESE, BRK A, BRK B, MIDI, SUB), **FX** puts it on the track. REESE, SUB and each break are on one track at a time: given to another track, they swap. The patterns stay with their track. The status line: sample memory used, FX memory, CPU load |
-| FX (GLO ×2) | the FX rack. **MIX:** the selected track's SEND A and SEND B, and FX A / B's RETURN; **FX** button: **FX A** (its type: OFF / DELAY; DELAY's TIME, synced 1/32 … 1/2 with dotted and triplets, FEEDBACK — above 100 it builds up and howls without clipping — and TONE), again **FX B**. An effect that won't fit in the FX memory is refused (two delays don't) |
+| FX (GLO ×2) | the FX rack. **MIX:** the selected track's SEND A and SEND B, and FX A / B's RETURN; **FX** button: **FX A** (KNOB 1 its effect, KNOBS 2–4 its first values), again **FX A 2** (its next four, when it has them), again **FX B**, **FX B 2**, back to MIX. The effects are listed below. An effect that won't fit in the FX memory (176 KB) is refused: DELAY sits beside any other, two of the big reverbs fit, two DELAYs don't |
 | ARP | BREAKS, pressed again to cycle: **BRK** (loop, pitch, decay, crush) → **BRK2** (choke group, slices GRID / AUTO / MANUAL, stretch REPITCH / SLICE / STRETCH, level, CPU load) → **SLICE** (chop mode, below) |
 | Keys (sound pages) | play (mono, last note wins; hold one key and press another to slide); with track 2 or 3 selected: the break's slices |
 | White keys (ROLL, DRUM) | the 16 steps: tap on / off. **Hold one** and the knobs edit it: NOTE (break: slice), LENGTH, VELOCITY, CONDITION; **FX** (still holding): SLIDE (break: reverse), ACCENT, RETRIG, its RATE; FX again: the retrigs' LENGTH and VELOCITY fade. **Move a note:** hold its step and press the step it should go to (black keys 10 / 11 for another bar; onto a note: they swap; SAVE held: a copy), or turn **SELECT**; OCT− / OCT+ move it an octave. **A velocity ramp:** hold the first step, hold REC, press the last step; KNOB 3 / 4 set the ramp's start and end |
@@ -111,6 +111,30 @@ held or not), **PRE / !PRE** (the last condition on this track came out true / f
 before's), **1ST / !1ST** (the pattern's first pass), **LST / !LST** (its last pass before a queued pattern takes
 over), **A:B / !A:B** (the A-th of every B passes: 1:2 every other, 4:4 every fourth…). A step whose condition says no
 is as if it were off. A red corner marks a step with a condition.
+
+**The effects (0.16)** — each FX slot holds one, fed by the tracks' sends, its RETURN mixed in. TIMEs marked *synced*
+follow the tempo (1/32 … 1/2, dotted and triplets); too long for the memory at a slow tempo they halve, still on the
+beat.
+
+| Effect | What it is | Values |
+|---|---|---|
+| DELAY | the dark half-rate ping-pong of 0.12 | TIME (synced), FEEDBACK (over 100 it howls), TONE |
+| TAPE | Carnac OS's tape echo: wow, flutter, head loss, saturation; long times slow the tape (darker) | TIME (synced), FEEDBACK (over 100 it runs away into a held howl), DEGRADE (new … worn out), PINGPONG |
+| BBD | Carnac OS's bucket brigade: crumbly, dark, the compander's breath | as TAPE |
+| SPRING | Carnac OS's two springs: every echo a falling chirp (the dub "drip") | TIME, DAMP, PREDELAY, LOW CUT |
+| TOMB | a small stone room (Freeverb-style) | as SPRING |
+| MOD | a big moving hall, its tail chorused (Lexicon-style) | as SPRING |
+| CELESTIAL | MOD with an octave-up shimmer climbing in its tail | as SPRING |
+| DOLMEN | a small dense chamber, bright | as SPRING |
+| TUMULUS | a cavern: long and dark | as SPRING |
+| QUADRA | Quadraverb-style chains, CONFIG: CHORUS (EQ › chorus › delay › plate), REVERB, 5EQ>REV, FLANGE, DETUNE, DLY>REV | CONFIG, DECAY, TIME (synced) / PREDELAY, FEEDBACK, MOD / DETUNE / REV LVL, TONE, 16-BIT (the 1989 grain); 5EQ>REV: LOW, LO MID, MID, HI MID, HIGH |
+| MASSIVE | your Super-Massive (Horizon): the 8-line network and its ten modes ROOM, HALL, HALO, SWELL, ABYSS, ECHOVRB, ORBIT, PRISM, PONG, DUB | MODE, TIME (0–12 synced 1/32 … 1/2D, then 10 ms … 1250 ms), FEEDBACK, WARP, DENSITY, MOD, TONE |
+
+LOW CUT keeps a reverb's tail off the sub (off, 30 Hz … 800 Hz). MASSIVE runs at half rate and takes the FX memory the
+other slot leaves: beside DELAY it has 80 KB (HALL holds ~320 ms, the echo modes ~450 ms), alone 176 KB (about twice
+that); TIME shows the time it plays in ms when it's shorter than asked. Long tails come from FEEDBACK, as in Horizon.
+Every effect's send is limited first, so a loud chord into a reverb doesn't clip inside it, and every tail dies away to
+silence.
 
 **Retrigs:** FX with a step held, RETRIG on: the step repeats at RATE (1/1 … 1/80 of a bar; 1/16 = a step, 1/32 two)
 for LENGTH (FX again; the note's own by default), its VELOCITY fading out (−) or in (+): snare rolls, hat builds. White
