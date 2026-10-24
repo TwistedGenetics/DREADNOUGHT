@@ -98,6 +98,65 @@ Report these to Jamie in plain words before Part 1, along with the revised per-e
     flasher.
   - **New project**: from a template.
   - **Library**: the projects in the folder, with their sizes and engines.
+- **A MEDIA tab per project.** Everything the project loads goes on the FM-1 from here, never from separate pages:
+  - samples (for SAMPLER and BREAKS);
+  - DX7 .syx files;
+  - wavetables;
+  - SysEx banks.
+
+  The tab shows:
+  - a list of the project's media, each with its size and which tracks use it;
+  - one bar for the project's flash, filling as items are added, red when it won't fit;
+  - nothing written until **Send to FM-1**.
+
+  The breaks page's upload code moves here; the breaks page stays as a shortcut for loops.
+- **Sample conversion in the editor.** Jamie asked (his words):
+
+  > maybe we could mono and downsample the samples to fit more on?
+
+  Yes. Every sample is converted in the browser before it's sent:
+  - **Mono.** Stereo is folded to mono by default: sum, left, right or mid. The FM-1 plays mono samples anyway; stereo
+    width comes back from the FX.
+  - **Rate:** 44.1, 32, 26.04 (the SP-1200's), 22.05, 16, 11.025 or 8 kHz. Resample with a proper anti-aliasing
+    filter, and **preview each choice in the browser before sending**.
+  - **Format:**
+    - 16-bit;
+    - **12-bit** (the SP-1200 / MPC60 grit);
+    - 8-bit;
+    - 4-bit ADPCM (what the breaks use today: a quarter of 16-bit).
+
+    The engines decode each format, and the formats are tagged per sample.
+  - **Trim and fades.** Trim silence, normalise, and a 2 ms fade at the ends.
+  - **Fit to space.** One button picks the best rate and format per sample so the set fits the space left. Drums lose
+    the least and long pads the most; Jamie can override any of it.
+  - **Cost and duration.** Each sample's cost in KB and seconds, live as the settings change.
+
+  For scale, with about 250 KB free for samples:
+
+  | Format | Seconds that fit |
+  |---|---|
+  | 44.1 kHz 16-bit stereo | 1.4 s |
+  | 44.1 kHz 16-bit mono | 2.9 s |
+  | 22 kHz 16-bit mono | 5.8 s |
+  | 26 kHz 12-bit mono (SP-1200) | 6.6 s |
+  | 22 kHz ADPCM mono (today's breaks) | 23 s |
+  | 16 kHz ADPCM mono | 32 s |
+  | 11 kHz ADPCM mono | 46 s |
+
+  Recompute the table from Part 0's real free space and put it in the README.
+- **The originals stay on the computer.** The `.dnproj` file keeps the original WAVs alongside the converted ones, so
+  conversion choices can be changed later without losing quality. The editor checks the size and offers to leave the
+  originals out.
+- **DX7 files.** Drag .syx files onto MEDIA:
+  - a 32-voice bank (4,104 bytes);
+  - a single voice (163 bytes);
+  - a folder of them.
+
+  The editor:
+  - lists the voice names, with an audition from a JavaScript port of the FM engine (render in the browser, so Jamie
+    hears a voice before sending it);
+  - lets Jamie tick which voices go into the project (each costs 128 bytes);
+  - rejects files that aren't DX7 voice data, with the reason.
 - Today's state migrates into "PROJECT 1" with REESE / BRK A / BRK B / MIDI 1–5.
 - If the measurements leave room, offer a second on-device slot for a quick A/B switch. Don't promise it before
   measuring.
@@ -197,10 +256,9 @@ Each FX gets:
 - **Keys mode.** A key map: a sample per zone with its root note and range (several zones make a multisample). Played
   chromatically in ROLL, with up to 4 voices from the pool. Loop points and an optional sustain loop.
 - **Editor.**
-  - Drag WAVs in. Trim and normalise; set the root from the file name or by detection; pick a rate (32 / 22 / 16 kHz)
-    and a format (16-bit or ADPCM).
-  - Show each sample's cost in seconds and KB against the project's free space before writing.
-  - Re-use the breaks page's upload code.
+  - Samples arrive through the MEDIA tab with the conversions from Part 1.
+  - Also: set the root from the file name or by pitch detection; build a key map by dragging zones onto a keyboard; and
+    set one-shot pads by dropping samples on 16 squares.
 - **Tests.** The pitch across the map, zone edges, loop clicks (none), and choke.
 
 ## Part 5 (0.16). FM with DX7 patches
@@ -211,9 +269,10 @@ Each FX gets:
     the scaling curves. Credit it in `docs/UPSTREAM.md`.
   - Run 4–6 voices from the pool. SLOOP caps its FM6 at 6 when alone; measure ours.
 - **Patches.**
-  - The editor reads DX7 SysEx: 32-voice banks (`F0 43 00 09 20 00`, 4,104 bytes, packed 128 bytes a voice) and single
-    voices (155-byte unpacked).
-  - It shows the bank's names, lets Jamie pick which voices go to the project, and sends them.
+  - The editor reads DX7 SysEx through the MEDIA tab (Part 1): 32-voice banks (`F0 43 00 09 20 00`, 4,104 bytes,
+    packed 128 bytes a voice) and single voices (155-byte unpacked).
+  - It shows the bank's names, auditions them in the browser, lets Jamie pick which voices go to the project, and sends
+    them.
   - Store the packed voice (128 bytes), so a whole bank costs 4 KB.
 - **On the device.**
   - PRESETS browses the project's voices.
