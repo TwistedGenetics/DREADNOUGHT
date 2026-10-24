@@ -35,7 +35,12 @@ export class MockFM1 {
     this.log = [];
     const self = this;
     this.input = { name: "DREADNOUGHT FM-1", state: "connected", onmidimessage: null, open: async () => {} };
-    this.output = { name: "DREADNOUGHT FM-1", state: "connected", open: async () => {}, send: (d) => setTimeout(() => self.recv(d), 2) };
+    this.output = { name: "DREADNOUGHT FM-1", state: "connected", open: async () => {}, send: (d) => {
+      // as Web MIDI does: a SysEx frame may carry only 7-bit bytes between F0 and F7 (Chrome throws otherwise)
+      for (let i = 1; i < d.length - 1; i++)
+        if (d[i] > 0x7F) throw new TypeError(`Failed to execute 'send' on 'MIDIOutput': System exclusive message contains a status byte at index ${i} (${d[i]}).`);
+      setTimeout(() => self.recv(d), 2);
+    } };
     this.access = { inputs: new Map([["in", this.input]]), outputs: new Map([["out", this.output]]) };
     this.timer = setInterval(() => { if (this.playing) this.step++; }, 87);
   }

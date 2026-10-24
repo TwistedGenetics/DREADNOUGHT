@@ -46,7 +46,7 @@ async function start(link, label) {
 const DIAG = [];
 function diag(line) {
   DIAG.push(`${new Date().toISOString().slice(11, 23)} ${line}`);
-  if (DIAG.length > 400) DIAG.splice(0, DIAG.length - 400);
+  if (DIAG.length > 2000) DIAG.splice(0, DIAG.length - 2000);
   if ($("diag").open) { $("diaglog").textContent = DIAG.join("\n"); $("diaglog").scrollTop = 1e9; }
 }
 const hex = (d) => [...d].map((x) => x.toString(16).padStart(2, "0")).join(" ");

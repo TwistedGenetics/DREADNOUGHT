@@ -237,7 +237,7 @@ export class Link {
   async readPattern(size) {
     const b = [];
     while (b.length < size) {
-      const off = b.length, r = await this.req(CMD.PAT_READ, [...digits(off, 2), 200]);
+      const off = b.length, r = await this.req(CMD.PAT_READ, [...digits(off, 2), 112]);   // (a count: 7 bits, <= 127)
       const got = unpack7(r.slice(2));
       if (!got.length) throw new Error("no pattern data");
       b.push(...got.slice(0, size - off));
