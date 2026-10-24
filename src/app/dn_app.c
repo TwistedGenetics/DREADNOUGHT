@@ -237,7 +237,8 @@ typedef struct {
 
 static reese_t dn_rs;
 static dn_patch_t dn_user[2][DN_NUSER];             /* the user sounds: REESE's, SUB's (kept with the sound) */
-static dn_save_t dn_sv X0X_POOL;                    /* (the one copy of the saved sound in RAM: 3.7 KB, off the stack) */
+static dn_save_t dn_sv;                             /* (the one copy of the saved sound in RAM: 3.7 KB, off the stack; in .bss,
+                                                     * 0.16: the pool keeps its headroom for the FX) */
 typedef char dn_save_fits[sizeof(dn_save_t) <= PLAT_STORE_MAX ? 1 : -1];
 static dn_sub_t dn_sb;                              /* SUB (0.13) */
 static dn_seq_t dn_sq;
