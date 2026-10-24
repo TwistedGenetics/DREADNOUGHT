@@ -462,3 +462,12 @@ no step where a loop goes round, SUST, release); host scenario `sampler.txt` (pa
 editor's frames, kept over a reboot); `upgrade.txt` (a 0.22 save: names and slices come up, SAMPLER at its defaults);
 the editor's value names, ranges and texts checked against the firmware's; the editor end to end in Chromium (pads,
 zones, mode) and a project carrying SAMPLER from one FM-1 to another.
+
+## 0.24 — ×2: copy a bar or two into the empty bars (2026-10-24)
+
+- **SAVE held + REC** on a sequencer page (ROLL or DRUM): the bars with notes are copied into the empty bars after
+  them. A 1-bar track becomes 2 bars, pressed again 4; one bar of notes in a 2- or 4-bar track goes to bar 2, two bars
+  to bars 3–4. The status line says what it did ("COPIED: 2 BARS"); "FULL: 64 STEPS" when there's no room. REC isn't
+  toggled and SAVE doesn't save when used this way.
+
+Tested: host scenario `double.txt` (empty track, 1 → 2 → 4 bars, full, one bar in a 4-bar track, SAVE still saving).

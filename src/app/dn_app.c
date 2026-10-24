@@ -3014,6 +3014,51 @@ static void dn_view_follow(uint32_t note)
 /* pick up and drop: with a step held, pressing another step's key moves the note there (SAVE held: copies it), in
  * this bar or, with black keys 10 / 11, another; onto a note it swaps them (nothing is lost). The held key keeps the
  * note, so pressing on moves it on. */
+/* SAVE + REC on a sequencer page (0.24): x2. The bars with notes are copied into the empty bars after them: one bar
+ * with notes in a 2- or 4-bar track goes to bar 2; 2 bars in a 4-bar track to bars 3-4. When the notes fill the
+ * track, the track doubles (16 -> 32 -> 64 steps) and they're copied into the new half. Pressed again it doubles
+ * again: one bar becomes 2, then 4. (Notes count by where they start.) */
+static void dn_seq_double(void)
+{
+    dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    uint32_t i, span = tr->len, last = 0, any = 0;
+    for (i = 0; i < tr->len; i++)
+        if (tr->st[i].flags & DN_ST_ON)
+            last = i, any = 1;
+    if (!any) {
+        dn_say("NOTHING TO COPY");
+        return;
+    }
+    if (last < 16u && tr->len > 16u && tr->len % 16u == 0u)
+        span = 16u;
+    else if (last < 32u && tr->len == 64u)
+        span = 32u;
+    if (span == tr->len && tr->len * 2u > DN_SEQ_STEPS) {
+        dn_say("FULL: 64 STEPS");
+        return;
+    }
+    dn_lock();
+    if (span == tr->len)
+        tr->len = (uint8_t)(span * 2u);
+    for (i = span; i < 2u * span && i < tr->len; i++)
+        tr->st[i] = tr->st[i - span];
+    dn_unlock();
+    dn_mark();
+    if (span % 16u == 0u) {
+        static char t[24];
+        char v[8];
+        t[0] = 0;
+        dn_cat(t, "COPIED: ");
+        dn_num(v, (int32_t)(2u * span / 16u));
+        dn_cat(t, v);
+        dn_cat(t, " BARS");
+        dn_say(t);
+    } else {
+        dn_say("COPIED: x2");
+    }
+    dn.redraw |= DN_RD_ALL;
+}
+
 static void dn_step_drop(uint32_t to)
 {
     dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
@@ -3962,7 +4007,10 @@ void dn_app_input(void)
         dn_unlock();
         dn.redraw |= DN_RD_ALL;
     }
-    if ((press & (1u << B_REC)) && DN_IS_SEQPG(dn.page)) {
+    if ((press & (1u << B_REC)) && DN_IS_SEQPG(dn.page) && dn.save_held && dn.step_held < 0) {
+        dn_seq_double();                            /* SAVE + REC: x2 (0.24) */
+        dn.save_chord = 1;
+    } else if ((press & (1u << B_REC)) && DN_IS_SEQPG(dn.page)) {
         dn.rec_held = 1;                            /* a sequencer page: REC acts as it comes up, unless it was used
                                                      * with the steps (a velocity ramp) */
         dn.rec_chord = 0;

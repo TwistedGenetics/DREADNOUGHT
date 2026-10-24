@@ -80,6 +80,7 @@ The FM-1 restarts on the DREADNOUGHT screen. Press **PLAY** to hear the demo ree
 | SAVE held + OCT− / OCT+ | copy / paste the bar in view of the selected track |
 | SAVE held + white key 1–8 (ROLL, DRUM) | this instrument's **pattern** 1–8: stopped, at once; playing, when the playing one ends (it flashes until then) |
 | SAVE held + black key 10 / 11 (ROLL, DRUM) | copy this pattern / paste into this one |
+| SAVE held + REC (ROLL, DRUM) | **×2**: the bars with notes copied into the empty bars after them (1 bar → bar 2, 2 bars → bars 3–4); when the notes fill the track it doubles (16 → 32 → 64 steps) with them copied into the new half. Press again for 4 bars |
 | OCT− + OCT+ held 5 s | update mode (recovery) |
 
 **Chop mode (ARP → BRK → BRK2 → SLICE)**, the MPC / SP-404 way: a break in MANUAL starts as one slice, the whole

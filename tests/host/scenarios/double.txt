@@ -1,0 +1,67 @@
+# DREADNOUGHT host scenario (0.24): SAVE + REC on a sequencer page: x2, the bars with notes copied into the empty
+# bars after them, the track doubling when they fill it (16 -> 32 -> 64). White keys (steps 1..16): 0 2 4 6 7 9 ...
+tap SEQ
+expect page 7
+expect trk 1
+# an empty track: nothing to copy (and REC isn't toggled)
+key 20 down
+wait 1200
+key 20 up
+expect on.1 0
+press SAVE
+tap REC
+release SAVE
+expect rec 0
+expect msg 1
+expect len.1 16
+# one bar: steps 1 and 5; x2: two bars, 32 steps
+tapkey 0 60
+tapkey 7 60
+expect on.1 2
+press SAVE
+tap REC
+release SAVE
+expect rec 0
+expect dirty 1
+expect len.1 32
+expect on.1 4
+expect nt.1.17 >0
+expect st.1.21 >0
+shot double-01-two-bars.png
+# again: four bars, 64 steps
+press SAVE
+tap REC
+release SAVE
+expect len.1 64
+expect on.1 8
+expect st.1.53 >0
+# full: nothing changes
+press SAVE
+tap REC
+release SAVE
+expect len.1 64
+expect on.1 8
+# one bar with notes in a 4-bar track: bar 2, then bars 3-4 (the length stays)
+key 20 down
+wait 1200
+key 20 up
+expect on.1 0
+tapkey 0 60
+press SAVE
+tap REC
+release SAVE
+expect len.1 64
+expect on.1 2
+expect st.1.17 >0
+expect st.1.33 0
+press SAVE
+tap REC
+release SAVE
+expect len.1 64
+expect on.1 4
+expect st.1.33 >0
+expect st.1.49 >0
+# SAVE on its own still saves (the x2 used it as a modifier: no save then)
+tap SAVE
+wait 300
+expect dirty 0
