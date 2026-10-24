@@ -13,11 +13,19 @@ download (below).
 
 ## Web editor
 
+**The FM-1 on your computer's screen (0.26).** The editor opens on a big copy of the FM-1: the screen (what the FM-1's
+shows, large: the page and its tabs, the sound's name, the four knobs with their names and values, the status line),
+the encoders and OCT on the left, the two rows of buttons on the right (lit as on the FM-1), the 27 keys below. Turn a
+knob (drag, or the wheel), press a button, play a key, and the FM-1 does what it would; turn a knob on the FM-1 and the
+page follows. Shift-click a button to hold it down for the combinations (SAVE + FX, HOME + SELECT, SEQ + a key);
+click a tab to go to that page; your computer's keys play the keys (Z S X D C… and Q 2 W 3 E…). It's the FM-1's own
+pages, so every instrument works there, including ones added later. The tabs after it edit in depth.
+
 [**twistedgenetics.github.io/DREADNOUGHT/editor**](https://twistedgenetics.github.io/DREADNOUGHT/editor/) (Chrome or
 Edge, FM-1 on USB with DREADNOUGHT 0.7 or later; the LFOs need 0.9): all 8 tracks in a mouse-driven piano roll and slice grid, the REESE
 and BREAKS controls, play / stop, tempo, save; back up everything to a file and restore it; keep as many REESE sounds
 as you like in the browser or as files; the selected note's velocity, condition and retrig, a velocity ramp
-(shift-drag the velocity lane) and each instrument's 8 patterns (0.11); from 0.9 the **LFOs** tab, where you draw an LFO's shape with the mouse. From 0.23 the **SAMPLER** tab: its 16 pads, or its zones over a keyboard. From 0.25 the **FM** tab, every value of the voice, and DX7 banks (.syx) on the Project tab: pick voices and they go on the FM-1 with the samples. It
+(shift-drag the velocity lane) and each instrument's 8 patterns (0.11); from 0.9 the **LFOs** tab, where you draw an LFO's shape with the mouse. From 0.23 the **SAMPLER** tab: its 16 pads, or its zones over a keyboard. From 0.25 the **FM** tab, every value of the voice, and DX7 banks (.syx) on the Project tab: pick voices and they go on the FM-1 with the samples; from 0.26 ▶ plays a bank's voice in the browser (the FM-1's own engine) before you send it. It
 follows the box live: turn a knob on the FM-1 and the page moves too. **Demo** tries it with a simulated FM-1.
 
 The **Project** tab (0.12): what each track plays and its sends to the effects, the FX rack, how full the FM-1's

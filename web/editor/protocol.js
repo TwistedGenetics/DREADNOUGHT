@@ -9,7 +9,8 @@
 export const HDR = [0x7D, 0x46, 0x4C];
 export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, PATS: 73, PAT_SEL: 74, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
   TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77, SUB_PRESET: 78, PARAMS_HI: 79,
-  SMP_GET: 80, SMP_SET: 81, SMP_PLAY: 82, FM_GET: 83, FM_SET: 84, FM_LOAD: 85, FM_PLAY: 86 };
+  SMP_GET: 80, SMP_SET: 81, SMP_PLAY: 82, FM_GET: 83, FM_SET: 84, FM_LOAD: 85, FM_PLAY: 86,
+  UI_STATE: 87, UI_INPUT: 88 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
 export const digits = (v, n) => { const o = []; for (let i = 0; i < n; i++) { o.push(v & 127); v = Math.floor(v / 128); } return o; };
@@ -392,6 +393,8 @@ export class Link {
   async smpGet(kind, i) { return parseSmp(await this.req(CMD.SMP_GET, [kind, i])); }
   async smpSet(kind, i, k, v) { return (await this.req(CMD.SMP_SET, [kind, i, k, ...digits(v + 8192, 2)]))[0]; }
   async smpPlay(note, on) { return (await this.req(CMD.SMP_PLAY, [note & 127, on ? 1 : 0]))[0]; }
+  async ui() { return parseUi(await this.req(CMD.UI_STATE, [], 800)); }
+  async uiInput(kind, id, v = 64) { return (await this.req(CMD.UI_INPUT, [kind, id, v]))[0]; }
   async fmGet() { return parseFm(await this.req(CMD.FM_GET)); }
   async fmSet(k, v) { return (await this.req(CMD.FM_SET, [...digits(k, 2), ...digits(v + 8192, 2)]))[0]; }
   async fmLoad(x) { return (await this.req(CMD.FM_LOAD, typeof x === "number" ? digits(x, 2) : [...x].map((b) => b & 127)))[0]; }
@@ -505,4 +508,36 @@ export async function writeFm(link, o) {
   await link.fmSet(156, o.level);
   await link.fmSet(157, o.voices);
   for (let i = 0; i < 4; i++) await link.fmSet(158 + i, o.macros[i] || 0);
+}
+
+// ---- the panel (0.26): what the FM-1's screen shows, and its controls pressed from the page ------------------------
+// the FM-1's buttons, encoders (plat.h B_* / EN_*) and the flags of UI_STATE
+export const BTN = { FX: 0, SEL: 1, ENV: 2, LFO: 3, EDIT: 4, GLO: 5, HOME: 6, SAVE: 7, ARP: 8, SEQ: 9, PLAY: 10, REC: 11, OCTDN: 12, OCTUP: 13 };
+export const ENC = { SELECT: 0, ALGO: 1, PRESET: 2, K1: 3, K2: 4, K3: 5, K4: 6 };
+export const NKEYS = 27;
+export const UI_IN = { DOWN: 0, UP: 1, KEYDOWN: 2, KEYUP: 3, TURN: 4, ALLUP: 5 };
+export function parseUi(r) {
+  let i = 0;
+  const str = () => { let t = ""; while (i < r.length && r[i]) t += String.fromCharCode(r[i++]); i++; return t; };
+  const n2 = () => { const v = num(r, i, 2); i += 2; return v; };
+  const o = { page: r[i++], trk: r[i++], eng: r[i++] };
+  const f = r[i++];
+  Object.assign(o, { playing: !!(f & 1), rec: !!(f & 2), dirty: !!(f & 4), naming: !!(f & 8), hold: !!(f & 16), seq: !!(f & 32), stepHeld: !!(f & 64) });
+  o.oct = r[i++] - 8;
+  o.bpm = n2(); o.pos = n2();
+  o.tag = str(); o.name = str();
+  const nt = r[i++];
+  o.tabSel = r[i++];
+  o.tabs = [];
+  for (let k = 0; k < nt; k++) o.tabs.push(str());
+  o.knobs = [];
+  for (let k = 0; k < 4; k++) {
+    if (!r[i++]) { o.knobs.push(null); continue; }
+    const id = n2(), name = str(), value = n2() - 8192, min = n2() - 8192, max = n2() - 8192, text = str();
+    o.knobs.push({ id, name, value, min, max, text });
+  }
+  o.msg = str(); o.status = str();
+  o.litBtn = n2(); o.litKeys = num(r, i, 4); i += 4;
+  o.nameCur = r[i++];
+  return o;
 }

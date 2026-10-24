@@ -39,6 +39,20 @@
 #include <stddef.h>
 #include "dsp/fastmath.h"
 
+/* the editor's panel (0.26): buttons, keys and encoders the web editor presses, merged with the FM-1's own (so every
+ * page and every instrument works from the page as from the panel) */
+static volatile uint32_t dn_vbtn, dn_vkeys;
+static volatile int32_t dn_venc[NE];
+static uint32_t dn_lit_btn, dn_lit_keys;            /* (what the LEDs show: the panel lights the same) */
+static uint32_t dn_in_buttons(void) { return plat_buttons() | dn_vbtn; }
+static uint32_t dn_in_keys(void) { return plat_keys() | dn_vkeys; }
+static int32_t dn_in_enc(int role)
+{
+    int32_t v = plat_enc(role) + dn_venc[role];
+    dn_venc[role] = 0;
+    return v;
+}
+
 #define DN_SAVE_MAGIC 0x31524E44u                   /* "DNR1" */
 #define DN_NPAGES 5u                                /* REESE's pages; then SEQ, then BRK */
 #define DN_PG_SEQ DN_NPAGES
@@ -2774,8 +2788,8 @@ void dn_app_init(void)
     dn_fx_layout();
     for (k = 0; k < DN_NBRK; k++)
         dn_brk_select(k, dn_bk_src[k]);
-    dn.btn_prev = plat_buttons();                   /* what is held at start-up is no press */
-    dn.keys_prev = dn.keys_raw = plat_keys();
+    dn.btn_prev = dn_in_buttons();                   /* what is held at start-up is no press */
+    dn.keys_prev = dn.keys_raw = dn_in_keys();
     dn.ready = 1;
 #undef s
 }
@@ -3283,7 +3297,7 @@ static void dn_keys(uint32_t raw)
 {
     uint32_t down = raw & ~dn.keys_raw, k, keys;
     dn.keys_raw = raw;
-    if (down && (plat_buttons() & (1u << B_SEQ))) {   /* SEQ held: the white keys 1-8 are the tracks */
+    if (down && (dn_in_buttons() & (1u << B_SEQ))) {   /* SEQ held: the white keys 1-8 are the tracks */
         for (k = 0; k < NKEYS; k++)
             if ((down >> k & 1u) && dn_is_white(k) && dn_key_ord(k) < 8) {
                 dn_trk_go((uint32_t)dn_key_ord(k));
@@ -4016,16 +4030,16 @@ static void dn_name_input(uint32_t press)
 {
     int32_t d, k;
     uint32_t i;
-    if ((d = plat_enc(EN_K1)) != 0 || (d = plat_enc(EN_SELECT)) != 0)
+    if ((d = dn_in_enc(EN_K1)) != 0 || (d = dn_in_enc(EN_SELECT)) != 0)
         dn.nm_cur = (uint8_t)dn_clamp((int32_t)dn.nm_cur + d, 0, (int32_t)dn.nm_len - 1);
-    if ((d = plat_enc(EN_K2)) != 0 || (d = plat_enc(EN_PRESET)) != 0) {
+    if ((d = dn_in_enc(EN_K2)) != 0 || (d = dn_in_enc(EN_PRESET)) != 0) {
         int32_t n = (int32_t)sizeof DN_NM_CH - 1, at = 0;
         for (k = 0; k < n; k++)
             if (DN_NM_CH[k] == dn.nm[dn.nm_cur])
                 at = k;
         dn.nm[dn.nm_cur] = DN_NM_CH[((at + d) % n + n) % n];
     }
-    (void)plat_enc(EN_K3), (void)plat_enc(EN_K4), (void)plat_enc(EN_ALGO);   /* (the others do nothing here) */
+    (void)dn_in_enc(EN_K3), (void)dn_in_enc(EN_K4), (void)dn_in_enc(EN_ALGO);   /* (the others do nothing here) */
     if (press & (1u << B_SAVE)) {                   /* keep it: trailing spaces off, saved */
         char out[12];
         uint32_t len = dn.nm_len;
@@ -4059,7 +4073,7 @@ static void dn_name_input(uint32_t press)
 
 void dn_app_input(void)
 {
-    uint32_t btn = plat_buttons(), keys = plat_keys(), press = btn & ~dn.btn_prev, rel = dn.btn_prev & ~btn, k;
+    uint32_t btn = dn_in_buttons(), keys = dn_in_keys(), press = btn & ~dn.btn_prev, rel = dn.btn_prev & ~btn, k;
     int32_t d;
     dn.btn_prev = btn;
     if (keys != dn.keys_raw)
@@ -4073,7 +4087,7 @@ void dn_app_input(void)
      * on release, chop deletes cancelled, no FILL) */
     if (press & (1u << B_HOME))
         dn.home_chord = 0;
-    if ((btn & (1u << B_HOME)) && (d = plat_enc(EN_SELECT)) != 0) {
+    if ((btn & (1u << B_HOME)) && (d = dn_in_enc(EN_SELECT)) != 0) {
         static char t[24];
         uint32_t tr = (uint32_t)(((int32_t)dn.trk + d) % (int32_t)DN_SEQ_TRACKS + (int32_t)DN_SEQ_TRACKS) % DN_SEQ_TRACKS;
         dn.home_chord = 1;
@@ -4383,7 +4397,7 @@ void dn_app_input(void)
             dn_stop();
         dn.redraw |= DN_RD_BOTTOM;
     }
-    if ((d = plat_enc(EN_SELECT)) != 0) {
+    if ((d = dn_in_enc(EN_SELECT)) != 0) {
         if (DN_IS_SEQPG(dn.page) && dn.step_held >= 0) {
             dn_step_move(d);                        /* a step held: it moves in time */
         } else if (dn.page == DN_PG_ROLL) {
@@ -4409,7 +4423,7 @@ void dn_app_input(void)
             dn_goto(DN_SND[at]);
         }
     }
-    if ((d = plat_enc(EN_PRESET)) != 0 && DN_IS_SMP(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {
+    if ((d = dn_in_enc(EN_PRESET)) != 0 && DN_IS_SMP(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {
         if (dn_sm.p.mode == DN_SMP_ONESHOT)         /* SAMPLER: PRESETS picks the pad (the zone) its pages show */
             dn_set(DN_PX_SPAD, (int32_t)dn.smp_pad + (d > 0 ? 1 : -1));
         else
@@ -4446,10 +4460,10 @@ void dn_app_input(void)
         int32_t n = (int32_t)(reese_preset_count() + DN_NUSER);
         dn_load_preset((uint32_t)((((int32_t)dn.preset + d) % n + n) % n));
     }
-    if ((d = plat_enc(EN_ALGO)) != 0)
+    if ((d = dn_in_enc(EN_ALGO)) != 0)
         dn_set(DN_PX_BPM, (int32_t)dn_rs.bpm + d);
     for (k = 0; k < 4u; k++)
-        if ((d = plat_enc(EN_K1 + (int)k)) != 0) {
+        if ((d = dn_in_enc(EN_K1 + (int)k)) != 0) {
             if (DN_IS_SEQPG(dn.page)) {
                 dn_seq_knob(k, d);
             } else if (dn.page == DN_PG_SLICE) {
@@ -4698,6 +4712,65 @@ static uint32_t dn_pat_len(void)
     return L ? L : 16u;
 }
 
+/* the top bar's words: the engine's tag (the return) and the sound's name (*pn): the screen's, and the editor's
+ * panel's (0.26) */
+static const char *dn_top_names(const char **pn)
+{
+    const char *tag = "REESE";
+    int brk = DN_IS_BRKPG(dn.page) || (dn.page == DN_PG_DRUM && !DN_IS_SMP(dn.trk));
+    const dn_brk_t *bk = &dn_bk[dn_bsel()];
+    *pn = dn_sound_name(0, dn.preset);
+    if (brk) {                                      /* BRK: which BREAKS, and its loop */
+        tag = dn_bsel() ? "BRK B" : "BRK A";
+        *pn = bk->loop.name;
+    } else if ((dn.page == DN_PG_ROLL && DN_IS_MIDI(dn.trk)) || dn.page == DN_PG_MIDI) {   /* a MIDI instrument */
+        static char ch[12], mt[8] = "MIDI ";
+        uint32_t c = dn_sq.pat.tr[dn.trk % DN_SEQ_TRACKS].chan + 1u;
+        mt[5] = (char)('1' + (DN_IS_MIDI(dn.trk) ? dn_midi_idx(dn.trk) % 9u : 0u));
+        mt[6] = 0;
+        tag = mt;
+        ch[0] = 0;
+        dn_cat(ch, "CHANNEL ");
+        if (c >= 10u)
+            dn_cat(ch, "1"), c -= 10u;
+        ch[str_len_dn(ch) + 1u] = 0;
+        ch[str_len_dn(ch)] = (char)('0' + c);
+        *pn = ch;
+    } else if (dn.page == DN_PG_PROJ || dn.page == DN_PG_FX) {   /* the project's name; FX: the rack */
+        static char fx[32];
+        tag = dn.page == DN_PG_PROJ ? "PROJECT" : "FX";
+        *pn = dn_pname;
+        if (dn.page == DN_PG_FX) {
+            fx[0] = 0;
+            dn_cat(fx, DN_FX_NAME[dn_fxp[0].type % DN_FX_N]);
+            dn_cat(fx, " / ");
+            dn_cat(fx, DN_FX_NAME[dn_fxp[1].type % DN_FX_N]);
+            *pn = fx;
+        }
+    } else if (DN_IS_FM(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {   /* FM: its voice */
+        tag = "FM";
+        *pn = dn_fm_vcname();
+    } else if (DN_IS_SMP(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {   /* SAMPLER: the pad / zone */
+        static char sp[24];
+        char v[8];
+        int one = dn_sm.p.mode == DN_SMP_ONESHOT;
+        int32_t smp = one ? dn_sm.p.pad[dn.smp_pad % DN_SMP_PADS][PD_SAMPLE]
+                          : dn_sm.p.zone[dn.smp_zone % DN_SMP_ZONES][ZN_SAMPLE];
+        tag = "SMPL";
+        sp[0] = 0;
+        dn_cat(sp, one ? "PAD " : "ZONE ");
+        dn_num(v, (one ? dn.smp_pad : dn.smp_zone) + 1);
+        dn_cat(sp, v);
+        dn_cat(sp, " ");
+        dn_sm_text(one ? DN_PX_PD0 + PD_SAMPLE : DN_PX_ZN0 + ZN_SAMPLE, smp, v);
+        dn_cat(sp, v);
+        *pn = sp;
+    } else if (DN_IS_SUB(dn.trk) && (DN_IS_SNDPG(dn.page) || dn.page == DN_PG_ROLL)) {   /* SUB: its sound */
+        tag = "SUB";
+        *pn = dn_sound_name(1, dn.sb_preset);
+    }
+    return tag;
+}
 static void dn_draw_top(void)
 {
     char t[16];
@@ -4716,59 +4789,9 @@ static void dn_draw_top(void)
     cv_rect(0, 22, 240, 24, DN_C_PANEL);
     cv_rect(0, 45, 240, 1, DN_C_EDGE);
     cv_rect(6, 27, 46, 14, DN_C_BLUE);
-    if (brk) {                                      /* BRK: which BREAKS, and its loop */
-        const char *tag = dn_bsel() ? "BRK B" : "BRK A";
+    {
+        const char *tag = dn_top_names(&pn);
         cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
-        pn = bk->loop.name;
-    } else if ((dn.page == DN_PG_ROLL && DN_IS_MIDI(dn.trk)) || dn.page == DN_PG_MIDI) {   /* a MIDI instrument */
-        static char ch[12];
-        char tag[8] = "MIDI ";
-        uint32_t c = dn_sq.pat.tr[dn.trk % DN_SEQ_TRACKS].chan + 1u;
-        tag[5] = (char)('1' + (DN_IS_MIDI(dn.trk) ? dn_midi_idx(dn.trk) % 9u : 0u));
-        tag[6] = 0;
-        cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
-        ch[0] = 0;
-        dn_cat(ch, "CHANNEL ");
-        if (c >= 10u)
-            dn_cat(ch, "1"), c -= 10u;
-        ch[str_len_dn(ch) + 1u] = 0;
-        ch[str_len_dn(ch)] = (char)('0' + c);
-        pn = ch;
-    } else if (dn.page == DN_PG_PROJ || dn.page == DN_PG_FX) {   /* the project's name; FX: the rack */
-        static char fx[32];
-        const char *tag = dn.page == DN_PG_PROJ ? "PROJECT" : "FX";
-        cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
-        pn = dn_pname;
-        if (dn.page == DN_PG_FX) {
-            fx[0] = 0;
-            dn_cat(fx, DN_FX_NAME[dn_fxp[0].type % DN_FX_N]);
-            dn_cat(fx, " / ");
-            dn_cat(fx, DN_FX_NAME[dn_fxp[1].type % DN_FX_N]);
-            pn = fx;
-        }
-    } else if (DN_IS_FM(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {   /* FM: its voice */
-        cv_text(29 - text_w(&FONT_T, "FM") / 2, 28, &FONT_T, "FM", DN_C_BAR);
-        pn = dn_fm_vcname();
-    } else if (DN_IS_SMP(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {   /* SAMPLER: the pad / zone */
-        static char sp[24];
-        char v[8];
-        int one = dn_sm.p.mode == DN_SMP_ONESHOT;
-        int32_t smp = one ? dn_sm.p.pad[dn.smp_pad % DN_SMP_PADS][PD_SAMPLE]
-                          : dn_sm.p.zone[dn.smp_zone % DN_SMP_ZONES][ZN_SAMPLE];
-        cv_text(29 - text_w(&FONT_T, "SMPL") / 2, 28, &FONT_T, "SMPL", DN_C_BAR);
-        sp[0] = 0;
-        dn_cat(sp, one ? "PAD " : "ZONE ");
-        dn_num(v, (one ? dn.smp_pad : dn.smp_zone) + 1);
-        dn_cat(sp, v);
-        dn_cat(sp, " ");
-        dn_sm_text(one ? DN_PX_PD0 + PD_SAMPLE : DN_PX_ZN0 + ZN_SAMPLE, smp, v);
-        dn_cat(sp, v);
-        pn = sp;
-    } else if (DN_IS_SUB(dn.trk) && (DN_IS_SNDPG(dn.page) || dn.page == DN_PG_ROLL)) {   /* SUB: its sound */
-        cv_text(29 - text_w(&FONT_T, "SUB") / 2, 28, &FONT_T, "SUB", DN_C_BAR);
-        pn = dn_sound_name(1, dn.sb_preset);
-    } else {
-        cv_text(29 - text_w(&FONT_T, "REESE") / 2, 28, &FONT_T, "REESE", DN_C_BAR);
     }
     x = cv_text(60, 26, &FONT_S, pn, C_WHITE);
     if (dn.dirty)
@@ -5678,6 +5701,7 @@ void dn_app_draw(int force)
     }
     plat_keys_dim(dim);
     plat_leds(lit, keys);
+    dn_lit_btn = lit, dn_lit_keys = keys;
 }
 
 #include "dn_editor.c"                              /* the web editor's commands */

@@ -26,7 +26,9 @@
 </header>
 
 <nav class="tabs" role="tablist">
-  <button role="tab" data-tab="pattern" aria-selected="true">Pattern</button>
+  <button role="tab" data-tab="panel" aria-selected="true">FM-1</button>
+  <span class="tabsep">Edit in depth:</span>
+  <button role="tab" data-tab="pattern" aria-selected="false">Pattern</button>
   <button role="tab" data-tab="sound">REESE</button>
   <button role="tab" data-tab="subtab" id="subTabBtn" hidden>SUB</button>
   <button role="tab" data-tab="smptab" id="smpTabBtn" hidden>SAMPLER</button>
@@ -37,7 +39,38 @@
 </nav>
 
 <main>
-  <section id="pattern" class="tab on">
+  <section id="panel" class="tab on">
+    <div class="fm1" id="fm1">
+      <div class="fm1-left">
+        <div id="p-enc-sel"></div>
+        <div id="p-enc-pre"></div>
+        <div id="p-enc-alg"></div>
+        <div class="p-oct" id="p-oct"></div>
+      </div>
+      <div class="fm1-screen" id="scr">
+        <div class="s-top"><b>DREADNOUGHT</b><span class="sp"></span><span id="s-rec" class="s-rec" hidden>● REC</span><span id="s-pos"></span><span id="s-bpm"></span></div>
+        <div class="s-snd"><span class="s-tag" id="s-tag">—</span><span id="s-name">Connect, or try the Demo</span></div>
+        <div class="s-tabs" id="s-tabs"></div>
+        <div class="s-naming" id="s-naming" hidden><div class="s-nmbox" id="s-nmbox"></div>
+          <div class="small">KNOB 1 / SELECT: the place · KNOB 2 / PRESETS: the letter · SAVE keeps · HOME cancels</div></div>
+        <div class="s-knobs" id="s-knobs"></div>
+        <div class="s-seq" id="s-seq" hidden><span>A sequencer page. The knobs work as on the FM-1;</span>
+          <button class="quiet small" id="p-seqopen">see its notes in the Pattern view</button></div>
+        <div class="s-status"><span id="s-left"></span><span id="s-msg"></span></div>
+      </div>
+      <div class="fm1-right">
+        <div class="p-row" id="p-row1"></div>
+        <div class="p-row" id="p-row2"></div>
+      </div>
+      <div class="fm1-keys" id="p-keys"></div>
+    </div>
+    <p class="hint">The FM-1, live: everything here does what it does on the FM-1, and the screen shows what the FM-1's
+      shows. Knobs and encoders: drag up or down, or the wheel (shift: faster). Buttons: click to press; shift-click
+      holds one down (for SAVE + FX, HOME + SELECT, SEQ + a key…), click again to let go. Click a tab to go to that page.
+      Your computer's keys play the keys: Z S X D C… F3–E4, Q 2 W 3 E… F4–G5. The tabs above edit everything in depth.</p>
+  </section>
+
+  <section id="pattern" class="tab">
     <aside id="tracks"></aside>
     <div class="ed">
       <div class="tool">
@@ -109,7 +142,10 @@
     <div class="row"><label>Voice <select id="fmpreset"></select></label>
       <label>Name <input type="text" id="fmname" maxlength="10" size="12"></label>
       <span class="small" id="fmwhere"></span></div>
-    <div class="row"><span class="small">Hear it on the FM-1 (hold):</span>
+    <div class="row"><span class="small">Hear it here:</span>
+      <button class="quiet small fmhere" data-n="36">C1</button><button class="quiet small fmhere" data-n="48">C2</button>
+      <button class="quiet small fmhere" data-n="60">C3</button><button class="quiet small fmhere" data-n="72">C4</button>
+      <span class="small">On the FM-1 (hold):</span>
       <button class="quiet small fmkey" data-n="36">C1</button><button class="quiet small fmkey" data-n="48">C2</button>
       <button class="quiet small fmkey" data-n="60">C3</button><button class="quiet small fmkey" data-n="72">C4</button>
       <span class="small" id="fmalg"></span></div>

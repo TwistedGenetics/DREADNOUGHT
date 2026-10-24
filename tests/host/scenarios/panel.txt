@@ -1,0 +1,38 @@
+# DREADNOUGHT host scenario (0.26): the editor's panel. UI_STATE says what the screen shows; UI_INPUT presses buttons,
+# turns encoders and plays keys as the FM-1's own panel does (B_EDIT 4, B_SEQ 9; EN_K1 3, EN_PRESET 2).
+sysex 87
+expect reply.0 0
+expect reply.1 0
+expect reply.2 1
+expect reply.4 8
+# EDIT: REESE's FILTER page
+sysex 88 0 4
+wait 40
+sysex 88 1 4
+wait 40
+expect page 1
+sysex 87
+expect reply.0 1
+# KNOB 1 two detents up: CUT moves, the sound's changed
+expect dirty 0
+sysex 88 4 3 66
+wait 40
+expect dirty 1
+# a key: REESE plays while it's held
+sysex 88 2 0
+wait 40
+expect gate 1
+sysex 88 3 0
+wait 40
+expect gate 0
+# SEQ: the sequencer page (no knobs to show: flags say so)
+sysex 88 0 9
+wait 40
+sysex 88 1 9
+wait 40
+expect page 7
+sysex 87
+expect reply.3 >31
+# all let go
+sysex 88 5 0
+expect reply.0 0

@@ -11,6 +11,8 @@ import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
   slotSamples, CAP, RATES, RATE_NAME, FOLDS,
 } from "./media.js";
+import { initPanel } from "./panel.js";
+import { audition as fmAudition } from "./fmsynth.js";
 import { readProject, writeProject, checkProject, mediaOf, FORMAT } from "./project.js";
 import { parseSyx, zoneBytes, zoneVoices, unpack as fmUnpack, vname as fmVname, vmax as fmVmax, vtext as fmVtext, isCarrier, opFreq } from "./dx7.js";
 
@@ -58,6 +60,7 @@ async function start(link, label) {
   render();
   clearInterval(S.poll);
   S.poll = setInterval(poll, 250);
+  PANEL.start();
   readSampler(link).then((m) => {                    // (0.23: SAMPLER, once the page is up; null before. The
     if (S.link !== link) return;                     //  link queues its frames: the polls wait their turn)
     S.smp = m;
@@ -76,13 +79,13 @@ async function start(link, label) {
 const DIAG = [];
 function diag(line) {
   DIAG.push(`${new Date().toISOString().slice(11, 23)} ${line}`);
-  if (DIAG.length > 2000) DIAG.splice(0, DIAG.length - 2000);
+  if (DIAG.length > 2000) DIAG.splice(60, DIAG.length - 2000);   // (the first lines kept: how it connected)
   if ($("diag").open) { $("diaglog").textContent = DIAG.join("\n"); $("diaglog").scrollTop = 1e9; }
 }
 const hex = (d) => [...d].map((x) => x.toString(16).padStart(2, "0")).join(" ");
 function frameTap(dir, d) {
   if (dir === "!") return diag(`timeout: no answer to command ${d[0]}`);
-  if (d[4] === 60 || d[4] === 72 || d[4] === 75) return;   // (the 4 polls a second: not logged)
+  if (d[4] === 60 || d[4] === 72 || d[4] === 75 || d[4] === 87) return;   // (the polls, and the panel's: not logged)
   if (d[4] === 12 || d[4] === 16 || d[4] === 63 || d[4] === 64) {   // (sample and pattern transfers: a line a 32)
     S.bulk = (S.bulk || 0) + 1;
     if (S.bulk % 32 !== 1) return;
@@ -155,7 +158,7 @@ async function poll() {
     refreshValues();
     refreshProject();
     if (S.fm && $("fmtab").classList.contains("on") && !S.fmBusy &&
-        !(document.activeElement && document.activeElement.closest && document.activeElement.closest("#fmtab"))) {
+        !(document.activeElement && document.activeElement.tagName === "INPUT" && document.activeElement.closest("#fmtab"))) {
       const seq = S.fmSeq, f = await S.link.fmGet().catch(() => null);   // (changed on the FM-1: the tab follows,
       if (f && seq === S.fmSeq && !S.fmBusy) { S.fm = f; buildFm(); }      //  unless you changed it meanwhile)
     }
@@ -646,7 +649,12 @@ function buildFm() {
   ps.textContent = "";
   S.fmNames.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `${i < 10 ? "" : "★ "}${n}`; ps.appendChild(o); });
   ps.value = f.preset;
-  ps.onchange = () => guard(async () => { await S.link.fmLoad(+ps.value); S.fm = await S.link.fmGet(); buildFm(); });
+  ps.onchange = () => guard(async () => {
+    S.fmSeq = (S.fmSeq || 0) + 1;
+    await S.link.fmLoad(+ps.value);
+    const seq = S.fmSeq, nf = await S.link.fmGet();
+    if (seq === S.fmSeq) { S.fm = nf; buildFm(); }  // (changed meanwhile: the next look shows it)
+  });
   if (document.activeElement !== $("fmname")) $("fmname").value = String.fromCharCode(...f.voice.slice(145, 155)).replace(/\s+$/, "");
   $("fmname").onchange = () => {
     const nm = $("fmname").value.toUpperCase().replace(/[^\x20-\x7E]/g, "").padEnd(10).slice(0, 10);
@@ -690,6 +698,7 @@ function buildFm() {
     [16, 18, 19, 20, 17, 0, 1, 2, 3, 4, 5, 6, 7, 15, 14, 13, 8, 9, 10, 11, 12].forEach((i) => vs(g, o + i, i >= 17 && i <= 20 || i === 18 || i === 19 ? label : null));
   }
 }
+document.querySelectorAll(".fmhere").forEach((b) => { b.onclick = () => { if (S.fm) fmAudition(S.fm.voice, +b.dataset.n); }; });
 document.querySelectorAll(".fmkey").forEach((b) => {
   const n = +b.dataset.n;
   b.onpointerdown = () => { if (S.link) guard(() => S.link.fmPlay(n, true)); };
@@ -1311,12 +1320,15 @@ function renderMedia() {
           const l = document.createElement("label"), c = document.createElement("input"), b = document.createElement("button");
           c.type = "checkbox"; c.checked = v.on;
           c.onchange = () => { v.on = c.checked; m.stale = true; renderMedia(); };
-          b.className = "quiet small"; b.textContent = "▶"; b.title = "Hear it on the FM-1 (it becomes FM's voice there)";
-          b.onclick = (ev) => { ev.preventDefault(); guard(async () => {
+          b.className = "quiet small"; b.textContent = "▶"; b.title = "Hear it here, before sending (the FM-1's own engine, in the browser)";
+          b.onclick = (ev) => { ev.preventDefault(); fmAudition(fmUnpack(v.packed), 60); };
+          const d = document.createElement("button");
+          d.className = "quiet small"; d.textContent = "FM-1"; d.title = "Hear it on the FM-1 (it becomes FM's voice there)";
+          d.onclick = (ev) => { ev.preventDefault(); guard(async () => {
             await S.link.fmLoad(fmUnpack(v.packed)); await S.link.fmPlay(60, true);
             setTimeout(() => guard(() => S.link.fmPlay(60, false)), 700);
           }); };
-          l.append(c, document.createTextNode(` ${v.name || "(no name)"} `), b);
+          l.append(c, document.createTextNode(` ${v.name || "(no name)"} `), b, d);
           td.appendChild(l);
         });
         r2.appendChild(td0);
@@ -1488,6 +1500,12 @@ function render() {
   }
 }
 window.addEventListener("resize", render);
+// the panel (0.26): the FM-1 big; a sequencer page there opens the Pattern view on that track
+const PANEL = initPanel(S, { guard, say, onSeqPage: (ui) => {
+  if (ui) S.sel = ui.trk;
+  document.querySelector('.tabs button[data-tab="pattern"]').click();
+} });
+window.__panel = PANEL;
 renderLib();
 if (new URLSearchParams(location.search).has("demo")) $("demo").click();
 window.__dn = S;                                     // (the tests look in)

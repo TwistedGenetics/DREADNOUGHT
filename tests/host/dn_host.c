@@ -471,6 +471,41 @@ int main(int argc, char **argv)
                 ed(79, 0, 0);
                 for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
                 fprintf(g, "],\"rfe\":[%d,%d,%d,%d", dn_rs.fe[0], dn_rs.fe[1], dn_rs.fe[2], dn_rs.fe[3]);
+                fprintf(g, "],\"fmrender\":[");    /* 0.26: the FM-1's renders, for the editor's own FM (fmsynth.js) */
+                {
+                    static dn_fm_t F;
+                    static int32_t fl[2 * 12032];
+                    static const uint8_t VOI[4] = {0, 1, 7, 3};
+                    for (uint32_t vi = 0; vi < 4u; vi++) {
+                        uint8_t pt[DN_FM_PATCH];
+                        dn_fm_factory(VOI[vi], pt);
+                        dn_fm_init(&F);
+                        F.level = 128;
+                        dn_fm_voice_load(&F, pt);
+                        memset(fl, 0, sizeof fl);
+                        dn_fm_note_on(&F, 48, 100);
+                        for (uint32_t b = 0; b < 12032u / 64u; b++) {
+                            if (b * 64u == 6016u)
+                                dn_fm_note_off(&F, 48);
+                            dn_fm_render(&F, fl + 2u * 64u * b, 64);
+                        }
+                        fprintf(g, "%s{\"patch\":[", vi ? "," : "");
+                        for (uint32_t i = 0; i < DN_FM_PATCH; i++) fprintf(g, "%s%u", i ? "," : "", pt[i]);
+                        fprintf(g, "],\"out\":[");
+                        for (uint32_t i = 0; i < 12032u; i++) fprintf(g, "%s%d", i ? "," : "", fl[2u * i]);
+                        fprintf(g, "]}");
+                    }
+                }
+                fprintf(g, "],\"ui\":[");        /* 0.26: the panel: UI_STATE on REESE's OSC page */
+                {
+                    uint8_t pg = dn.page;
+                    dn_goto(0);
+                    ed(87, 0, 0);
+                    for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                    fprintf(g, "],\"uiknob\":[\"%s\",%d,\"%s\",\"%s\"", dn_name(dn_dial(0)), dn_get(dn_dial(0)), dn_name(dn_dial(3)),
+                            dn_sound_name(0, dn.preset));
+                    dn_goto(pg);
+                }
                 fprintf(g, "],\"fmdefs\":[");    /* 0.25: FM: every value's name, top, texts; a voice packed and not */
                 for (uint32_t k = 0; k < 145u; k++) {
                     fprintf(g, "%s[%u,\"%s\",%d,[", k ? "," : "", k, dn_fm_vname(k), dn_fm_vmax(k));

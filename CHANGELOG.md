@@ -498,3 +498,26 @@ an attack's timing against Dexed's, voices freed after release, mono, the factor
 `fm.txt` (pages, PRESETS, project voices from a slot, the keys, macros, the editor's frames, kept over a reboot);
 `upgrade.txt` (a 0.24 save); the editor's FM names, ranges and texts against the firmware's; the editor end to end
 (FM tab, a .syx bank, voices picked and sent).
+
+## 0.26 — the editor as the FM-1, big; hear DX7 voices before sending (2026-10-25)
+
+- **The editor's FM-1 view.** The editor now opens on the FM-1 itself, laid out as the panel is: the screen (the page,
+  its tabs, the sound, the four knobs with their names, values and text, the status line, large), SELECT / PRESETS /
+  ALGORITHM and OCT on the left, the twelve buttons on the right with their lights, the 27 keys. Everything works as
+  on the FM-1 because it is the FM-1's: the page asks what the screen shows (UI_STATE, 87) and presses, turns and plays
+  (UI_INPUT, 88), so every page and every instrument, including later ones, works with nothing added to the editor.
+  Shift-click holds a button down for the combinations; a tab clicked goes to that page; the computer's keys play.
+  A sequencer page offers the Pattern view for its notes. The in-depth tabs are still there.
+- **Hear a DX7 voice before sending it.** ▶ next to a bank's voice (Project tab) and "Hear it here" on the FM tab play
+  it in the browser, through the FM-1's own FM engine ported to JavaScript; "FM-1" still plays it on the FM-1.
+- The FM tab's view no longer jumps back to an older value right after you change one (the panel's and the tab's
+  refreshes wait for your change), and the editor's diagnostics keep their first lines (how it connected).
+- **Leftovers looked for:** no unused code in DREADNOUGHT's own sources (every function and constant is used), and
+  none of X0X's synths, drum kits or sample sets are in the firmware (the build takes only X0X's hardware layer). What
+  stays by choice: the two built-in breaks (76 KB of the 268 KB of firmware space left), the loaders for saves from
+  0.4 on (small; they're what keeps a project over updates) and the breaks page (the only place to edit slices by hand).
+
+Tested: host scenario `panel.txt` (the screen read, buttons, an encoder, a key, SEQ, all through UI_STATE / UI_INPUT);
+the panel's reading of UI_STATE against the firmware's own; the editor's FM against the FM-1's renders: four voices
+(detune, amp mod, feedback), every sample identical; the editor end to end (the panel: a page, a knob dragged, a key,
+a held button, the computer's keys, a tab, SEQ; ▶ on a bank's voice plays it with nothing sent).

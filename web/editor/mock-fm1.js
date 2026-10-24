@@ -4,6 +4,7 @@
 // (TwistedGenetics).
 import { parseSlot, SLOT_HDR_LEN, SLOT_DATA_OFF } from "./media.js";
 import { zoneVoices, unpack as fmUnpack } from "./dx7.js";
+import { REESE } from "./protocol.js";
 import { SMP_PAD, SMP_ZONE, SMP_KEYS, HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
 
 const PRESETS = ["CLASSIC RS", "OG REESE", "HOLLOW RS", "TECHSTEP", "NEURO RS", "SYNC RS", "DARK RS", "SUB REESE", "HOOVER RS", "INIT"];
@@ -74,6 +75,8 @@ export class MockFM1 {
     // FM (0.25): its voice, LEVEL, VOICES, the macros, where PRESETS is
     this.fm = { voice: fmInit("DUB FM BS"), level: 100, voices: 6, macros: [0, 0, 0, 0], preset: 0 };
     this.fmPlayed = 0;
+    // the panel (0.26): a small FM-1 behind it: REESE's five sound pages and a sequencer page
+    this.ui = { page: 0, back: 0, keys: 0, btn: 0, msg: "" };
     this.slots = [0, 1, 2].map(() => ({ buf: new Uint8Array(0x14000).fill(0xFF), ok: false }));
     this.log = [];
     const self = this;
@@ -232,6 +235,8 @@ export class MockFM1 {
         this.rev++; this.dirty = 1;
         return [0];
       }
+      case CMD.UI_STATE: return this.uiState();
+      case CMD.UI_INPUT: return this.uiInput(a);
       case CMD.FM_PLAY: this.fmPlayed += a[1] ? 1 : 0; return [0];
       case CMD.SMP_PLAY: this.smpPlayed = (this.smpPlayed || 0) + (a[1] ? 1 : 0); return [0];
       case CMD.SUB_PRESET: this.subPreset = a[0]; this.rev++; return [0];
@@ -317,6 +322,51 @@ export class MockFM1 {
       }
       default: return null;
     }
+  }
+  // the panel: the screen as UI_STATE sends it, the controls as UI_INPUT presses them
+  uiState() {
+    const U = this.ui, KN = [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11], [12, 13, 14, 15], [16, 17, 18, -1]];
+    const str = (t) => [...t.split("").map((c) => c.charCodeAt(0) & 127), 0];
+    const seq = U.page === 7, out = [U.page, 0, 1, (this.playing ? 1 : 0) | (this.dirty ? 4 : 0) | (seq ? 32 : 0), 8,
+      ...digits(this.params[18], 2), ...digits(this.playing ? this.step + 1 : 0, 2), ...str("REESE"), ...str(PRESETS[this.preset] || "CLASSIC RS")];
+    const tabs = seq ? [] : ["OSC", "FILTER", "AMP", "MOD", "LFO", "OUT", "SETUP"];
+    out.push(tabs.length, seq ? 127 : U.page < 4 ? U.page : 5);
+    tabs.forEach((t) => out.push(...str(t)));
+    for (let k = 0; k < 4; k++) {
+      const i = seq ? -1 : KN[U.page][k];
+      if (i < 0) { out.push(0); continue; }
+      const p = i === 18 ? { name: "BPM", min: 60, max: 200 } : REESE[i], v = this.params[i];
+      out.push(1, ...digits(100 + i, 2), ...str(p.name), ...digits(v + 8192, 2), ...digits(p.min + 8192, 2), ...digits(p.max + 8192, 2),
+        ...str(p.text ? p.text(v) : `${v}`));
+    }
+    out.push(...str(U.msg), ...str(""), ...digits((1 << [1, 4, 2, 3, 5][Math.min(U.page, 4)]) | (seq ? 1 << 9 : 0), 2), ...digits(U.keys, 4), 0);
+    return out;
+  }
+  uiInput(a) {
+    const U = this.ui, [kind, id] = a, PAGE_OF = { 1: 0, 4: 1, 2: 2, 3: 3, 5: 4 };
+    if (kind === 0) {
+      U.btn |= 1 << id;
+      if (id in PAGE_OF) U.page = PAGE_OF[id];
+      else if (id === 9) { if (U.page === 7) U.page = U.back; else { U.back = U.page; U.page = 7; } }
+      else if (id === 10) { this.playing = this.playing ? 0 : 1; this.step = 0; }
+      else if (id === 7) { this.dirty = 0; this.saved++; }
+    } else if (kind === 1) U.btn &= ~(1 << id);
+    else if (kind === 2) U.keys |= 1 << id;
+    else if (kind === 3) U.keys &= ~(1 << id);
+    else if (kind === 4) {
+      const d = a[2] - 64, KN = [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11], [12, 13, 14, 15], [16, 17, 18, -1]];
+      if (id === 0 && U.page !== 7) U.page = Math.max(0, Math.min(4, U.page + d));
+      else if (id >= 3 && U.page !== 7) {
+        const i = KN[U.page][id - 3];
+        if (i >= 0) {
+          const p = i === 18 ? { min: 60, max: 200 } : REESE[i];
+          this.params[i] = Math.max(p.min, Math.min(p.max, this.params[i] + d));
+          this.rev++; this.dirty = 1;
+        }
+      } else if (id === 2) { this.preset = (this.preset + d + PRESETS.length) % PRESETS.length; this.rev++; }
+    } else if (kind === 5) { U.btn = 0; U.keys = 0; }
+    else return [1];
+    return [0];
   }
   // the project's DX7 voices: the zones of the slots marked DNFMBNK
   fmVoices() {

@@ -52,6 +52,15 @@
  *      FM_LOAD 156 bytes       -> rc                                 this voice (the editor's: a bank's, auditioned)
  *   86 FM_PLAY note on         -> rc                                 FM plays a note (on / off): the audition
  * NAMES kind 6 (0.25): FM's voices, the factory's then the project's.
+ *   87 UI_STATE                -> what the screen shows (0.26, the editor's panel): page, track, its instrument, flags
+ *                                 (1 playing, 2 rec, 4 changed, 8 naming, 16 HOLD, 32 a sequencer page, 64 a step held),
+ *                                 OCT + 8, BPM (2), position (2), the tag and the sound's name (strings), the tabs (count,
+ *                                 the one lit (127 none), names), the 4 knobs (1 there / 0; then id (2), name, value,
+ *                                 min, max (2 each, + 8192), text), the message, the left of the status line, the lit
+ *                                 buttons (2) and keys (4), the name editor's cursor. Strings: up to 24 chars, 0 after
+ *   88 UI_INPUT kind id v      -> rc                                 as if on the panel: kind 0 button down, 1 up, 2 key
+ *                                                                    down, 3 up (id: B_* / key 0..26), 4 an encoder
+ *                                                                    turned (id EN_*, v + 64 detents), 5 all let go
  * From 0.13 PARAMS ends with SUB's values (dn_sub.h SP_*, 27 of them).
  * From 0.11 a step in the pattern is 8 bytes {note, flags, len, vel, cond, rtim, rlen, rvel}: dn_seq.h.
  * From 0.9 PARAMS also has the LFOs, 8 each after BREAKS B: SHAPE SYNC RATE DEST DEPTH PHASE MODE SMOOTH (SYNC
@@ -60,7 +69,7 @@
 enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT_COMMIT, ED_TRANSPORT, ED_SAVE,
        ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL, ED_PROJ, ED_PROJ_SET,
        ED_PROJ_NAME, ED_SUB_PRESET, ED_PARAMS_HI, ED_SMP_GET, ED_SMP_SET, ED_SMP_PLAY, ED_FM_GET, ED_FM_SET,
-       ED_FM_LOAD, ED_FM_PLAY };
+       ED_FM_LOAD, ED_FM_PLAY, ED_UI_STATE, ED_UI_INPUT };
 #define DN_ED_NHI 8u
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
@@ -72,7 +81,14 @@ static const uint8_t DN_ED_LFO[8] = {DN_PX_LSHAPE, DN_PX_LSYNC, DN_PX_LRATE, DN_
 #define DN_ED_NPARAM_13 (DN_ED_NPARAM_09 + SP_COUNT) /* (0.13: SUB's after the LFOs) */
 #define DN_ED_NPARAM (DN_ED_NPARAM_13 + DN_NLFO * 8u) /* (0.15: SUB's own LFOs; those before are REESE's) */
 /* the editor frames the device glue must take whole (not into its 64-byte copy) */
-static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 86u; }
+static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 88u; }
+static void dn_ed_str(void (*put)(uint32_t), const char *t, uint32_t max)
+{
+    uint32_t i;
+    for (i = 0; t && t[i] && i < max; i++)
+        put((uint8_t)t[i] & 0x7Fu);
+    put(0);
+}
 /* SAMPLER's values by kind (0 pad, 1 zone, 2 keys, 3 mode): the app's id for value k, and how many */
 static uint32_t dn_ed_smp_n(uint32_t kind) { return kind == 0u ? PD_N : kind == 1u ? ZN_N : kind == 2u ? KY_N : 1u; }
 static uint32_t dn_ed_smp_id(uint32_t kind, uint32_t k)
@@ -489,6 +505,100 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         dn_unlock();
         put(0);
         return 1;
+    case ED_UI_STATE: {
+        const char *pn, *tag;
+        uint8_t ids[DN_MAXTABS];
+        const char *nms[DN_MAXTABS];
+        uint32_t n = 0, sel = 127u, k, seq = DN_IS_SEQPG(dn.page) != 0;
+        char st[40];
+        put(dn.page);
+        put(dn.trk);
+        put(dn_eng[dn.trk % DN_SEQ_TRACKS]);
+        put((dn_sq.playing ? 1u : 0u) | (dn.rec ? 2u : 0u) | (dn.dirty ? 4u : 0u) | (dn.naming ? 8u : 0u) |
+            (dn.play ? 16u : 0u) | (seq ? 32u : 0u) | (dn.step_held >= 0 ? 64u : 0u));
+        put((uint32_t)(dn.oct + 8));
+        dn_ed_num(put, dn_sq.bpm, 2);
+        dn_ed_num(put, dn_sq.playing ? dn_sq.pos : 0u, 2);
+        if (dn.naming) {                            /* (the name editor: its letters as the name) */
+            static char nm[13];
+            for (k = 0; k < dn.nm_len && k < 12u; k++)
+                nm[k] = dn.nm[k];
+            nm[k] = 0;
+            tag = "NAME";
+            pn = nm;
+        } else {
+            tag = dn_top_names(&pn);
+        }
+        dn_ed_str(put, tag, 8);
+        dn_ed_str(put, pn, 20);
+        if (!seq && !dn.naming)
+            n = dn_tabs(ids, nms);
+        for (k = 0; k < n; k++)
+            if (ids[k] == dn.page)
+                sel = k;
+        put(n);
+        put(sel);
+        for (k = 0; k < n; k++)
+            dn_ed_str(put, nms[k], 8);
+        for (k = 0; k < 4u; k++) {
+            uint32_t id = seq || dn.naming || (dn.page == DN_PG_LFO && dn.lfo_view == 2u) ? DN_PX_NONE : dn_dial(k);
+            char tx[12];
+            if (id == DN_PX_NONE) {
+                put(0);
+                continue;
+            }
+            put(1);
+            dn_ed_num(put, id, 2);
+            dn_ed_str(put, dn_name(id), 8);
+            dn_ed_num(put, (uint32_t)(dn_get(id) + 8192), 2);
+            dn_ed_num(put, (uint32_t)(dn_min(id) + 8192), 2);
+            dn_ed_num(put, (uint32_t)(dn_max(id) + 8192), 2);
+            dn_text(id, dn_get(id), tx);
+            dn_ed_str(put, tx, 8);
+        }
+        dn_ed_str(put, dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0 ? dn.msg : "", 24);
+        st[0] = 0;
+        if (dn.page == DN_PG_PROJ) {
+            char v[8];
+            dn_cat(st, "CPU ");
+            dn_num(v, (int32_t)plat_cpu_pct());
+            dn_cat(st, v);
+            dn_cat(st, "% PK ");
+            dn_num(v, (int32_t)plat_cpu_peak_pct());
+            dn_cat(st, v);
+            dn_cat(st, "%");
+        }
+        dn_ed_str(put, st, 24);
+        dn_ed_num(put, dn_lit_btn, 2);
+        dn_ed_num(put, dn_lit_keys, 4);
+        put(dn.nm_cur);
+        return 1;
+    }
+    case ED_UI_INPUT: {
+        uint32_t kind, id;
+        if (na < 2u)
+            return 0;
+        kind = a[0];
+        id = a[1];
+        if (kind == 0u && id < NB)
+            dn_vbtn |= 1u << id;
+        else if (kind == 1u && id < NB)
+            dn_vbtn &= ~(1u << id);
+        else if (kind == 2u && id < NKEYS)
+            dn_vkeys |= 1u << id;
+        else if (kind == 3u && id < NKEYS)
+            dn_vkeys &= ~(1u << id);
+        else if (kind == 4u && id < NE && na >= 3u)
+            dn_venc[id] += (int32_t)a[2] - 64;
+        else if (kind == 5u)
+            dn_vbtn = 0, dn_vkeys = 0;
+        else {
+            put(1);
+            return 1;
+        }
+        put(0);
+        return 1;
+    }
     case ED_SUB_PRESET:
         if (na < 1u || a[0] >= dn_sub_preset_count() + DN_NUSER)
             return 0;

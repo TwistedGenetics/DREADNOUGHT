@@ -3,6 +3,8 @@
 // parameters, the pattern, names.
 import { readFileSync } from "node:fs";
 import { unpack as fmUnpack, pack as fmPack, vname as fmName, vmax as fmMax, vtext as fmText, isCarrier } from "../../web/editor/dx7.js";
+import { parseUi } from "../../web/editor/protocol.js";
+import { renderNote } from "../../web/editor/fmsynth.js";
 import { parseSmp, SMP_PAD, SMP_ZONE, SMP_KEYS, parseState, parseParams, parsePattern, parseNames, serializePattern, REESE, NPARAM_15, parseLfoPts, parseLfoNow, COND_NAMES,
   parseProj, fxParams, FX_DEFAULTS, FX_NAMES } from "../../web/editor/protocol.js";
 
@@ -62,5 +64,22 @@ check("FM's values: names, tops and texts as the FM-1's (145)", !bad.length, bad
 const fu = fmUnpack(Uint8Array.from(g.fmpacked)), fp = fmPack(Uint8Array.from(g.fmvoice));
 check("FM: the FM-1's packed voice unpacks to its voice here, and packs back", fu.every((x, i) => x === g.fmvoice[i]) && fp.every((x, i) => x === g.fmpacked[i]), "", "");
 check("FM: the carriers of all 32 algorithms as the FM-1's", g.fmcarriers.every((c, i) => (isCarrier(Math.floor(i / 6), 5 - (i % 6)) ? 1 : 0) === c), "", "");
+// 0.26: the panel: UI_STATE read as the FM-1 sent it (REESE's OSC page)
+const ui = parseUi(g.ui);
+check("UI_STATE: REESE's OSC page, track 1, tabs with OSC lit, knob 1 and 4 named as on the screen, the sound's name",
+  ui.page === 0 && ui.trk === 0 && ui.eng === 1 && ui.tag === "REESE" && ui.tabs[ui.tabSel] === "OSC" && ui.knobs[0].name === g.uiknob[0] &&
+  ui.knobs[0].value === g.uiknob[1] && ui.knobs[3].name === g.uiknob[2] && ui.name === g.uiknob[3],
+  `${ui.tag} ${ui.name} ${ui.tabs.join("/")} ${ui.knobs.map((k) => k && k.name).join(",")}`, `REESE ${g.uiknob[3]} OSC ${g.uiknob[0]}`);
+// 0.26: the editor's own FM (to hear a voice before it's sent) against the FM-1's renders: the same samples
+{
+  const names = ["DUB FM BS", "FM REESE", "GROWL BASS (AMS)", "DARK BELL"];
+  g.fmrender.forEach((r, i) => {
+    const js = renderNote(Uint8Array.from(r.patch), 48, 100, 6016, 12032);
+    let same = 0, e = 0, sg = 0;
+    js.forEach((x, j) => { if (x === r.out[j]) same++; e += (x - r.out[j]) ** 2; sg += r.out[j] ** 2; });
+    const snr = e ? 10 * Math.log10(sg / e) : 999;
+    check(`editor's FM vs the FM-1's: ${names[i]}, signal / difference (dB; ${same} of ${js.length} samples identical)`, snr > 60, snr, 60);
+  });
+}
 console.log(fails ? `EDITOR (page): ${fails} FAILED` : "EDITOR (page): the page reads the firmware's replies");
 process.exit(fails ? 1 : 0);
