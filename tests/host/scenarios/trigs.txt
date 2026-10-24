@@ -1,0 +1,103 @@
+# DREADNOUGHT host scenario (0.11): a held step's values (FX: three pages of four), Digitakt's conditions, retrigs
+# with a velocity fade, a velocity ramp (REC held + a second step), FILL (HOME held), 8 patterns per instrument.
+# White keys (steps 1..16): 0 2 4 6 7 9 11 12 14 16 18 19 21 23 24 26; black key 10 = 22, 11 = 25.
+tap SEQ
+expect page 7
+expect trk 1
+# step 1 held: VEL down, COND 50%
+key 0 down
+turn K3 -6
+turn K4 11
+shot trigs-01-held-page1.png
+expect vl.1.1 82
+expect cd.1.1 11
+# FX: SLIDE ACC RETRIG RATE: retrig on, 1/32 -> 1/48
+tap FX
+turn K3 1
+turn K4 2
+shot trigs-02-held-page2.png
+expect st.1.1 9
+expect rt.1.1 14
+# FX: the retrigs' length and velocity curve (fade out)
+tap FX
+turn K1 4
+turn K2 -16
+shot trigs-03-held-page3.png
+expect rl.1.1 4
+expect rv.1.1 -127
+key 0 up
+shot trigs-04-roll-marks.png
+# a ramp: step 4 held, REC held, step 15: velocities 20 .. 120 over steps 4..15 (REC doesn't arm)
+key 6 down
+press REC
+tapkey 24 40
+release REC
+expect rec 0
+turn K3 -1
+turn K3 -1
+turn K3 -1
+turn K3 -1
+shot trigs-05-ramp.png
+key 6 up
+expect vl.1.4 <100
+expect vl.1.15 100
+# FILL: HOME held on the roll
+press HOME
+expect fill 1
+release HOME
+expect fill 0
+# patterns: SAVE + white key 2: REESE's pattern 2 (stopped: at once, empty)
+expect pat.1 1
+press SAVE
+tapkey 2 40
+release SAVE
+expect pat.1 2
+expect on.1 0
+expect dirty 1
+tapkey 0 40
+expect on.1 1
+shot trigs-06-pattern2.png
+# back to 1: its notes as they were
+press SAVE
+tapkey 0 40
+release SAVE
+expect pat.1 1
+expect on.1 7
+# playing: pattern 2 queued, comes in when pattern 1 ends (a bar)
+tap PLAY
+wait 300
+press SAVE
+tapkey 2 40
+release SAVE
+expect pat.1 1
+expect patq.1 2
+expect lst 1
+shot trigs-07-queued.png
+wait 1300
+expect pat.1 2
+expect patq.1 0
+tap PLAY
+# copy pattern 1 into pattern 3: SAVE + black 10 copies, SAVE + black 11 pastes
+press SAVE
+tapkey 0 40
+tapkey 22 40
+tapkey 4 40
+tapkey 25 40
+release SAVE
+expect pat.1 3
+expect on.1 7
+# kept: SAVE, a restart
+tap SAVE
+reboot
+expect pat.1 3
+expect on.1 7
+expect notes 15
+# the MIDI page (GLO: OUT, SETUP, MIDI): MIDI 1's channel
+tap SEL
+tap GLO
+tap GLO
+tap GLO
+expect page 13
+turn K2 1
+expect chan4 5
+shot trigs-08-midi.png

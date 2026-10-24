@@ -32,7 +32,9 @@ His answers to the follow-up questions:
 - **Remove** the 8-track OVERVIEW.
 - **Velocity:** both a Digitakt-style retrig roll with a velocity fade, and a ramp across a run of steps. Also: hold a
   note or trigger on the sequencer page and set its velocity and probability there.
-- **Patterns:** 16 patterns per instrument; a change takes effect when the current pattern ends.
+- **Patterns:** 16 patterns per instrument; a change takes effect when the current pattern ends. Later, to keep
+  flash for more samples and synths: **8 per instrument, stored compact** (only the notes that are on) in the spare
+  store objects; the three sample slots stay as they are.
 
 Work in this order, each part tested, built in CI and screenshotted before the next:
 1. A (the instrument pages).

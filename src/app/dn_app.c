@@ -2869,12 +2869,20 @@ static void dn_draw_top(void)
         const char *tag = dn_bsel() ? "BRK B" : "BRK A";
         cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
         pn = bk->loop.name;
-    } else if (dn.page == DN_PG_ROLL && dn.trk) {   /* ROLL on a MIDI track */
+    } else if ((dn.page == DN_PG_ROLL && dn.trk >= 3u) || dn.page == DN_PG_MIDI) {   /* a MIDI instrument */
+        static char ch[12];
         char tag[8] = "MIDI ";
-        tag[5] = (char)('1' + dn_sq.pat.tr[dn.trk].chan % 9u);
+        uint32_t c = dn_sq.pat.tr[dn.trk % DN_SEQ_TRACKS].chan + 1u;
+        tag[5] = (char)('1' + (dn.trk >= 3u ? dn.trk - 3u : 0u));
         tag[6] = 0;
         cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
-        pn = "TRACK";
+        ch[0] = 0;
+        dn_cat(ch, "CHANNEL ");
+        if (c >= 10u)
+            dn_cat(ch, "1"), c -= 10u;
+        ch[str_len_dn(ch) + 1u] = 0;
+        ch[str_len_dn(ch)] = (char)('0' + c);
+        pn = ch;
     } else {
         cv_text(29 - text_w(&FONT_T, "REESE") / 2, 28, &FONT_T, "REESE", DN_C_BAR);
     }
@@ -3149,6 +3157,90 @@ static void dn_draw_overview(void)
 
 /* ROLL: a piano roll of the selected track: pitch up the screen (an octave in view, KNOB 1 scrolls), the 16 steps in
  * view across, every note a bar as long as it lasts, slides a ramp from the note before, accents bright */
+/* a note's colour by its velocity: dim blue (soft) .. light blue (127; an accent) */
+static uint16_t dn_vel_col(const dn_step_t *st)
+{
+    int32_t v = (st->flags & DN_ST_ACC) ? 127 : st->vel;
+    return RGB(30 + (98 - 30) * v / 127, 60 + (200 - 60) * v / 127, 90 + (255 - 90) * v / 127);
+}
+/* a note's marks: a condition (a red corner), its retrigs (white ticks where they fall), from x0 over w pixels */
+static void dn_step_marks(const dn_step_t *st, int32_t x0, int32_t y, int32_t w, int32_t h)
+{
+    if (st->cond)
+        cv_rect(x0, y, 3, 3, DN_C_RED);
+    if (st->flags & DN_ST_RTRG) {
+        uint32_t den = DN_RTIM_DEN[st->rtim % DN_RTIM_N], len = st->rlen ? st->rlen : st->len, j;
+        int32_t px16 = 13 * 16;                     /* a whole note: 16 steps of 13 pixels */
+        for (j = 1; j < 64u; j++) {
+            int32_t x = x0 + (int32_t)j * px16 / (int32_t)den;
+            if ((uint32_t)(x - x0) * DN_LEN_STEP >= len * 13u || x - x0 >= w)
+                break;
+            cv_rect(x, y + 1, 1, h - 2, C_WHITE);
+        }
+    }
+}
+
+/* a held step's values on the status line: four, as the knobs have them (FX: the next four); a ramp: its ends */
+static void dn_step_status(const dn_track_t *tr, int drum, int32_t trans)
+{
+    static const char *const L[3][4] = {{"NOTE", "LEN", "VEL", "COND"}, {"SLIDE", "ACC", "RETRIG", "RATE"},
+                                        {"RT LEN", "RT VEL", "", ""}};
+    const dn_step_t *st = &tr->st[dn.step_held];
+    char v[4][12], t[8];
+    uint32_t k, pg = dn.step_pg % 3u;
+    cv_rect(0, 121, 240, 23, DN_C_BAR);
+    if (dn.ramp_b >= 0) {                           /* a velocity ramp */
+        char line[40];
+        line[0] = 0;
+        dn_cat(line, "RAMP ");
+        dn_num(t, dn.ramp_a + 1); dn_cat(line, t); dn_cat(line, "-");
+        dn_num(t, dn.ramp_b + 1); dn_cat(line, t); dn_cat(line, "  VEL ");
+        dn_num(t, dn.ramp_v0); dn_cat(line, t); dn_cat(line, " > ");
+        dn_num(t, dn.ramp_v1); dn_cat(line, t);
+        cv_text(8, 127, &FONT_T, line, DN_C_BLUE);
+        return;
+    }
+    for (k = 0; k < 4u; k++)
+        v[k][0] = 0;
+    if (pg == 0u) {
+        if (drum) {
+            dn_cat(v[0], "SL ");
+            dn_num(t, st->note + 1);
+            dn_cat(v[0], t);
+        } else {
+            dn_note_name(v[0], st->note + trans);
+        }
+        dn_len_text(v[1], st->len);
+        dn_num(v[2], (st->flags & DN_ST_ACC) ? 127 : st->vel);
+        dn_cond_text(st->cond, v[3]);
+    } else if (pg == 1u) {
+        dn_cat(v[0], (st->flags & DN_ST_SLIDE) ? (drum ? "REV" : "ON") : "OFF");
+        dn_cat(v[1], (st->flags & DN_ST_ACC) ? "ON" : "OFF");
+        dn_cat(v[2], (st->flags & DN_ST_RTRG) ? "ON" : "OFF");
+        dn_cat(v[3], "1/");
+        dn_num(t, DN_RTIM_DEN[st->rtim % DN_RTIM_N]);
+        dn_cat(v[3], t);
+    } else {
+        if (st->rlen)
+            dn_len_text(v[0], st->rlen);
+        else
+            dn_cat(v[0], "NOTE");
+        if (!st->rvel)
+            dn_cat(v[1], "FLAT");
+        else {
+            dn_cat(v[1], st->rvel > 0 ? "IN " : "OUT ");
+            dn_num(t, st->rvel > 0 ? st->rvel : -st->rvel);
+            dn_cat(v[1], t);
+        }
+        dn_cat(v[3], "FX: NEXT");
+    }
+    for (k = 0; k < 4u; k++) {
+        int32_t cx = 30 + 60 * (int32_t)k;
+        cv_text(cx - text_w(&FONT_T, L[pg][k]) / 2, 122, &FONT_T, L[pg][k], DN_C_DIMTXT);
+        cv_text(cx - text_w(&FONT_T, v[k]) / 2, 132, &FONT_T, v[k], k == 3u && pg == 2u ? DN_C_LABEL : DN_C_BLUE);
+    }
+}
+
 static void dn_draw_roll(void)
 {
     const dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
@@ -3199,8 +3291,9 @@ static void dn_draw_roll(void)
             cv_rect(x0, y, x1 - x0 + 1, 2, DN_C_BLUE_D);
             continue;
         }
-        cv_rect(x0, y, x1 - x0 + 1, 6, (st->flags & DN_ST_ACC) ? DN_C_BLUE : DN_C_BLUE_D);
+        cv_rect(x0, y, x1 - x0 + 1, 6, dn_vel_col(st));   /* (brighter: louder) */
         cv_rect(x0, y, 2, 6, DN_C_BLUE);            /* its start */
+        dn_step_marks(st, x0, y, x1 - x0 + 1, 6);
         if ((int32_t)i == dn.step_held) {
             cv_rect(x0, y - 1, x1 - x0 + 1, 1, C_WHITE);
             cv_rect(x0, y + 6, x1 - x0 + 1, 1, C_WHITE);
@@ -3214,21 +3307,7 @@ static void dn_draw_roll(void)
     cv_rect(0, 121, 240, 23, DN_C_BAR);
     line[0] = 0;
     if (dn.step_held >= 0) {
-        const dn_step_t *st = &tr->st[dn.step_held];
-        dn_cat(line, "STEP ");
-        dn_num(v, dn.step_held + 1);
-        dn_cat(line, v);
-        dn_cat(line, "  ");
-        dn_note_name(v, st->note + trans);
-        dn_cat(line, v);
-        dn_cat(line, "  ");
-        dn_len_text(v, st->len);
-        dn_cat(line, v);
-        if (st->flags & DN_ST_ACC)
-            dn_cat(line, "  ACC");
-        if (st->flags & DN_ST_SLIDE)
-            dn_cat(line, "  SLIDE");
-        cv_text(8, 125, &FONT_XS, line, DN_C_BLUE);
+        dn_step_status(tr, 0, trans);
         return;
     }
     dn_cat(line, dn.roll_keys ? "KEYS  AT " : "STEP  ");
@@ -3292,7 +3371,8 @@ static void dn_draw_drum(void)
             continue;
         x0 = x0 < 30 ? 30 : x0;
         x1 = x1 > 237 ? 237 : x1;
-        cv_rect(x0, y, x1 - x0 + 1, 10, tr->mute ? DN_C_KNOB : (st->flags & DN_ST_ACC) ? DN_C_BLUE : DN_C_BLUE_D);
+        cv_rect(x0, y, x1 - x0 + 1, 10, tr->mute ? DN_C_KNOB : dn_vel_col(st));
+        dn_step_marks(st, x0, y, x1 - x0 + 1, 10);
         if (st->flags & DN_ST_SLIDE)                /* reversed: an arrow pointing back */
             cv_line(x0 + 7, y + 2, x0 + 3, y + 5, C_WHITE), cv_line(x0 + 3, y + 5, x0 + 7, y + 8, C_WHITE);
         if ((int32_t)i == dn.step_held)
@@ -3304,17 +3384,7 @@ static void dn_draw_drum(void)
     line[0] = 0;
     dn_cat(line, dn.trk == 1u ? "BRK A  SL " : "BRK B  SL ");
     if (dn.step_held >= 0) {
-        const dn_step_t *st = &tr->st[dn.step_held];
-        dn_num(v, st->note + 1);
-        dn_cat(line, v);
-        dn_cat(line, "  ");
-        dn_len_text(v, st->len);
-        dn_cat(line, v);
-        if (st->flags & DN_ST_ACC)
-            dn_cat(line, "  ACC");
-        if (st->flags & DN_ST_SLIDE)
-            dn_cat(line, "  REV");
-        cv_text(8, 125, &FONT_XS, line, DN_C_BLUE);
+        dn_step_status(tr, 1, 0);
         return;
     }
     dn_num(v, dn.drum_row + 1);

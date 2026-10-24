@@ -7,7 +7,7 @@
 // seven top bits, then the seven bytes' low bits).
 
 export const HDR = [0x7D, 0x46, 0x4C];
-export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
+export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, PATS: 73, PAT_SEL: 74, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
   TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
@@ -138,6 +138,24 @@ export const TRACKS = 8, STEPS = 64, LEN_STEP = 4, LEN_MAX = 255;
 export const ST_ON = 1, ST_SLIDE = 2, ST_ACC = 4;
 export const KIND = (t) => (t === 0 ? "REESE" : t === 1 || t === 2 ? "BREAKS" : "MIDI");
 export const ST_RTRG = 8;
+// trig conditions, as the FM-1 numbers them (dn_seq.h DN_CO_*: Digitakt's list)
+export const CO_PCT = [1, 2, 4, 6, 9, 13, 19, 25, 33, 41, 50, 59, 67, 75, 81, 87, 91, 94, 96, 98, 99, 100];
+export const COND_NAMES = (() => {
+  const n = ["ALWAYS", ...CO_PCT.map((p) => `${p}%`), "FILL", "!FILL", "PRE", "!PRE", "NEI", "!NEI", "1ST", "!1ST", "LST", "!LST"];
+  const ab = [];
+  for (let b = 2; b <= 8; b++) for (let a = 1; a <= b; a++) ab.push(`${a}:${b}`);
+  return [...n, ...ab, ...ab.map((x) => `!${x}`)];
+})();
+export const RTIM_DEN = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 80];
+export const NPAT = 8;
+export function parsePats(r) {
+  const tracks = [];
+  for (let t = 0; t < TRACKS; t++) {
+    const o = 4 * t;
+    tracks.push({ cur: r[o], queued: r[o + 1] === 127 ? -1 : r[o + 1], used: r[o + 2] | r[o + 3] << 7 });
+  }
+  return { tracks, notes: num(r, 32, 2), room: num(r, 34, 2) };
+}
 // 0.11's steps are 8 bytes {note, flags, len, vel, cond, rtim, rlen, rvel}; 0.7-0.10's were 4 (the FM-1 says which by
 // the pattern's size in STATE: 4136 or 2088)
 const SB = (n) => (n >= 8 + TRACKS * (STEPS * 8 + 4) ? 8 : 4);
@@ -270,6 +288,8 @@ export class Link {
   async lfoPts(l) { return parseLfoPts(await this.req(CMD.LFO_PTS_GET, [l])); }
   async setLfoPts(l, npts, pts) { return (await this.req(CMD.LFO_PTS_SET, lfoPtsArgs(l, npts, pts)))[0]; }
   async lfoNow() { return parseLfoNow(await this.req(CMD.LFO_NOW)); }
+  async pats() { return parsePats(await this.req(CMD.PATS)); }
+  async patSel(t, n) { return (await this.req(CMD.PAT_SEL, [t, n]))[0]; }
   async save() { return (await this.req(CMD.SAVE, [], 8000))[0]; }
   async preset(i) { return (await this.req(CMD.PRESET, [i]))[0]; }
   async info() { return String.fromCharCode(...(await this.req(CMD.INFO, [], 1500)).filter((c, i, a) => i < a.indexOf(0))); }

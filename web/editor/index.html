@@ -53,8 +53,17 @@
         <span class="sp"></span>
         <button id="up" class="quiet small" title="Higher notes">▲</button><button id="down" class="quiet small" title="Lower notes">▼</button>
       </div>
+      <div class="pats row small" id="pats" hidden></div>
       <div class="cv"><canvas id="roll"></canvas></div>
       <div class="lane"><span class="lab">VELOCITY</span><canvas id="vel"></canvas></div>
+      <div class="insp" id="insp" hidden>
+        <label>Velocity <input id="i-vel" type="range" min="1" max="127"><span id="i-velv"></span></label>
+        <label title="Digitakt's trig conditions: a chance, FILL, PRE (the last condition on this track), NEI (the track before's), 1ST / LST (the pattern's first / last pass), A:B (the A-th of every B passes)">Condition <select id="i-cond"></select></label>
+        <label><input id="i-rtrg" type="checkbox"> Retrig</label>
+        <label>Rate <select id="i-rtim"></select></label>
+        <label>For <select id="i-rlen"></select></label>
+        <label title="The retrigs' velocity: fade out (left) .. flat .. fade in (right)">Fade <input id="i-rvel" type="range" min="-127" max="127"><span id="i-rvelv"></span></label>
+      </div>
       <p class="hint" id="hint">Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent.
         Double-click: slide. Right-click or Alt-click: delete.</p>
     </div>

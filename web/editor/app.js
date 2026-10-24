@@ -3,14 +3,14 @@
 import {
   connect, REESE, BPM_INDEX, brkParams, brkIndex, KIND, ST_ON, ST_SLIDE, ST_ACC, LEN_STEP, LEN_MAX, noteEnd, lenText,
   noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
-  lfoIndex, NPARAM, lfoShapeAt,
+  lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES,
 } from "./protocol.js";
 
 const $ = (id) => document.getElementById(id);
 const S = {
   link: null, mock: null, st: null, params: [], presets: [], loops: [], pat: null, sel: 0, lo: 36, playStep: -1,
   writing: 0, lastRev: -1, poll: null, dirtyPat: false, drag: null, selNote: -1, zoom: 0, x0: 0,
-  lfo: null, lfoNow: null, lfoDraw: null,
+  lfo: null, lfoNow: null, lfoDraw: null, pats: null,
 };
 const ROWS = 36, ROW_H = 14, GUT = 46;
 
@@ -120,6 +120,7 @@ async function poll() {
     refreshValues();
   }
   if (S.lfo && $("lfos").classList.contains("on")) S.lfoNow = await S.link.lfoNow().catch(() => null);
+  if (S.st.patSize >= PAT_BYTES) S.pats = await S.link.pats().catch(() => null);   // (0.11: 8 patterns a track)
   const tr = S.pat.tracks[S.sel];
   S.playStep = st.playing && st.step ? (st.step - 1) % tr.len : -1;
   render();
@@ -277,6 +278,12 @@ function drawRoll() {
       c.fillRect(x0, y, Math.max(3, x1 - x0), g.rh - 2);
       c.fillStyle = "rgba(255,255,255,.55)";
       c.fillRect(x1 - 3, y + 2, 2, g.rh - 6);       // the handle that sets the length
+      if (st.cond) { c.fillStyle = "#d0402a"; c.beginPath(); c.moveTo(x0, y); c.lineTo(x0 + 7, y); c.lineTo(x0, y + 7); c.fill(); }
+      if (st.flags & ST_RTRG) {                      // the retrigs: ticks where they fall
+        const iv = (16 * g.cw) / RTIM_DEN[st.rtim] , end = g.x(i) + (g.cw * (st.rlen || st.len)) / LEN_STEP;
+        c.fillStyle = "rgba(255,255,255,.8)";
+        for (let x = g.x(i) + iv; x < Math.min(end, x1) && iv > 1; x += iv) c.fillRect(Math.round(x), y + 2, 1, g.rh - 6);
+      }
       if (i === S.selNote) { c.strokeStyle = "#d0402a"; c.lineWidth = 2; c.strokeRect(x0, y, Math.max(3, x1 - x0), g.rh - 2); }
       if ((st.flags & ST_SLIDE) && isBrk()) {        // a break step's slide is REVERSE: an arrow back
         c.fillStyle = "#fff";
@@ -409,16 +416,29 @@ $("roll").onwheel = (ev) => {
   S.lo = Math.max(0, Math.min(127 - ROWS + 1, S.lo + (ev.deltaY < 0 ? 1 : -1)));
   render();
 };
-let velDrag = false;
-function velAt(ev) {
-  const cv = $("vel"), r = cv.getBoundingClientRect(), tr = S.pat.tracks[S.sel], { n, x0 } = span(), cw = (r.width - GUT) / n;
-  const i = x0 + Math.floor((ev.clientX - r.left - GUT) / cw), v = Math.round(127 * (1 - (ev.clientY - r.top - 4) / (72 - 16)));
-  if (i < 0 || i >= tr.len || !(tr.steps[i].flags & ST_ON)) return;
-  tr.steps[i].vel = Math.max(1, Math.min(127, v));
-  tr.steps[i].flags &= ~ST_ACC;
+let velDrag = false, velFrom = null;
+function velPos(ev) {
+  const cv = $("vel"), r = cv.getBoundingClientRect(), { n, x0 } = span(), cw = (r.width - GUT) / n;
+  return { i: x0 + Math.floor((ev.clientX - r.left - GUT) / cw),
+    v: Math.max(1, Math.min(127, Math.round(127 * (1 - (ev.clientY - r.top - 4) / (72 - 16))))) };
+}
+function velAt(ev) {                                 // drag: each note's velocity; shift-drag: a straight ramp
+  const tr = S.pat.tracks[S.sel], p = velPos(ev);
+  if (velFrom) {
+    const a = velFrom, lo = Math.min(a.i, p.i), hi = Math.max(a.i, p.i);
+    for (let i = Math.max(0, lo); i <= hi && i < tr.len; i++) {
+      if (!(tr.steps[i].flags & ST_ON)) continue;
+      tr.steps[i].vel = hi === lo ? p.v : Math.round(a.v + ((p.v - a.v) * (i - a.i)) / (p.i - a.i));
+      tr.steps[i].flags &= ~ST_ACC;
+    }
+    return render();
+  }
+  if (p.i < 0 || p.i >= tr.len || !(tr.steps[p.i].flags & ST_ON)) return;
+  tr.steps[p.i].vel = p.v;
+  tr.steps[p.i].flags &= ~ST_ACC;
   render();
 }
-$("vel").onpointerdown = (ev) => { velDrag = true; $("vel").setPointerCapture(ev.pointerId); velAt(ev); };
+$("vel").onpointerdown = (ev) => { velDrag = true; velFrom = ev.shiftKey ? velPos(ev) : null; $("vel").setPointerCapture(ev.pointerId); velAt(ev); };
 $("vel").onpointermove = (ev) => { if (velDrag) velAt(ev); };
 $("vel").onpointerup = () => { if (velDrag) { velDrag = false; patternChanged(); } };
 document.onkeydown = (ev) => {                       // the selected note: Delete, arrows (pitch / slice, in time)
@@ -499,6 +519,74 @@ function buildBreaks() {
     brkParams(S.loops).forEach((p, i) => slider(g, brkIndex(k, i), p));
   });
 }
+// ---- patterns (0.11): 8 an instrument; a click queues one (stopped: at once) -------------------------------------
+function renderPats() {
+  const box = $("pats");
+  box.hidden = !S.pats;
+  if (!S.pats) return;
+  const P = S.pats.tracks[S.sel];
+  if (box.children.length !== NPAT + 2) {
+    box.textContent = "";
+    const l = document.createElement("span"); l.className = "small"; l.textContent = "Pattern"; box.appendChild(l);
+    for (let n = 0; n < NPAT; n++) {
+      const b = document.createElement("button");
+      b.className = "pat"; b.textContent = n + 1; b.dataset.n = n;
+      b.onclick = () => guard(async () => {
+        S.writing++;
+        try { await S.link.patSel(S.sel, n); S.pats = await S.link.pats(); S.pat = await S.link.readPattern(S.st.patSize); S.lastRev = (await S.link.state()).rev; }
+        finally { S.writing--; }
+        render();
+      });
+      box.appendChild(b);
+    }
+    const m = document.createElement("span"); m.className = "small mem"; box.appendChild(m);
+  }
+  box.querySelectorAll(".pat").forEach((b) => {
+    const n = +b.dataset.n;
+    b.classList.toggle("on", P.cur === n);
+    b.classList.toggle("queued", P.queued === n);
+    b.classList.toggle("used", !!(P.used >> n & 1));
+    b.title = P.cur === n ? "Playing" : P.queued === n ? "Comes in when this one ends" : (P.used >> n & 1) ? "Has notes" : "Empty";
+  });
+  box.querySelector(".mem").textContent = `Pattern memory ${Math.round((100 * S.pats.notes) / S.pats.room)}% (${S.pats.notes} of ${S.pats.room} notes)`;
+}
+
+// ---- the selected note's inspector (0.11): velocity, condition, retrig ----------------------------------------
+function renderInsp() {
+  const box = $("insp"), tr = S.pat && S.pat.tracks[S.sel], st = tr && S.selNote >= 0 ? tr.steps[S.selNote] : null;
+  const has = !!(st && (st.flags & ST_ON) && S.pat.stepBytes !== 4);
+  box.hidden = !has;
+  if (!has) return;
+  ["i-rtim", "i-rlen", "i-rvel"].forEach((id) => { $(id).disabled = !(st.flags & ST_RTRG); });
+  if (box.contains(document.activeElement)) return;  // (not the control in your hand)
+  $("i-vel").value = st.flags & ST_ACC ? 127 : st.vel; $("i-velv").textContent = st.flags & ST_ACC ? "accent" : st.vel;
+  $("i-cond").value = st.cond;
+  $("i-rtrg").checked = !!(st.flags & ST_RTRG);
+  $("i-rtim").value = st.rtim;
+  $("i-rlen").value = st.rlen;
+  $("i-rvel").value = st.rvel; $("i-rvelv").textContent = st.rvel ? (st.rvel > 0 ? `fade in ${st.rvel}` : `fade out ${-st.rvel}`) : "flat";
+}
+function buildInsp() {
+  const c = $("i-cond"), r = $("i-rtim"), l = $("i-rlen");
+  COND_NAMES.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = n === "ALWAYS" ? "Always" : n; c.appendChild(o); });
+  RTIM_DEN.forEach((d, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `1/${d}`; r.appendChild(o); });
+  [[0, "the note's"], [1, "¼ step"], [2, "½ step"], [4, "1 step"], [8, "2 steps"], [16, "4 steps"], [32, "8 steps"], [64, "16 steps"]]
+    .forEach(([v, t]) => { const o = document.createElement("option"); o.value = v; o.textContent = t; l.appendChild(o); });
+  const step = () => S.pat.tracks[S.sel].steps[S.selNote];
+  $("i-vel").oninput = () => { const st = step(); st.vel = +$("i-vel").value; st.flags &= ~ST_ACC; $("i-velv").textContent = st.vel; patternChanged(); };
+  c.onchange = () => { step().cond = +c.value; patternChanged(); };
+  $("i-rtrg").onchange = () => { const st = step(); st.flags = $("i-rtrg").checked ? st.flags | ST_RTRG : st.flags & ~ST_RTRG; patternChanged(); renderInsp(); };
+  r.onchange = () => { step().rtim = +r.value; patternChanged(); };
+  l.onchange = () => { step().rlen = +l.value; patternChanged(); };
+  $("i-rvel").oninput = () => {
+    const v = +$("i-rvel").value;
+    step().rvel = v;
+    $("i-rvelv").textContent = v ? (v > 0 ? `fade in ${v}` : `fade out ${-v}`) : "flat";
+    patternChanged();
+  };
+}
+buildInsp();
+
 // ---- the LFOs (0.9) ------------------------------------------------------------------------------------------
 async function readLfos() {                          // the DRAW points (an FM-1 before 0.9 has no LFOs)
   if (!S.st || S.st.nparams < NPARAM) return null;
@@ -746,9 +834,11 @@ function render() {
   $("overlap").value = overlapCut(S.pat, S.sel) ? "cut" : "slide";
   $("hint").textContent = isBrk()
     ? "Click a slice's row to play it on that step, drag to move it, drag its right end to hold it longer. Shift-click: accent. Double-click: reverse. Right-click or Alt-click: delete."
-    : "Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent. Double-click: slide. A note that reaches past the next one slides into it (Overlap: Slide). Right-click or Alt-click: delete. Arrow keys move the selected note (up / down, along the steps). Scroll for higher or lower notes; drag past an edge and the roll follows.";
+    : "Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent. Double-click: slide. A note that reaches past the next one slides into it (Overlap: Slide). Right-click or Alt-click: delete. Arrow keys move the selected note (up / down, along the steps). Below: the selected note's velocity, condition and retrig; shift-drag the velocity lane for a ramp. Scroll for higher or lower notes; drag past an edge and the roll follows.";
   if ($("pattern").classList.contains("on")) { drawRoll(); drawVel(); }
   if ($("lfos").classList.contains("on")) drawLfos();
+  renderPats();
+  renderInsp();
   if (S.selNote >= 0 && tr.steps[S.selNote] && (tr.steps[S.selNote].flags & ST_ON)) {
     const st = tr.steps[S.selNote];
     $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `slice ${st.note + 1}` : noteName(st.note + (S.sel === 0 ? S.params[17] : 0))}, `

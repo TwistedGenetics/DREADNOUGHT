@@ -28,6 +28,8 @@ export class MockFM1 {
   constructor() {
     this.params = [...CLASSIC, 172, 0, 0, 127, 0, 1, 0, 0, 100, 1, 0, 127, 0, 1, 0, 0, 100,
       ...[0, 1, 2, 3].flatMap(() => [0, 1, 7, 0, 0, 0, 0, 0])];
+    this.patCur = Array(8).fill(0); this.patQ = Array(8).fill(-1);
+    this.bank = Array.from({ length: 8 }, (_, t) => Array.from({ length: 8 }, (_, n) => (n === 0 ? null : { steps: Array.from({ length: 64 }, () => newStep()), len: 16, lastNote: 53 })));
     this.lfo = Array.from({ length: NLFO }, () => ({ npts: 16, pts: Array.from({ length: LFO_PTS }, (_, i) => Math.round(100 - (i % 16) * 200 / 15)) }));
     this.pattern = serializePattern(demoPattern());
     this.staging = new Uint8Array(this.pattern);
@@ -103,6 +105,36 @@ export class MockFM1 {
       case CMD.LFO_NOW: {
         const t = Date.now() / 1000;
         return [0, 1, 2, 3].flatMap((k) => { const ph = (t * (k + 1) / 2) % 1; return [...digits(Math.floor(ph * 16384), 2), ...digits(8192 + Math.round(8191 * Math.sin(2 * Math.PI * ph)), 2)]; });
+      }
+      case CMD.PATS: {
+        const p = parsePattern([...this.pattern]), out = [];
+        let notes = 0;
+        for (let t = 0; t < 8; t++) {
+          let used = 0;
+          for (let n = 0; n < 8; n++) {
+            const tr = n === this.patCur[t] ? p.tracks[t] : this.bank[t][n];
+            const c = tr ? tr.steps.filter((x) => x.flags & ST_ON).length : 0;
+            if (c) used |= 1 << n;
+            notes += c;
+          }
+          out.push(this.patCur[t], this.patQ[t] < 0 ? 127 : this.patQ[t], used & 127, used >> 7);
+        }
+        return [...out, ...digits(notes, 2), ...digits(1680, 2)];
+      }
+      case CMD.PAT_SEL: {
+        const [t, n] = a;
+        if (t > 7 || n > 7) return null;
+        const go = () => {
+          const p = parsePattern([...this.pattern]), live = p.tracks[t];
+          this.bank[t][this.patCur[t]] = { steps: live.steps, len: live.len, lastNote: live.lastNote };
+          const nx = this.bank[t][n] || { steps: Array.from({ length: 64 }, () => newStep()), len: 16, lastNote: 53 };
+          Object.assign(live, { steps: nx.steps, len: nx.len, lastNote: nx.lastNote });
+          this.pattern = serializePattern(p);
+          this.patCur[t] = n; this.patQ[t] = -1; this.rev++;
+        };
+        if (this.playing) { this.patQ[t] = n; setTimeout(go, 600); } else go();
+        this.rev++;
+        return [0];
       }
       case CMD.TRANSPORT: this.playing = a[0] ? 1 : 0; if (this.playing) this.step = 0; return [this.playing];
       case CMD.SAVE: this.dirty = 0; this.saved++; return [0];

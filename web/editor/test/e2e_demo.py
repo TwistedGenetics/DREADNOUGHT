@@ -34,7 +34,7 @@ def check(what, ok, got=""):
 
 
 # the simulated FM-1's pattern, parsed in the page
-DEV = """([t, i]) => { const m = window.__dn.mock, b = m.pattern, o = 8 + t * 260 + 4 * i;
+DEV = """([t, i]) => { const m = window.__dn.mock, b = m.pattern, o = 8 + t * 516 + 8 * i;
   return {note: b[o], flags: b[o + 1], len: b[o + 2], vel: b[o + 3]}; }"""
 
 with sync_playwright() as pw:
@@ -136,6 +136,46 @@ with sync_playwright() as pw:
     check("dragged past the right end: the steps scroll on (to the last bar's end)", f2["sel"] == 31 and f2["x0"] == 16, f2)
     p.screenshot(path=str(shots / "editor-08-follow.png"), full_page=True)
     p.select_option("#zoom", "0")
+
+    # 0.11: the selected note's inspector: a condition (50%) and a retrig with a fade; a velocity ramp; patterns
+    p.select_option("#zoom", "0")
+    p.wait_for_timeout(200)
+    rb = p.locator("#roll").bounding_box()          # click the demo's step 4 (an accented F) to select it
+    gg = p.evaluate("""() => { const S = window.__dn, t = S.pat.tracks[0];
+      return {cw: (document.getElementById('roll').clientWidth - 46) / t.len, lo: S.lo, note: t.steps[3].note}; }""")
+    p.mouse.click(rb["x"] + 46 + 3.4 * gg["cw"], rb["y"] + ((gg["lo"] + 35) - gg["note"]) * 14 + 7)
+    p.wait_for_timeout(300)
+    p.select_option("#i-cond", label="50%")
+    p.check("#i-rtrg")
+    p.select_option("#i-rtim", label="1/32")
+    p.evaluate("""() => { const r = document.getElementById('i-rvel'); r.value = -127; r.dispatchEvent(new Event('input')); }""")
+    p.wait_for_timeout(700)
+    d4 = p.evaluate("""() => { const m = window.__dn.mock, b = m.pattern, o = 8 + 8 * 3;
+      return {cond: b[o + 4], flags: b[o + 1], rtim: b[o + 5], rvel: (b[o + 7] << 24) >> 24}; }""")
+    check("inspector: step 4's condition 50% and a 1/32 retrig fading out reach the FM-1",
+          d4["cond"] == 11 and d4["flags"] & 8 and d4["rtim"] == 12 and d4["rvel"] == -127, d4)
+    p.screenshot(path=str(shots / "editor-10-inspector.png"), full_page=True)
+    vb = p.locator("#vel").bounding_box()
+    cwv = (vb["width"] - 46) / p.evaluate("() => window.__dn.pat.tracks[0].len")
+    p.keyboard.down("Shift")
+    p.mouse.move(vb["x"] + 46 + 0.5 * cwv, vb["y"] + vb["height"] - 8)
+    p.mouse.down()
+    p.mouse.move(vb["x"] + 46 + 14.5 * cwv, vb["y"] + 6, steps=8)
+    p.mouse.up()
+    p.keyboard.up("Shift")
+    p.wait_for_timeout(700)
+    v = p.evaluate("""() => { const m = window.__dn.mock, b = m.pattern;
+      return [3, 6, 7, 10, 12, 14].map((i) => b[8 + 8 * i + 3]); }""")   # (the notes on steps 4..15)
+    check("shift-drag in the velocity lane: a ramp from soft to loud", all(v[k] < v[k + 1] for k in range(5)) and v[0] < 40 and v[5] > 110, v)
+    p.wait_for_timeout(400)
+    p.locator("#pats .pat").nth(1).click()
+    p.wait_for_timeout(500)
+    pc = p.evaluate("() => ({cur: window.__dn.mock.patCur[0], on: window.__dn.pat.tracks[0].steps.filter((s) => s.flags & 1).length})")
+    check("pattern 2: the FM-1 switches (stopped: at once) and the roll shows its (empty) notes", pc["cur"] == 1 and pc["on"] == 0, pc)
+    p.screenshot(path=str(shots / "editor-11-pattern2.png"), full_page=True)
+    p.locator("#pats .pat").nth(0).click()
+    p.wait_for_timeout(500)
+    check("pattern 1 again: its notes back", p.evaluate("() => window.__dn.pat.tracks[0].steps.filter((s) => s.flags & 1).length") == 7)
 
     # BREAKS A: a slice on a step, reversed
     p.locator(".trk").nth(1).click()

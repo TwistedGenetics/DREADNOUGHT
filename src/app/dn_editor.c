@@ -21,11 +21,15 @@
  *   70 LFO_PTS_GET l           -> l, npts, 32 points (2, +100)      an LFO's DRAW shape (0.9)
  *   71 LFO_PTS_SET l npts pts  -> rc (0 set)                         32 points (2 each, +100), -100..100
  *   72 LFO_NOW                 -> 4 x (phase (2): 14 bits, value (2): +8192, 14 bits)   where the LFOs are
+ *   73 PATS                    -> per track: playing, queued (127 none), used (2: a bit a pattern); then notes (2), room (2)
+ *   74 PAT_SEL t n             -> rc (0)                             track t to pattern n (stopped: now; playing: when
+ *                                                                    its pattern ends) (0.11; 8 patterns a track)
+ * From 0.11 a step in the pattern is 8 bytes {note, flags, len, vel, cond, rtim, rlen, rvel}: dn_seq.h.
  * From 0.9 PARAMS also has the LFOs, 8 each after BREAKS B: SHAPE SYNC RATE DEST DEPTH PHASE MODE SMOOTH (SYNC
  * before RATE: setting SYNC resets RATE).
  */
 enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT_COMMIT, ED_TRANSPORT, ED_SAVE,
-       ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW };
+       ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL };
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
                                      DN_PX_BCHOKE, DN_PX_BSMODE, DN_PX_BSTRETCH, DN_PX_BLEVEL};
@@ -223,6 +227,22 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         put(0);
         return 1;
     }
+    case ED_PATS:
+        for (i = 0; i < DN_SEQ_TRACKS; i++) {
+            put(dn_pcur[i]);
+            put(dn_pq[i] == 0xFF ? 127u : dn_pq[i]);
+            dn_ed_num(put, dn_pat_used(i), 2);
+        }
+        dn_ed_num(put, dn_pat_notes(), 2);
+        dn_ed_num(put, dn_pat_room(), 2);
+        return 1;
+    case ED_PAT_SEL:
+        if (na < 2u || a[0] >= DN_SEQ_TRACKS || a[1] >= DN_NPAT)
+            return 0;
+        dn_pat_select(a[0], a[1]);
+        dn_rev++;
+        put(0);
+        return 1;
     case ED_LFO_NOW:
         for (i = 0; i < DN_NLFO; i++) {
             dn_ed_num(put, dn_ls[i].ph >> 18, 2);

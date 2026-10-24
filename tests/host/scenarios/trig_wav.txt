@@ -1,0 +1,82 @@
+# DREADNOUGHT host scenario (0.11): retrig rolls and chances heard on BREAKS A (the built-in ROLLER).
+tap ARP
+tap SEQ
+expect page 8
+tapkey 1 50
+expect mute.1 1
+press SAVE
+tap FX
+release SAVE
+expect on.2 16
+# step 13: a snare roll into the next bar: retrig 1/32 over 4 steps, fading in; steps 14-16 off (a tap on a step
+# with another slice moves it to this row, a second tap clears it)
+tapkey 23 40
+tapkey 23 40
+tapkey 24 40
+tapkey 24 40
+tapkey 26 40
+tapkey 26 40
+expect on.2 13
+key 21 down
+tap FX
+turn K3 1
+tap FX
+turn K1 16
+turn K2 16
+key 21 up
+expect st.2.13 9
+expect rv.2.13 127
+shot trigs-09-drum-roll.png
+wav trigs-snare-roll.wav
+tap PLAY
+wait 2800
+tap PLAY
+wavstop
+# the hats: every step 50 % (KNOB 4 with a step held), four bars
+key 0 down
+turn K4 11
+key 0 up
+key 2 down
+turn K4 11
+key 2 up
+key 4 down
+turn K4 11
+key 4 up
+key 6 down
+turn K4 11
+key 6 up
+key 7 down
+turn K4 11
+key 7 up
+key 9 down
+turn K4 11
+key 9 up
+key 11 down
+turn K4 11
+key 11 up
+key 12 down
+turn K4 11
+key 12 up
+key 14 down
+turn K4 11
+key 14 up
+key 16 down
+turn K4 11
+key 16 up
+key 18 down
+turn K4 11
+key 18 up
+key 19 down
+turn K4 11
+key 19 up
+key 21 down
+turn K4 11
+key 21 up
+expect cd.2.1 11
+expect cd.2.13 11
+shot trigs-10-drum-chances.png
+wav trigs-chances-4-bars.wav
+tap PLAY
+wait 5600
+tap PLAY
+wavstop

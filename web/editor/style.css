@@ -89,4 +89,15 @@ footer { color: var(--dim); font-size: 12px; padding: 16px 20px 32px; text-align
 .diag summary { cursor: pointer; }
 .diag pre { background: #f0f0f0; color: #1a1a1a; border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px;
   max-height: 260px; overflow: auto; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; }
+.pats { margin: 0 0 8px; gap: 6px; }
+.pats .pat { min-width: 30px; padding: 3px 0; background: var(--panel); color: var(--dim); border-color: var(--line); }
+.pats .pat.used { color: var(--fg); font-weight: 700; }
+.pats .pat.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.pats .pat.queued { animation: blink .4s steps(2) infinite; border-color: var(--blue); }
+@keyframes blink { 50% { background: var(--blue-l); } }
+.pats .mem { margin-left: auto; }
+.insp { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-top: 10px; padding: 8px 10px; font-size: 13px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.insp label { display: flex; gap: 6px; align-items: center; }
+.insp input[type=range] { width: 120px; }
 

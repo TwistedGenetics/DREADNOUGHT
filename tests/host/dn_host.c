@@ -444,6 +444,12 @@ int main(int argc, char **argv)
                 fprintf(g, "],\"lfopt5\":%d,\"lfonpts\":%u,\"lfonow\":[", dn_lp[0].pts[4], dn_lp[0].npts);
                 ed(72, 0, 0);
                 for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                fprintf(g, "],\"conds\":[");
+                for (uint32_t c = 0; c < DN_CO_N; c++) {
+                    char tx[8];
+                    dn_cond_text(c, tx);
+                    fprintf(g, "%s\"%s\"", c ? "," : "", tx);
+                }
                 fprintf(g, "],\"long\":[");
                 for (uint32_t c = 60; c <= 72; c++) fprintf(g, "%s%d", c > 60 ? "," : "", dn_ed_long(c));
             }
@@ -517,12 +523,22 @@ int main(int argc, char **argv)
                 got = 0;
                 for (uint32_t k = 0; k < tr->len; k++)
                     got += tr->st[k].flags & DN_ST_ON;
-            } else if (!strncmp(b, "st.", 3) || !strncmp(b, "nt.", 3) || !strncmp(b, "ln.", 3)) {
-                int t = 0, i = 0;                   /* st.T.I flags, nt.T.I note, ln.T.I gate of step I (1-based) */
+            } else if (!strncmp(b, "st.", 3) || !strncmp(b, "nt.", 3) || !strncmp(b, "ln.", 3) || !strncmp(b, "vl.", 3) ||
+                       !strncmp(b, "cd.", 3) || !strncmp(b, "rt.", 3) || !strncmp(b, "rv.", 3) || !strncmp(b, "rl.", 3)) {
+                int t = 0, i = 0;                   /* st.T.I flags, nt.T.I note, ln.T.I gate of step I (1-based);
+                                                     * vl velocity, cd condition, rt retrig rate, rv its curve, rl its
+                                                     * length */
                 sscanf(b + 3, "%d.%d", &t, &i);
                 const dn_step_t *st = &dn_sq.pat.tr[t - 1].st[i - 1];
-                got = b[0] == 's' ? st->flags : b[0] == 'n' ? st->note : st->len;
+                got = b[0] == 's' ? st->flags : b[0] == 'n' ? st->note : b[0] == 'l' ? st->len : b[0] == 'v' ? st->vel
+                    : b[0] == 'c' ? st->cond : !strncmp(b, "rt.", 3) ? st->rtim : !strncmp(b, "rv.", 3) ? st->rvel : st->rlen;
             }
+            else if (!strncmp(b, "pat.", 4)) got = dn_pcur[atoi(b + 4) - 1] + 1;   /* pat.T: track T's pattern */
+            else if (!strncmp(b, "patq.", 5)) got = dn_pq[atoi(b + 5) - 1] == 0xFF ? 0 : dn_pq[atoi(b + 5) - 1] + 1;
+            else if (!strcmp(b, "fill")) got = dn_sq.fill;
+            else if (!strcmp(b, "lst")) got = dn_sq.lst;
+            else if (!strcmp(b, "notes")) got = (long)dn_pat_notes();
+            else if (!strcmp(b, "chan4")) got = dn_sq.pat.tr[3].chan + 1;
             else if (!strncmp(b, "p.", 2)) {
                 got = -9999;
                 for (uint32_t k = 0; k < RP_COUNT; k++)

@@ -53,3 +53,13 @@ expect replylen 66
 sysex 72
 expect replylen 16
 
+# 0.11: patterns: PATS (8 tracks x (playing, queued, used x2) + notes x2 + room x2 = 36), PAT_SEL track 1 to pattern 2
+sysex 73
+expect replylen 36
+expect reply.0 0
+expect reply.1 127
+sysex 74 0 1
+expect reply.0 0
+expect pat.1 2
+sysex 74 0 0
+expect pat.1 1

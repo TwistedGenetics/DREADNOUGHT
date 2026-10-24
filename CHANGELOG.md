@@ -211,3 +211,29 @@ on a real FM-1.
 Tested on the host (`chop_stuck`: keys cutting at the cursor and by ear, order refused, a retake, REC off playing;
 `chop`, `slice`, `chop_bugs_07` updated). Not yet tested on a real FM-1.
 
+## 0.11 — a sequencer page per instrument, 8 patterns each, conditions, retrigs (2026-10-24)
+
+- **One sequencer page per instrument:** SEQ opens the instrument you're on (REESE's roll, a break's grid, a MIDI
+  instrument's roll from the new MIDI page: GLO for OUT, SETUP, MIDI) and SEQ again goes back. The 8-track OVERVIEW is
+  gone, with its track knob (an instrument is chosen on its own pages). The tab row shows the instrument, its 8
+  patterns and pattern memory.
+- **8 patterns per instrument,** changed at the playing one's end (stopped: at once): SAVE + white key 1–8; copy /
+  paste a pattern: SAVE + black key 10 / 11. Kept compact (only the notes that are on, ~1 680 across all 64) in spare
+  settings storage, so the three sample slots stay yours. A 0.10 pattern opens as each instrument's pattern 1.
+- **Steps grow:** velocity, a Digitakt trig condition (%, FILL, PRE, NEI, 1ST, LST, A:B and their opposites; HOME
+  held = FILL), and retrigs (1/1 … 1/80, a length, a velocity fade in or out). Hold a step: NOTE LEN VEL COND; FX:
+  SLIDE ACC RETRIG RATE; FX: RT LEN RT VEL. A velocity ramp: hold a step, hold REC, press another; KNOB 3 / 4.
+  Notes show their velocity (brighter: louder), a condition (red corner) and retrigs (ticks).
+- **VEL SENS** (SETUP, where the OCT dial was; OCT− / OCT+ as ever): velocity to REESE's level (0, the default, as
+  before). Breaks and MIDI take each note's velocity.
+- **SAVE + FX on a break's grid** lays the break straight (each step its own slice).
+- The web editor: the selected note's velocity, condition, retrig (rate, length, fade); shift-drag the velocity lane for
+  a ramp; each instrument's 8 patterns (click to queue); conditions named exactly as on the FM-1 (tested); still works
+  with an FM-1 on 0.7–0.10.
+
+Tested on the host: conditions against the Digitakt manual's rules (50 % over 10 000 passes, A:B lists, 1ST, LST,
+FILL, PRE after a 50 % trig, NEI, a 12-step track's own passes), retrig timing (1/32, 1/3, 1/80) and fades, cut by the
+next note, 0.4–0.10 patterns opening; scenarios `trigs` (held-step pages, ramp, FILL, patterns queued and switched,
+copy / paste, kept over a restart, the MIDI page) and `trig_wav` (a snare roll fading in, 50 % hats over 4 bars); every
+scenario moved to the instrument pages; the web editor end to end. Not yet tested on a real FM-1.
+
