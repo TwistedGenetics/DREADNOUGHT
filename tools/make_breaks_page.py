@@ -83,7 +83,7 @@ EDITS = [
   }
   readOk = true;
 }'''),
-    ('''!/x0x|felucca/i.test(input.name || "")''', '''!/dreadnought|x0x|felucca/i.test(input.name || "")'''),
+    ('''!/x0x|felucca/i.test(input.name || "")''', '''!/dreadnought|x0x|felucca|fm-1|fm1|m-vave/i.test(input.name || "")'''),
     ('''"No FM-1 running X0X found. Connect it by USB, and close other apps that use its MIDI port."''',
      '''"No FM-1 running DREADNOUGHT found. Connect it by USB, and close other apps that use its MIDI port."'''),
     ('''"This X0X can't send its loops back to the page. Update X0X, then connect again."''',

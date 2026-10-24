@@ -42,19 +42,61 @@ async function start(link, label) {
   S.poll = setInterval(poll, 250);
 }
 
+// the Diagnostics panel: the ports seen, which one, every frame (hex) and timeout; the picked port remembered
+const DIAG = [];
+function diag(line) {
+  DIAG.push(`${new Date().toISOString().slice(11, 23)} ${line}`);
+  if (DIAG.length > 400) DIAG.splice(0, DIAG.length - 400);
+  if ($("diag").open) { $("diaglog").textContent = DIAG.join("\n"); $("diaglog").scrollTop = 1e9; }
+}
+const hex = (d) => [...d].map((x) => x.toString(16).padStart(2, "0")).join(" ");
+function frameTap(dir, d) {
+  if (dir === "!") return diag(`timeout: no answer to command ${d[0]}`);
+  if (d[4] === 60 || d[4] === 72) return;            // (the 4 polls a second: not logged)
+  diag(`${dir === ">" ? "sent" : "got "} ${d.length > 40 ? `${hex(d.slice(0, 40))} … (${d.length} bytes)` : hex(d)}`);
+}
+const PORT_KEY = "dreadnought-port";
+const prefPort = () => { try { return localStorage.getItem(PORT_KEY) || ""; } catch (_) { return ""; } };
+$("diag").ontoggle = () => { $("diaglog").textContent = DIAG.join("\n"); };
+$("port").onchange = () => { try { localStorage.setItem(PORT_KEY, $("port").value); } catch (_) { /* (private window) */ } };
+$("ports").onclick = () => guard(async () => {
+  if (!navigator.requestMIDIAccess) throw new Error("This browser can't talk to MIDI devices. Use Chrome or Edge.");
+  const midi = await navigator.requestMIDIAccess({ sysex: true }), sel = $("port"), keep = prefPort();
+  sel.length = 1;
+  for (const i of midi.inputs.values()) {
+    const o = document.createElement("option");
+    o.value = o.textContent = i.name;
+    sel.appendChild(o);
+  }
+  sel.value = [...sel.options].some((o) => o.value === keep) ? keep : "";
+  diag(`ports: in ${[...midi.inputs.values()].map((i) => `"${i.name}" (${i.state})`).join(", ") || "none"}; ` +
+    `out ${[...midi.outputs.values()].map((o) => `"${o.name}" (${o.state})`).join(", ") || "none"}`);
+});
+$("copydiag").onclick = () => {
+  const t = [`DREADNOUGHT editor diagnostics, ${new Date().toISOString()}`, navigator.userAgent, ...DIAG].join("\n");
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => say("Diagnostics copied.", "ok"),
+    () => say("Couldn't copy: select the text in Diagnostics instead.", "bad"));
+};
 $("connect").onclick = () => guard(async () => {
   if (!navigator.requestMIDIAccess) throw new Error("This browser can't talk to MIDI devices. Use Chrome or Edge.");
   say("Connecting…");
-  const midi = await navigator.requestMIDIAccess({ sysex: true });
+  let midi;
+  try { midi = await navigator.requestMIDIAccess({ sysex: true }); } catch (e) {
+    diag(`MIDI access refused: ${e.name} ${e.message}`);
+    throw new Error("Chrome said no to MIDI with SysEx. Click the icon at the left of the address bar, allow MIDI devices, and reload.");
+  }
   S.connLog = [];
-  const link = await connect(midi, (m) => { S.connLog.push(m); console.log("[DREADNOUGHT connect]", m); });
-  await start(link, `Connected: ${link.name}`);
+  diag(`connect (port picked: ${prefPort() || "none"})`);
+  try {
+    const link = await connect(midi, (m) => { S.connLog.push(m); diag(m); }, prefPort(), frameTap);
+    await start(link, `Connected: ${link.name}`);
+  } catch (e) { diag(`failed: ${e.message}`); $("diag").open = true; throw e; }
 });
 $("demo").onclick = () => guard(async () => {
   const { MockFM1 } = await import("./mock-fm1.js");
   if (S.mock) S.mock.close();
   S.mock = new MockFM1();
-  const link = await connect(S.mock.access);
+  const link = await connect(S.mock.access, diag, "", frameTap);
   await start(link, "Demo: a simulated FM-1 (nothing is sent to a real one)");
 });
 

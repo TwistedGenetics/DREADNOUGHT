@@ -98,6 +98,13 @@
   </section>
 </main>
 
+<details class="diag" id="diag">
+  <summary>Diagnostics (if connecting fails)</summary>
+  <div class="row small"><label>MIDI port <select id="port"><option value="">Find it by itself</option></select></label>
+    <button id="ports" class="quiet small">Look for ports</button><button id="copydiag" class="quiet small">Copy all</button></div>
+  <pre id="diaglog"></pre>
+</details>
+
 <footer>Free software, GPL-3.0. Not affiliated with M-VAVE. <a href="https://github.com/TwistedGenetics/DREADNOUGHT">Source</a></footer>
 <script type="module" src="app.js"></script>
 </body>

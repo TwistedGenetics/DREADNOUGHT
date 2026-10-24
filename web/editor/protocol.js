@@ -198,8 +198,10 @@ export class Link {
     this.output = output;
     this.wait = null;
     this.queue = Promise.resolve();
+    this.tap = null;                                  // (the Diagnostics panel: every frame both ways)
     input.onmidimessage = (ev) => {
       const d = ev.data;
+      if (this.tap && d[0] === 0xF0) this.tap("<", d);
       if (d[0] !== 0xF0 || d[1] !== HDR[0] || d[2] !== HDR[1] || d[3] !== HDR[2] || !this.wait || d[4] !== this.wait.cmd) return;
       const w = this.wait;
       this.wait = null;
@@ -209,8 +211,10 @@ export class Link {
   }
   req(cmd, args = [], ms = 2000) {
     const run = () => new Promise((resolve, reject) => {
-      this.wait = { cmd, resolve, timer: setTimeout(() => { this.wait = null; reject(new Error("The FM-1 stopped answering.")); }, ms) };
-      this.output.send([0xF0, ...HDR, cmd, ...args, 0xF7]);
+      this.wait = { cmd, resolve, timer: setTimeout(() => { this.wait = null; if (this.tap) this.tap("!", [cmd]); reject(new Error("The FM-1 stopped answering.")); }, ms) };
+      const f = [0xF0, ...HDR, cmd, ...args, 0xF7];
+      if (this.tap) this.tap(">", f);
+      this.output.send(f);
     });
     const p = this.queue.then(run, run);
     this.queue = p.catch(() => {});
@@ -262,9 +266,10 @@ export class Link {
 // the likely names are asked first, then every other port (INFO uses the non-commercial ID 7D: harmless elsewhere).
 // INFO is asked three times: the first frame after a port opens can be lost.
 const LIKELY = /dreadnought|fm-1|fm1|x0x|felucca|m-vave/i;
-export async function connect(midi, log = () => {}) {
+export async function connect(midi, log = () => {}, prefer = "", tap = null) {
   const outs = [...midi.outputs.values()], ins = [...midi.inputs.values()].filter((i) => i.state !== "disconnected");
-  const order = [...ins.filter((i) => LIKELY.test(i.name || "")), ...ins.filter((i) => !LIKELY.test(i.name || ""))];
+  const order = [...ins.filter((i) => i.name === prefer), ...ins.filter((i) => i.name !== prefer && LIKELY.test(i.name || "")),
+    ...ins.filter((i) => i.name !== prefer && !LIKELY.test(i.name || ""))];   // (the port picked on the page first)
   log(`MIDI in: ${ins.map((i) => i.name).join(", ") || "none"}; out: ${outs.map((o) => o.name).join(", ") || "none"}`);
   for (const input of order) {
     const output = outs.find((o) => o.name === input.name) ||
@@ -275,6 +280,8 @@ export async function connect(midi, log = () => {}) {
       if (output.open) await output.open();
     } catch (e) { log(`${input.name}: can't open (${e.message}): another app may have it`); continue; }
     const link = new Link(input, output);
+    link.tap = tap;
+    log(`trying ${input.name} -> ${output.name}`);
     for (let k = 0; k < 3; k++) {
       try {
         const info = await link.info();
