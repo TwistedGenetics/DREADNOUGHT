@@ -2,14 +2,16 @@
 // A simulated FM-1 running DREADNOUGHT, for the editor's demo mode and its tests: a Web MIDI access object with one
 // port that answers the editor's commands (src/app/dn_editor.c) the way the firmware does. Copyright (C) 2026 Jamie
 // (TwistedGenetics).
-import { HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC } from "./protocol.js";
+import { HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO, LFO_PTS } from "./protocol.js";
 
 const PRESETS = ["CLASSIC RS", "OG REESE", "HOLLOW RS", "TECHSTEP", "NEURO RS", "SYNC RS", "DARK RS", "SUB REESE", "HOOVER RS"];
 const LOOPS = ["ROLLER", "STEPPER"];
 const CLASSIC = [0, 70, 0, 80, 68, 18, 24, 0, 0, 70, 120, 30, 0, 36, 0, 0, 100, -24];
 const LIMITS = [[0, 5], [0, 127], [0, 7], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127], [0, 127],
   [0, 127], [0, 127], [-64, 63], [0, 127], [0, 127], [-64, 63], [0, 127], [-36, 36], [60, 200],
-  ...[0, 1].flatMap(() => [[0, 1], [-24, 24], [0, 127], [0, 127], [0, 4], [0, 2], [0, 2], [0, 127]])];
+  ...[0, 1].flatMap(() => [[0, 1], [-24, 24], [0, 127], [0, 127], [0, 4], [0, 2], [0, 2], [0, 127]]),
+  ...[0, 1, 2, 3].flatMap(() => [[0, 7], [0, 1], [0, 127], [0, 21], [-64, 63], [0, 127], [0, 2], [0, 127]])];
+const LFO0 = 18 + 1 + 16;
 
 export function demoPattern() {
   const steps = () => Array.from({ length: 64 }, () => ({ note: 53, flags: 0, len: 3, vel: 100 }));
@@ -24,7 +26,9 @@ export function demoPattern() {
 
 export class MockFM1 {
   constructor() {
-    this.params = [...CLASSIC, 172, 0, 0, 127, 0, 1, 0, 0, 100, 1, 0, 127, 0, 1, 0, 0, 100];
+    this.params = [...CLASSIC, 172, 0, 0, 127, 0, 1, 0, 0, 100, 1, 0, 127, 0, 1, 0, 0, 100,
+      ...[0, 1, 2, 3].flatMap(() => [0, 1, 7, 0, 0, 0, 0, 0])];
+    this.lfo = Array.from({ length: NLFO }, () => ({ npts: 16, pts: Array.from({ length: LFO_PTS }, (_, i) => Math.round(100 - (i % 16) * 200 / 15)) }));
     this.pattern = serializePattern(demoPattern());
     this.staging = new Uint8Array(this.pattern);
     this.rev = 1; this.playing = 0; this.preset = 0; this.dirty = 0; this.step = 0; this.saved = 0;
@@ -55,6 +59,8 @@ export class MockFM1 {
         if (i >= this.params.length) return [1];
         const [lo, hi] = LIMITS[i];
         this.params[i] = Math.max(lo, Math.min(hi, v));
+        if (i >= LFO0 && (i - LFO0) % 8 === 1) this.params[i + 1] = v ? 7 : 64;   // SYNC resets RATE (as the FM-1)
+        if (i >= LFO0 && (i - LFO0) % 8 === 2) this.params[i] = Math.min(this.params[i], this.params[i - 1] ? 15 : 127);
         this.rev++; this.dirty = 1;
         return [0];
       }
@@ -75,6 +81,23 @@ export class MockFM1 {
         this.pattern = new Uint8Array(this.staging);
         this.rev++; this.dirty = 1;
         return [0];
+      }
+      case CMD.LFO_PTS_GET: {
+        const l = this.lfo[a[0]];
+        if (!l) return null;
+        return lfoPtsArgs(a[0], l.npts, l.pts);
+      }
+      case CMD.LFO_PTS_SET: {
+        const l = this.lfo[a[0]];
+        if (!l || a.length < 2 + 2 * LFO_PTS) return [1];
+        l.npts = a[1] === 32 ? 32 : 16;
+        l.pts = Array.from({ length: LFO_PTS }, (_, i) => (a[2 + 2 * i] | a[3 + 2 * i] << 7) - 100);
+        this.rev++; this.dirty = 1;
+        return [0];
+      }
+      case CMD.LFO_NOW: {
+        const t = Date.now() / 1000;
+        return [0, 1, 2, 3].flatMap((k) => { const ph = (t * (k + 1) / 2) % 1; return [...digits(Math.floor(ph * 16384), 2), ...digits(8192 + Math.round(8191 * Math.sin(2 * Math.PI * ph)), 2)]; });
       }
       case CMD.TRANSPORT: this.playing = a[0] ? 1 : 0; if (this.playing) this.step = 0; return [this.playing];
       case CMD.SAVE: this.dirty = 0; this.saved++; return [0];

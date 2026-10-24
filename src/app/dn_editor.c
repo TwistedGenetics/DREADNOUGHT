@@ -18,19 +18,34 @@
  *   67 SAVE                    -> rc (0 kept)
  *   68 PRESET i                -> rc                                 a factory REESE sound
  *   69 NAMES kind from         -> count from, names (0 after each)   kind 0 REESE presets, 1 the loops BREAKS can play
+ *   70 LFO_PTS_GET l           -> l, npts, 32 points (2, +100)      an LFO's DRAW shape (0.9)
+ *   71 LFO_PTS_SET l npts pts  -> rc (0 set)                         32 points (2 each, +100), -100..100
+ *   72 LFO_NOW                 -> 4 x (phase (2): 14 bits, value (2): +8192, 14 bits)   where the LFOs are
+ * From 0.9 PARAMS also has the LFOs, 8 each after BREAKS B: SHAPE SYNC RATE DEST DEPTH PHASE MODE SMOOTH (SYNC
+ * before RATE: setting SYNC resets RATE).
  */
 enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT_COMMIT, ED_TRANSPORT, ED_SAVE,
-       ED_PRESETN, ED_NAMES };
+       ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW };
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
                                      DN_PX_BCHOKE, DN_PX_BSMODE, DN_PX_BSTRETCH, DN_PX_BLEVEL};
-#define DN_ED_NPARAM (RP_COUNT + 1u + 2u * 8u)
+static const uint8_t DN_ED_LFO[8] = {DN_PX_LSHAPE, DN_PX_LSYNC, DN_PX_LRATE, DN_PX_LDEST, DN_PX_LDEPTH, DN_PX_LPHASE,
+                                     DN_PX_LMODE, DN_PX_LSMOOTH};
+#define DN_ED_NBASE (RP_COUNT + 1u + 2u * 8u)       /* (0.7 / 0.8: these) */
+#define DN_ED_NPARAM (DN_ED_NBASE + DN_NLFO * 8u)
+/* the editor frames the device glue must take whole (not into its 64-byte copy) */
+static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 79u; }
 static dn_pattern_t dn_ed_pat X0X_POOL;             /* PAT_WRITE's copy, until PAT_COMMIT */
 
 /* editor parameter i: the app's id, and which BREAKS (0 / 1; -1 none) */
 static uint32_t dn_ed_id(uint32_t i, int32_t *brk)
 {
     *brk = -1;
+    if (i >= DN_ED_NBASE) {                         /* an LFO's (brk: 10 + which LFO) */
+        i -= DN_ED_NBASE;
+        *brk = 10 + (int32_t)(i / 8u);
+        return DN_ED_LFO[i % 8u];
+    }
     if (i < RP_COUNT)
         return i;
     if (i == RP_COUNT)
@@ -43,25 +58,31 @@ static int32_t dn_ed_get(uint32_t i)
 {
     int32_t brk, v;
     uint32_t id = dn_ed_id(i, &brk);
-    uint8_t trk = dn.trk;
-    if (brk >= 0)
+    uint8_t trk = dn.trk, ls = dn.lfo_sel;
+    if (brk >= 10)
+        dn.lfo_sel = (uint8_t)(brk - 10);           /* (the LFO values read the selected LFO) */
+    else if (brk >= 0)
         dn.trk = (uint8_t)(brk + 1);                /* (the BRK values read the selected track's BREAKS) */
     v = dn_get(id);
     dn.trk = trk;
+    dn.lfo_sel = ls;
     return v;
 }
 static int dn_ed_set(uint32_t i, int32_t v)
 {
     int32_t brk;
     uint32_t id;
-    uint8_t trk = dn.trk;
+    uint8_t trk = dn.trk, ls = dn.lfo_sel;
     if (i >= DN_ED_NPARAM)
         return 1;
     id = dn_ed_id(i, &brk);
-    if (brk >= 0)
+    if (brk >= 10)
+        dn.lfo_sel = (uint8_t)(brk - 10);
+    else if (brk >= 0)
         dn.trk = (uint8_t)(brk + 1);
     dn_set(id, v);
     dn.trk = trk;
+    dn.lfo_sel = ls;
     return 0;
 }
 
@@ -161,8 +182,10 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         if (na < 1u)
             return 0;
         dn_lock();
-        if (a[0] && !dn_sq.playing)
+        if (a[0] && !dn_sq.playing) {
+            dn.clk_last = 0;
             dn_seq_start(&dn_sq, &DN_SQ_CB);
+        }
         else if (!a[0] && dn_sq.playing) {
             dn_seq_stop(&dn_sq, &DN_SQ_CB);
             for (i = 0; i < DN_NBRK; i++)
@@ -171,6 +194,40 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         dn_unlock();
         dn.redraw |= DN_RD_ALL;
         put(dn_sq.playing);
+        return 1;
+    case ED_LFO_PTS_GET: {
+        const dn_lfo_p_t *l;
+        if (na < 1u || a[0] >= DN_NLFO)
+            return 0;
+        l = &dn_lp[a[0]];
+        put(a[0]);
+        put(l->npts);
+        for (i = 0; i < DN_LFO_PTS; i++)
+            dn_ed_num(put, (uint32_t)(l->pts[i] + 100), 2);
+        return 1;
+    }
+    case ED_LFO_PTS_SET: {
+        dn_lfo_p_t *l;
+        if (na < 2u + 2u * DN_LFO_PTS || a[0] >= DN_NLFO) {
+            put(1);
+            return 1;
+        }
+        l = &dn_lp[a[0]];
+        dn_lock();
+        l->npts = a[1] == 32u ? 32u : 16u;
+        l->pad[0] = 1;                              /* (drawn: SHAPE to DRAW keeps these points) */
+        for (i = 0; i < DN_LFO_PTS; i++)
+            l->pts[i] = (int8_t)dn_clamp((int32_t)(a[2u + 2u * i] | a[3u + 2u * i] << 7) - 100, -100, 100);
+        dn_unlock();
+        dn_mark();
+        put(0);
+        return 1;
+    }
+    case ED_LFO_NOW:
+        for (i = 0; i < DN_NLFO; i++) {
+            dn_ed_num(put, dn_ls[i].ph >> 18, 2);
+            dn_ed_num(put, (uint32_t)((dn_ls[i].out >> 2) + 8192), 2);
+        }
         return 1;
     case ED_SAVE:
         dn_save();

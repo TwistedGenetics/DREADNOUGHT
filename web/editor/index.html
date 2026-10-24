@@ -28,6 +28,7 @@
 <nav class="tabs" role="tablist">
   <button role="tab" data-tab="pattern" aria-selected="true">Pattern</button>
   <button role="tab" data-tab="sound">REESE</button>
+  <button role="tab" data-tab="lfos">LFOs</button>
   <button role="tab" data-tab="breaks">Breaks</button>
   <button role="tab" data-tab="files">Files</button>
 </nav>
@@ -63,6 +64,14 @@
     <div class="row"><label>Factory sound <select id="preset"></select></label>
       <span class="small">Loading a factory sound replaces the REESE settings below.</span></div>
     <div id="reese" class="groups"></div>
+  </section>
+
+  <section id="lfos" class="tab">
+    <p class="small">Four LFOs, each to one place (REESE's filter, pitch, level…, the breaks' pitch, decay, crush,
+      level, or another LFO's depth). SYNC locks the rate to the tempo. Draw on a shape to make your own (DRAW): it plays
+      as many points a cycle as you set, SMOOTH from steps to slopes. The red line: where it is now.</p>
+    <p class="small" id="lfoOld" hidden>The FM-1 runs DREADNOUGHT 0.8 or older: update it to 0.9 for the LFOs.</p>
+    <div id="lfoBox" class="groups lfos"></div>
   </section>
 
   <section id="breaks" class="tab">

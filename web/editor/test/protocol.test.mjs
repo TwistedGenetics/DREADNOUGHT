@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   pack7, unpack7, digits, num, parsePattern, serializePattern, connect, noteEnd, lenText, ST_ON, overlapSlide, setOverlapCut,
-  overlapCut, glideText,
+  overlapCut, glideText, lfoPtsArgs, parseLfoPts, lfoShapeAt,
 } from "../protocol.js";
 import { MockFM1, demoPattern } from "../mock-fm1.js";
 
@@ -96,4 +96,16 @@ test("connect: any port name, and an INFO lost after the port opens is asked aga
   assert.match(link.name, /^DREADNOUGHT/);
   assert.ok(log.some((s) => /try 1 of 3/.test(s)), log.join(" | "));
   m.close();
+});
+
+test("LFO points: the frame's bytes round trip; DRAW's picture holds and slopes as the FM-1's", () => {
+  const pts = Array.from({ length: 32 }, (_, i) => (i % 2 ? -100 : 100) - (i === 4 ? 37 : 0));
+  const a = lfoPtsArgs(2, 32, pts);
+  assert.ok(a.every((x) => x < 128));
+  const r = parseLfoPts(a);
+  assert.equal(r.lfo, 2); assert.equal(r.npts, 32); assert.deepEqual(r.pts, pts);
+  const p = { shape: 7, phase: 0, smooth: 0, npts: 16, pts: Array.from({ length: 32 }, (_, i) => (i % 2 ? -100 : 100)) };
+  assert.equal(lfoShapeAt(p, 0.06), 1);
+  p.smooth = 127;
+  assert.ok(Math.abs(lfoShapeAt(p, 1 / 32)) < 0.01);
 });

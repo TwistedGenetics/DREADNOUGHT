@@ -387,7 +387,7 @@ int main(int argc, char **argv)
             printf("  sliceset %c: %u slices, rc %d\n", b[0], cnt, dn_app_slices_set(dn_bk[k].key, cnt, st));
             run(1);
         } else if (!strcmp(a, "sysex") && n >= 2) {  /* sysex CMD [b ...]: an editor frame (decimal); the reply kept */
-            uint8_t args[64];
+            uint8_t args[128];
             uint32_t na = 0;
             char *q = ln + 5;
             long cmd = strtol(q, &q, 10);
@@ -435,6 +435,17 @@ int main(int argc, char **argv)
                 uint8_t q2[2] = {0, 0};
                 ed(69, q2, 2);
                 for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+            }
+            {   /* 0.9: LFO 1's DRAW points, where the LFOs are, and the frames the glue must take whole */
+                uint8_t q1[1] = {0};
+                fprintf(g, "],\"lfopts\":[");
+                ed(70, q1, 1);
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                fprintf(g, "],\"lfopt5\":%d,\"lfonpts\":%u,\"lfonow\":[", dn_lp[0].pts[4], dn_lp[0].npts);
+                ed(72, 0, 0);
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                fprintf(g, "],\"long\":[");
+                for (uint32_t c = 60; c <= 72; c++) fprintf(g, "%s%d", c > 60 ? "," : "", dn_ed_long(c));
             }
             fprintf(g, "]}\n");
             fclose(g);

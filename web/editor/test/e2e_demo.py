@@ -151,6 +151,28 @@ with sync_playwright() as pw:
     check("BREAKS: double-click reverses it", p.evaluate(DEV, [1, 3])["flags"] & 2)
     p.screenshot(path=str(shots / "editor-03-breaks.png"), full_page=True)
 
+    # 0.9: the LFOs: LFO 1 to CUTOFF, then a shape drawn on its canvas (it becomes DRAW), a preset on LFO 2
+    p.click("[data-tab=lfos]")
+    p.wait_for_timeout(300)
+    p.evaluate("""() => { const el = document.querySelector('.prm[data-i="38"] input'); el.value = 1;
+      el.dispatchEvent(new Event('input')); }""")
+    p.wait_for_timeout(300)
+    check("LFO 1 DEST reaches the FM-1 (CUTOFF)", p.evaluate("() => window.__dn.mock.params[38]") == 1)
+    cvb = p.locator(".lfo canvas").first.bounding_box()
+    p.mouse.move(cvb["x"] + 3, cvb["y"] + 5)
+    p.mouse.down()
+    p.mouse.move(cvb["x"] + cvb["width"] - 3, cvb["y"] + cvb["height"] - 5, steps=30)
+    p.mouse.up()
+    p.wait_for_timeout(500)
+    m = p.evaluate("() => ({shape: window.__dn.mock.params[35], pts: window.__dn.mock.lfo[0].pts})")
+    check("drawn: LFO 1 is DRAW on the FM-1", m["shape"] == 7, m["shape"])
+    check("drawn: the points fall from top left to bottom right", m["pts"][0] > 80 and m["pts"][15] < -80, m["pts"][:16])
+    p.locator(".lfo").nth(1).get_by_text("Trance gate").click()
+    p.wait_for_timeout(500)
+    m2 = p.evaluate("() => window.__dn.mock.lfo[1].pts")
+    check("preset: LFO 2 a trance gate", m2[:8] == [100, 100, -100, 100, -100, 100, 100, -100], m2[:8])
+    p.screenshot(path=str(shots / "editor-09-lfos.png"), full_page=True)
+
     # a REESE control and the transport
     p.click("[data-tab=sound]")
     p.wait_for_timeout(200)
@@ -171,7 +193,7 @@ with sync_playwright() as pw:
     with p.expect_download() as dl:
         p.click("#backup")
     data = json.loads(Path(dl.value.path()).read_text())
-    check("backup: params and pattern", data["format"] == "dreadnought-backup" and len(data["params"]) == 35)
+    check("backup: params and pattern", data["format"] == "dreadnought-backup" and len(data["params"]) == 67 and len(data["lfo"]) == 4)
     p.fill("#sndname", "Dark one")
     p.click("#keep")
     check("library: kept", p.locator("#library li").count() == 1)

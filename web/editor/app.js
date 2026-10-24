@@ -2,13 +2,15 @@
 // DREADNOUGHT web editor: the page. Copyright (C) 2026 Jamie (TwistedGenetics).
 import {
   connect, REESE, BPM_INDEX, brkParams, brkIndex, KIND, ST_ON, ST_SLIDE, ST_ACC, LEN_STEP, LEN_MAX, noteEnd, lenText,
-  noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide,
+  noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
+  lfoIndex, NPARAM, lfoShapeAt,
 } from "./protocol.js";
 
 const $ = (id) => document.getElementById(id);
 const S = {
   link: null, mock: null, st: null, params: [], presets: [], loops: [], pat: null, sel: 0, lo: 36, playStep: -1,
   writing: 0, lastRev: -1, poll: null, dirtyPat: false, drag: null, selNote: -1, zoom: 0, x0: 0,
+  lfo: null, lfoNow: null, lfoDraw: null,
 };
 const ROWS = 36, ROW_H = 14, GUT = 46;
 
@@ -26,11 +28,13 @@ async function start(link, label) {
   S.loops = await link.names(1);
   S.params = await link.params();
   S.pat = await link.readPattern(S.st.patSize);
+  S.lfo = await readLfos();
   S.lastRev = S.st.rev;
   S.sel = 0;
   fit();
   buildSound();
   buildBreaks();
+  buildLfos();
   ["play", "bpm", "save"].forEach((id) => { $(id).disabled = false; });
   say(label, "ok");
   render();
@@ -70,8 +74,10 @@ async function poll() {
     if (st.loops !== S.loops.length) { S.loops = await S.link.names(1); buildBreaks(); }
     S.params = await S.link.params();
     S.pat = await S.link.readPattern(st.patSize);
+    if (!S.lfoDraw) S.lfo = await readLfos();
     refreshValues();
   }
+  if (S.lfo && $("lfos").classList.contains("on")) S.lfoNow = await S.link.lfoNow().catch(() => null);
   const tr = S.pat.tracks[S.sel];
   S.playStep = st.playing && st.step ? (st.step - 1) % tr.len : -1;
   render();
@@ -95,6 +101,10 @@ function patternChanged() {
 const paramTimers = {};
 function setParam(i, v) {
   S.params[i] = v;
+  if (i >= lfoIndex(0, 0) && (i - lfoIndex(0, 0)) % 8 === 1) {   // SYNC resets RATE (as the FM-1 does)
+    S.params[i + 1] = v ? 7 : 64;
+    setTimeout(refreshValues, 0);
+  }
   clearTimeout(paramTimers[i]);
   paramTimers[i] = setTimeout(() => guard(async () => {
     S.writing++;
@@ -421,6 +431,7 @@ function buildSound() {
   const box = $("reese"), groups = {};
   box.textContent = "";
   REESE.forEach((p, i) => {
+    if (HIDDEN.has(p.name)) return;                  // (0.8's filter LFO: LFO 1 on the LFOs tab now)
     if (!groups[p.group]) {
       const g = document.createElement("div");
       g.className = "grp";
@@ -446,6 +457,124 @@ function buildBreaks() {
     brkParams(S.loops).forEach((p, i) => slider(g, brkIndex(k, i), p));
   });
 }
+// ---- the LFOs (0.9) ------------------------------------------------------------------------------------------
+async function readLfos() {                          // the DRAW points (an FM-1 before 0.9 has no LFOs)
+  if (!S.st || S.st.nparams < NPARAM) return null;
+  const out = [];
+  for (let k = 0; k < NLFO; k++) out.push(await S.link.lfoPts(k));
+  return out;
+}
+const LFO_PRESETS = {                                // a few shapes to start from (points, and a rate if it matters)
+  Ramp: (i, n) => 100 - (i * 200) / (n - 1),
+  Steps: (i) => [100, 40, -20, -80][i % 4],
+  "Trance gate": (i) => ([1, 1, 0, 1, 0, 1, 1, 0][i % 8] ? 100 : -100),
+  "Wobble 1/8": (i, n) => Math.round(100 * Math.cos((2 * Math.PI * i * 2) / n)),
+  "Wobble 1/4T": (i, n) => Math.round(100 * Math.cos((2 * Math.PI * i * 3) / n)),
+};
+const ptsTimers = {};
+function sendPts(k) {
+  clearTimeout(ptsTimers[k]);
+  ptsTimers[k] = setTimeout(() => guard(async () => {
+    S.writing++;
+    try { await S.link.setLfoPts(k, S.lfo[k].npts, S.lfo[k].pts); S.lastRev = (await S.link.state()).rev; } finally { S.writing--; }
+  }), 120);
+}
+function buildLfos() {
+  const box = $("lfoBox");
+  box.textContent = "";
+  $("lfoOld").hidden = !!S.lfo;
+  if (!S.lfo) return;
+  for (let k = 0; k < NLFO; k++) {
+    const g = document.createElement("div"), ps = lfoParams();
+    g.className = "grp lfo";
+    g.innerHTML = `<h3>LFO ${k + 1}</h3><div class="lfo-prm"></div>
+      <div class="lfo-draw"><canvas data-k="${k}" title="Draw the shape: click and drag (shift: a straight line). Drawing makes the shape DRAW."></canvas></div>
+      <div class="row small lfo-tools"><label>Points <select class="npts"><option>16</option><option>32</option></select></label>
+      <label>Snap <select class="snap"><option value="0">off</option><option value="50">5 levels</option><option value="25">9 levels</option></select></label>
+      <span class="pre"></span></div>`;
+    box.appendChild(g);
+    const prm = g.querySelector(".lfo-prm");
+    ps.forEach((p, i) => {
+      const q = { ...p };
+      if (p.name === "RATE") { q.text = (v) => p.text(v, S.params[lfoIndex(k, 1)]); q.max = S.params[lfoIndex(k, 1)] ? 15 : 127; }
+      slider(prm, lfoIndex(k, i), q);
+    });
+    const np = g.querySelector(".npts");
+    np.value = S.lfo[k].npts;
+    np.onchange = () => { S.lfo[k].npts = +np.value; sendPts(k); drawLfos(); };
+    const pre = g.querySelector(".pre");
+    Object.entries(LFO_PRESETS).forEach(([name, f]) => {
+      const b = document.createElement("button");
+      b.className = "quiet small";
+      b.textContent = name;
+      b.onclick = () => {
+        const n = S.lfo[k].npts;
+        S.lfo[k].pts = Array.from({ length: LFO_PTS }, (_, i) => Math.round(f(i % n, n)));
+        toDraw(k);
+        sendPts(k);
+        drawLfos();
+      };
+      pre.appendChild(b);
+    });
+    const cv = g.querySelector("canvas");
+    cv.onpointerdown = (ev) => { cv.setPointerCapture(ev.pointerId); S.lfoDraw = { k, from: lfoPoint(cv, ev, k), shift: ev.shiftKey }; paint(cv, ev, k); };
+    cv.onpointermove = (ev) => { if (S.lfoDraw && S.lfoDraw.k === k) paint(cv, ev, k); };
+    cv.onpointerup = () => { S.lfoDraw = null; sendPts(k); };
+  }
+  drawLfos();
+}
+function toDraw(k) {                                 // drawing or a preset: the shape becomes DRAW
+  const i = lfoIndex(k, 0);
+  if (S.params[i] !== 7) { setParam(i, 7); refreshValues(); }
+}
+function lfoPoint(cv, ev, k) {
+  const r = cv.getBoundingClientRect(), n = S.lfo[k].npts, snap = +cv.closest(".lfo").querySelector(".snap").value;
+  const i = Math.max(0, Math.min(n - 1, Math.floor(((ev.clientX - r.left) / r.width) * n)));
+  let v = Math.max(-100, Math.min(100, Math.round(100 - (200 * (ev.clientY - r.top)) / r.height)));
+  if (snap) v = Math.round(v / snap) * snap;
+  return { i, v };
+}
+function paint(cv, ev, k) {
+  const p = lfoPoint(cv, ev, k), L = S.lfo[k], d = S.lfoDraw;
+  if (d.shift) {                                     // a straight line from where it started
+    const a = d.from, lo = Math.min(a.i, p.i), hi = Math.max(a.i, p.i);
+    for (let i = lo; i <= hi; i++) L.pts[i] = hi === lo ? p.v : Math.round(a.v + ((p.v - a.v) * (i - a.i)) / (p.i - a.i));
+  } else L.pts[p.i] = p.v;
+  if (L.npts === 16) for (let i = 0; i < 16; i++) L.pts[i + 16] = L.pts[i];
+  toDraw(k);
+  sendPts(k);
+  drawLfos();
+}
+function drawLfos() {
+  if (!S.lfo) return;
+  document.querySelectorAll(".lfo canvas").forEach((cv) => {
+    const k = +cv.dataset.k, dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = 150;
+    if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.height = `${H}px`; }
+    const c = cv.getContext("2d"), L = S.lfo[k], n = L.npts;
+    const p = { shape: S.params[lfoIndex(k, 0)], phase: S.params[lfoIndex(k, 5)], smooth: S.params[lfoIndex(k, 7)], npts: n, pts: L.pts };
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.fillStyle = "#fbfcfd"; c.fillRect(0, 0, W, H);
+    c.fillStyle = "#e9ecf0";
+    for (let i = 0; i <= n; i++) c.fillRect(Math.round((i * W) / n), 0, 1, H);
+    c.fillStyle = "#c5cbd3"; c.fillRect(0, H / 2, W, 1);
+    if (p.shape === 7) {                             // DRAW: the points as bars
+      c.fillStyle = "#cfe3f5";
+      for (let i = 0; i < n; i++) {
+        const y = H / 2 - (L.pts[i] / 100) * (H / 2 - 4);
+        c.fillRect((i * W) / n + 2, Math.min(y, H / 2), W / n - 4, Math.abs(H / 2 - y));
+      }
+    }
+    c.strokeStyle = "#2f7fc1"; c.lineWidth = 2; c.beginPath();
+    for (let x = 0; x <= W; x++) {
+      const y = H / 2 - lfoShapeAt(p, x / W) * (H / 2 - 4);
+      if (x) c.lineTo(x, y); else c.moveTo(x, y);
+    }
+    c.stroke();
+    const now = S.lfoNow && S.lfoNow[k];
+    if (now) { c.fillStyle = "#d0402a"; c.fillRect(Math.round(now.phase * W), 0, 2, H); }
+  });
+}
+
 function refreshValues() {                           // the FM-1 changed: the controls follow (not the one in your hand)
   document.querySelectorAll(".prm").forEach((el) => {
     const i = +el.dataset.i, inp = el.querySelector("input,select");
@@ -455,6 +584,10 @@ function refreshValues() {                           // the FM-1 changed: the co
     if (v) v.textContent = el.p.text ? el.p.text(S.params[i]) : S.params[i];
   });
   if (S.st) $("preset").value = S.st.preset;
+  document.querySelectorAll(".lfo .prm").forEach((el) => {   // RATE: note lengths synced, Hz free
+    if (el.p.name === "RATE") el.querySelector("input").max = S.params[+el.dataset.i - 1] ? 15 : 127;
+  });
+  drawLfos();
 }
 
 // ---- files ------------------------------------------------------------------------------------------------------
@@ -479,7 +612,7 @@ $("file").onchange = async (ev) => {
 $("backup").onclick = () => {
   if (!S.pat) return say("Connect first.", "bad");
   download(`dreadnought-${new Date().toISOString().slice(0, 10)}.json`,
-    { format: "dreadnought-backup", version: 1, params: S.params, pattern: b64(serializePattern(S.pat)) });
+    { format: "dreadnought-backup", version: 2, params: S.params, pattern: b64(serializePattern(S.pat)), lfo: S.lfo });
 };
 $("restore").onclick = () => {
   if (!S.pat) return say("Connect first.", "bad");
@@ -490,6 +623,8 @@ $("restore").onclick = () => {
       for (let i = 0; i < o.params.length && i < S.params.length; i++) await S.link.setParam(i, o.params[i]);
       S.pat = parsePattern([...unb64(o.pattern)]);
       await S.link.writePattern(S.pat);
+      if (o.lfo && S.lfo) for (let k = 0; k < NLFO; k++) await S.link.setLfoPts(k, o.lfo[k].npts, o.lfo[k].pts);
+      S.lfo = await readLfos();
       S.params = await S.link.params();
       S.lastRev = (await S.link.state()).rev;
     } finally { S.writing--; }
@@ -502,12 +637,18 @@ $("restore").onclick = () => {
 const LIB = "dreadnought-sounds";
 const lib = () => { try { return JSON.parse(localStorage.getItem(LIB)) || []; } catch (_) { return []; } };
 const saveLib = (l) => { try { localStorage.setItem(LIB, JSON.stringify(l)); } catch (_) { /* (private window) */ } };
-const soundNow = (name) => ({ format: "dreadnought-sound", version: 1, name, reese: S.params.slice(0, REESE.length) });
+const soundNow = (name) => ({ format: "dreadnought-sound", version: 2, name, reese: S.params.slice(0, REESE.length),
+  lfos: S.lfo ? S.params.slice(lfoIndex(0, 0), lfoIndex(NLFO, 0)) : undefined, lfo: S.lfo || undefined });
 async function applySound(o) {
   if (o.format !== "dreadnought-sound") throw new Error("That file is not a DREADNOUGHT sound.");
   S.writing++;
   try {
     for (let i = 0; i < REESE.length; i++) await S.link.setParam(i, o.reese[i]);
+    if (o.lfos && S.lfo) {                           // (a sound kept with 0.9: its LFOs too)
+      for (let i = 0; i < o.lfos.length; i++) await S.link.setParam(lfoIndex(0, 0) + i, o.lfos[i]);
+      for (let k = 0; k < NLFO; k++) await S.link.setLfoPts(k, o.lfo[k].npts, o.lfo[k].pts);
+      S.lfo = await readLfos();
+    }
     S.params = await S.link.params();
     S.lastRev = (await S.link.state()).rev;
   } finally { S.writing--; }
@@ -565,6 +706,7 @@ function render() {
     ? "Click a slice's row to play it on that step, drag to move it, drag its right end to hold it longer. Shift-click: accent. Double-click: reverse. Right-click or Alt-click: delete."
     : "Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent. Double-click: slide. A note that reaches past the next one slides into it (Overlap: Slide). Right-click or Alt-click: delete. Arrow keys move the selected note (up / down, along the steps). Scroll for higher or lower notes; drag past an edge and the roll follows.";
   if ($("pattern").classList.contains("on")) { drawRoll(); drawVel(); }
+  if ($("lfos").classList.contains("on")) drawLfos();
   if (S.selNote >= 0 && tr.steps[S.selNote] && (tr.steps[S.selNote].flags & ST_ON)) {
     const st = tr.steps[S.selNote];
     $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `slice ${st.note + 1}` : noteName(st.note + (S.sel === 0 ? S.params[17] : 0))}, `

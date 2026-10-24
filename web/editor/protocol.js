@@ -7,7 +7,7 @@
 // seven top bits, then the seven bytes' low bits).
 
 export const HDR = [0x7D, 0x46, 0x4C];
-export const CMD = { INFO: 1, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
+export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
   TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
@@ -67,6 +67,57 @@ const BRK = (names) => [
 ];
 export const brkParams = (loopNames) => BRK(loopNames);
 export const brkIndex = (k, i) => REESE.length + 1 + 8 * k + i;   // BREAKS k (0 A, 1 B), its value i
+// REESE's own filter LFO of 0.8 (LRATE, LFLT): the FM-1 moves it to LFO 1, so the page doesn't show them
+export const HIDDEN = new Set(["LRATE", "LFLT"]);
+
+// ---- the LFOs (0.9): 8 values each after BREAKS B; the DRAW points and where they are by their own commands -----
+export const NLFO = 4, LFO_PTS = 32;
+export const LFO_SHAPES = ["SINE", "TRI", "SAW UP", "SAW DN", "SQUARE", "S&H", "SMOOTH", "DRAW"];
+export const LFO_DIVS = ["8 BARS", "4 BARS", "2 BARS", "1 BAR", "1/2", "1/4D", "1/2T", "1/4", "1/8D", "1/4T", "1/8",
+  "1/16D", "1/8T", "1/16", "1/16T", "1/32"];
+export const LFO_DESTS = ["OFF", "CUTOFF", "RES", "DRIVE", "NOTCH", "DETUNE", "PITCH", "SUB", "LEVEL", "F.ENV",
+  "A PITCH", "A DECAY", "A CRUSH", "A LEVEL", "B PITCH", "B DECAY", "B CRUSH", "B LEVEL",
+  "L1 DEPTH", "L2 DEPTH", "L3 DEPTH", "L4 DEPTH"];
+export const LFO_MODES = ["FREE", "RETRIG", "1-SHOT"];
+export function lfoHz(v) { return 0.05 * Math.pow(400, v / 127); }
+// as the FM-1's text (dn_app.c dn_lfo_text); RATE reads by SYNC, given as `sync`
+export const lfoParams = () => [
+  R("SHAPE", 0, 7, "", (v) => LFO_SHAPES[v]), R("SYNC", 0, 1, "", (v) => (v ? "SYNC" : "FREE")),
+  R("RATE", 0, 127, "", (v, sync) => (sync ? LFO_DIVS[Math.min(15, v)] : `${lfoHz(v) < 10 ? lfoHz(v).toFixed(2) : lfoHz(v).toFixed(1)}Hz`)),
+  R("DEST", 0, LFO_DESTS.length - 1, "", (v) => LFO_DESTS[v]), R("DEPTH", -64, 63, "", (v) => (v >= 0 ? `+${v}` : `${v}`)),
+  R("PHASE", 0, 127, "", (v) => `${Math.floor(v * 360 / 128)}°`), R("MODE", 0, 2, "", (v) => LFO_MODES[v]),
+  R("SMOOTH", 0, 127, ""),
+];
+export const lfoIndex = (k, i) => REESE.length + 1 + 16 + 8 * k + i;   // LFO k, its value i (lfoParams' order)
+export const NPARAM_08 = REESE.length + 1 + 16, NPARAM = NPARAM_08 + NLFO * 8;
+export function parseLfoPts(r) {
+  const pts = [];
+  for (let i = 0; i < LFO_PTS; i++) pts.push(num(r, 2 + 2 * i, 2) - 100);
+  return { lfo: r[0], npts: r[1], pts };
+}
+export const lfoPtsArgs = (l, npts, pts) => [l, npts, ...pts.flatMap((v) => digits(Math.max(-100, Math.min(100, Math.round(v))) + 100, 2))];
+export function parseLfoNow(r) {
+  const out = [];
+  for (let k = 0; k < NLFO; k++) out.push({ phase: num(r, 4 * k, 2) / 16384, value: (num(r, 4 * k + 2, 2) - 8192) / 8191 });
+  return out;
+}
+// the shape at a phase (0..1), as dn_lfo.c draws it (the page's picture of it)
+export function lfoShapeAt(p, x) {
+  x = ((x + p.phase / 128) % 1 + 1) % 1;
+  switch (p.shape) {
+    case 0: return Math.sin(2 * Math.PI * x);
+    case 1: return x < 0.5 ? -1 + 4 * x : 3 - 4 * x;
+    case 2: return 2 * x - 1;
+    case 3: return 1 - 2 * x;
+    case 4: return x < 0.5 ? 1 : -1;
+    case 5: case 6: return 0;
+    default: {
+      const n = p.npts === 32 ? 32 : 16, pos = x * n, i = Math.floor(pos) % n, f = pos - Math.floor(pos);
+      const a = p.pts[i] / 100, b = p.pts[(i + 1) % n] / 100, w = p.smooth / 127, edge = 1 - w;
+      return !w || f <= edge ? a : a + (b - a) * (f - edge) / w;
+    }
+  }
+}
 
 export function parseParams(r) {
   const n = r[0], v = [];
@@ -198,6 +249,9 @@ export class Link {
     if ((await this.req(CMD.PAT_COMMIT))[0]) throw new Error("The FM-1 refused the pattern.");
   }
   async transport(on) { return (await this.req(CMD.TRANSPORT, [on ? 1 : 0]))[0]; }
+  async lfoPts(l) { return parseLfoPts(await this.req(CMD.LFO_PTS_GET, [l])); }
+  async setLfoPts(l, npts, pts) { return (await this.req(CMD.LFO_PTS_SET, lfoPtsArgs(l, npts, pts)))[0]; }
+  async lfoNow() { return parseLfoNow(await this.req(CMD.LFO_NOW)); }
   async save() { return (await this.req(CMD.SAVE, [], 8000))[0]; }
   async preset(i) { return (await this.req(CMD.PRESET, [i]))[0]; }
   async info() { return String.fromCharCode(...(await this.req(CMD.INFO, [], 1500)).filter((c, i, a) => i < a.indexOf(0))); }

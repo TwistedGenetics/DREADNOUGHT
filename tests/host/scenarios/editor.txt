@@ -3,10 +3,10 @@ sysex 60
 expect replylen 22
 expect reply.5 44
 expect reply.6 1
-expect reply.19 35
+expect reply.19 67
 sysex 61
-expect replylen 71
-expect reply.0 35
+expect replylen 135
+expect reply.0 67
 # PARAM_SET: REESE DTN (1) to 80 (+8192 = 80, 64); BREAKS A PITCH (20) to +5
 sysex 62 1 80 64
 expect reply.0 0
@@ -40,3 +40,16 @@ expect reply.0 2
 sysex 99
 expect replylen 0
 golden editor-golden.json
+# 0.9: the LFOs: LFO 1's DEST to CUTOFF (parameter 38), its DRAW points (a long frame: 32 of them, 32 a cycle)
+sysex 62 38 1 64
+expect reply.0 0
+expect ldest 1
+sysex 71 0 32 0 0 6 0 12 0 18 0 24 0 30 0 36 0 42 0 48 0 54 0 60 0 66 0 72 0 78 0 84 0 90 0 96 0 102 0 108 0 114 0 120 0 126 0 4 1 10 1 16 1 22 1 28 1 34 1 40 1 46 1 52 1 58 1
+expect reply.0 0
+expect pt.1.1 -100
+expect pt.1.32 86
+sysex 70 0
+expect replylen 66
+sysex 72
+expect replylen 16
+

@@ -412,7 +412,7 @@ static void ed_service(void)
     if (!ota_frame_get(&p, &n) || n < 4u || p[0] != ED_HDR0 || p[1] != ED_HDR1 || p[2] != ED_HDR2)
         return;                                     /* not an editor frame: ota_service() reads it */
     if ((p[3] >= ED_SMP_BEGIN && p[3] <= ED_SMP_READ) || p[3] == ED_SLICE_SET || p[3] == ED_SLICE_GET ||
-        (p[3] >= 60u && p[3] <= 69u)) {
+        dn_ed_long(p[3])) {
         ed_handle(p, n);                            /* long frames (data): handled in place */
         ota_frame_done();
         return;
