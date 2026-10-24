@@ -168,6 +168,7 @@ static struct {
     uint8_t pt_view;                                /* DRAW: points 1-16 / 17-32 on the keys */
     int8_t pt_held;                                 /* DRAW: the point key held (-1: none) */
     uint32_t lfo_left;                              /* (audio) samples to the LFOs' next tick */
+    uint8_t chop_rec;                               /* SLICE: REC lit, the keys cut (key n = chop n) */
     const char *msg;                                /* a word on the status line (a refusal, what happened) ... */
     uint32_t msg_t;                                 /* ... shown until this time (ms) */
     uint8_t home_done;
@@ -534,6 +535,9 @@ static void dn_mark(void);
 static void dn_num(char *o, int32_t v);
 static uint32_t str_len_dn(const char *s);
 static void dn_say(const char *m);
+static void dn_chop_key(uint32_t c, uint32_t at);
+static void dn_cat(char *o, const char *s);
+#define DN_TAP_LATENCY_MS 12u                       /* what is heard is this far behind the decoder: a tap's place */
 static void dn_step_drop(uint32_t to);
 
 int dn_app_slices_set(uint32_t key, uint32_t n, const uint32_t *starts)
@@ -1230,6 +1234,27 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
             if (dn.rec && dn_sq.playing)
                 dn_rec_release(k);
         }
+        if ((down & (1u << k)) && dn.page == DN_PG_SLICE && DN_IS_BRK(dn.trk) && dn.chop_rec && dn.oct >= 0) {
+            dn_brk_t *bk = &dn_bk[dn.trk - 1u];     /* REC lit: this key's chop where the loop is (or the cursor) */
+            uint32_t c = k + 27u * (uint32_t)dn.oct, at = dn.sl_cur;
+            if (bk->aud) {
+                uint32_t lat = (bk->loop.rate ? bk->loop.rate : 22050u) * DN_TAP_LATENCY_MS / 1000u, pos;
+                dn_lock();
+                pos = dn_brk_pos(bk);
+                dn_unlock();
+                at = pos > lat ? pos - lat : 0u;    /* (your reaction: 12 ms) */
+            }
+            dn_chop_key(c, at);
+            if (!bk->aud && dn.sl_sel == c) {       /* stopped: hear it from its new place */
+                dn_play((uint8_t)c, 0);
+                dn_lock();
+                bk->stopend = 1;
+                dn_unlock();
+            }
+            dn_sl_show(bk);
+            dn.redraw |= DN_RD_ALL;
+            continue;
+        }
         if ((down & (1u << k)) && dn.nheld < NKEYS) {
             int legato = dn.nheld > 0u;             /* under a held key: a slide */
             dn_play(dn_key_note(k), legato || dn.play);
@@ -1667,7 +1692,7 @@ static void dn_goto(uint32_t page)
             dn_sl_fix();
             dn.sl_cur = dn_bk[dn_bsel()].start[dn.sl_sel];
             dn_sl_show(&dn_bk[dn_bsel()]);
-        } else if (dn_bk[0].aud || dn_bk[1].aud) {  /* leaving it: the loop preview stops */
+        } else if ((dn.chop_rec = 0), dn_bk[0].aud || dn_bk[1].aud) {   /* leaving it: keys play; the loop stops */
             dn_lock();
             if (dn_bk[0].aud) dn_brk_cut(&dn_bk[0]), dn_bk[0].aud = 0;
             if (dn_bk[1].aud) dn_brk_cut(&dn_bk[1]), dn_bk[1].aud = 0;
@@ -1684,7 +1709,6 @@ static void dn_goto(uint32_t page)
  * cursor, HOME deletes it (held 1 s: clears them all). Editing makes the loop's slices MANUAL (keeping the ones you
  * see); MANUAL from nothing starts empty: one slice, the whole loop. The pattern's steps keep playing the same audio
  * when chops come and go (dn_chops_remap), and the chops go to flash a few seconds after the last change. */
-#define DN_TAP_LATENCY_MS 12u                       /* what is heard is this far behind the decoder: a tap's place */
 
 static uint32_t dn_sl_width(const dn_brk_t *b)
 {
@@ -1826,6 +1850,64 @@ static void dn_chop_at(uint32_t at, int split)
     dn.sl_sel = (uint8_t)i;
     dn.redraw |= DN_RD_ALL;
 }
+/* the keys cut (REC lit on SLICE): key c's chop goes to `at` (where the loop plays, or the cursor). An existing chop
+ * moves there, the next one (one past the last) is added; the chops stay in order, so a key whose place would land
+ * before the chop below it or after the one above says so and cuts nothing. Nothing renumbers: the pattern's steps on
+ * that chop now play from its new place. */
+static void dn_chop_key(uint32_t c, uint32_t at)
+{
+    static char m[32];
+    uint32_t bi = dn_bsel(), ns, old_n, i;
+    dn_brk_t *b = &dn_bk[bi];
+    char v[8];
+    if (!b->ok)
+        return;
+    at = dn_brk_zero_near(b, at, 32u);
+    dn_lock();
+    old_n = b->nslices;
+    dn_sl_begin(b);
+    ns = b->n_man;
+    m[0] = 0;
+    if (c > ns || c >= DN_BRK_MAXSL) {              /* (a key past the next one: the ones before it first) */
+        dn_cat(m, "NEXT IS CHOP ");
+        dn_num(v, (int32_t)ns + 1);
+        dn_cat(m, v);
+    } else if (c > 0u && at < b->man_start[c - 1u] + 64u) {
+        dn_cat(m, "CHOP ");
+        dn_num(v, (int32_t)c + 1);
+        dn_cat(m, v);
+        dn_cat(m, " MUST COME AFTER ");
+        dn_num(v, (int32_t)c);
+        dn_cat(m, v);
+    } else if (c + 1u < ns && at + 64u > b->man_start[c + 1u]) {
+        dn_cat(m, "CHOP ");
+        dn_num(v, (int32_t)c + 1);
+        dn_cat(m, v);
+        dn_cat(m, " MUST COME BEFORE ");
+        dn_num(v, (int32_t)c + 2);
+        dn_cat(m, v);
+    } else if (at + 64u > b->loop.n) {
+        dn_cat(m, "TOO NEAR THE END");
+    }
+    if (m[0]) {
+        dn_unlock();
+        dn_say(m);
+        return;
+    }
+    for (i = 0; i < old_n && i < DN_BRK_MAXSL; i++)
+        if (i == c)
+            dn_sl_old[i] = at;                      /* (the steps on chop c stay on chop c) */
+    b->man_start[c] = at;
+    if (c == ns)
+        b->n_man++;
+    dn_sl_end(bi, old_n);
+    dn_unlock();
+    dn.sl_sel = (uint8_t)c;
+    if (!b->aud)
+        dn.sl_cur = at;
+    dn_say(c == ns ? "ADDED" : "MOVED");
+}
+
 static void dn_chop_move(void)                      /* the selected chop to the cursor (FX) */
 {
     uint32_t bi = dn_bsel(), old_n, ns, lo, hi, at;
@@ -1972,7 +2054,8 @@ void dn_app_input(void)
     dn_chops_flush();
     if (dn.page == DN_PG_SLICE) {                   /* chop mode's buttons (before the usual ones take them) */
         dn_brk_t *bk = &dn_bk[dn_bsel()];
-        if (press & (1u << B_REC)) {                /* CHOP: at the cursor, or where the loop is playing */
+        if ((press & (1u << B_REC)) && dn.save_held) {   /* SAVE + REC: a chop between the others, at the cursor (or
+                                                     * where the loop plays); the ones after it move up a key */
             uint32_t at = dn.sl_cur;
             if (bk->aud) {
                 uint32_t lat = (bk->loop.rate ? bk->loop.rate : 22050u) * DN_TAP_LATENCY_MS / 1000u, pos;
@@ -1981,7 +2064,11 @@ void dn_app_input(void)
                 dn_unlock();
                 at = pos > lat ? pos - lat : 0u;
             }
-            dn_chop_at(at, !bk->aud);              /* (tapping along: never a split) */
+            dn_chop_at(at, !bk->aud);
+            dn.save_chord = 1;
+        } else if (press & (1u << B_REC)) {         /* REC: the keys cut (lit) / play (off) */
+            dn.chop_rec = (uint8_t)!dn.chop_rec;
+            dn_say(dn.chop_rec ? "KEYS CUT" : "KEYS PLAY");
         }
         if (press & (1u << B_FX))
             dn_chop_move();
@@ -2994,10 +3081,11 @@ static void dn_draw_bottom(void)
         if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0)
             cv_text(232 - text_w(&FONT_T, dn.msg), 127, &FONT_T, dn.msg, DN_C_RED);
         else
-            cv_text(232 - text_w(&FONT_T, b->aud ? "REC: CHOP HERE" : b->nslices <= 1u ? "CURSOR, THEN REC"
-                                                                    : "REC CHOP FX MOVE HOME DEL"),
-                    127, &FONT_T, b->aud ? "REC: CHOP HERE" : b->nslices <= 1u ? "CURSOR, THEN REC"
-                                                              : "REC CHOP FX MOVE HOME DEL", DN_C_LABEL);
+        {
+            const char *h = dn.chop_rec ? (b->aud ? "KEYS CUT ON THE HITS" : "KEYS CUT AT CURSOR")
+                          : b->aud ? "REC: KEYS CUT" : "REC KEYS CUT  FX MOVE";
+            cv_text(232 - text_w(&FONT_T, h), 127, &FONT_T, h, dn.chop_rec ? DN_C_RED : DN_C_LABEL);
+        }
         cv_blit(0, 96);
         return;
     }
@@ -3069,13 +3157,16 @@ void dn_app_draw(int force)
             }
         }
     }
-    if (dn.page == DN_PG_SLICE && DN_IS_BRK(dn.trk)) {   /* chop mode: the keys with a chop dim, the selected lit */
+    if (dn.page == DN_PG_SLICE && DN_IS_BRK(dn.trk)) {   /* chop mode: the keys with a chop dim, the selected lit;
+                                                     * cutting (REC lit): the next key to cut lit too */
         uint32_t ns = dn_slices(dn.trk);
+        if (dn.chop_rec)
+            lit |= 1u << B_REC;
         for (k = 0; k < NKEYS; k++) {
             uint32_t c = k + 27u * (uint32_t)dn.oct;
-            if (dn.oct < 0 || c >= ns)
+            if (dn.oct < 0 || c > ns || (c == ns && !dn.chop_rec))
                 continue;
-            if (c == dn.sl_sel)
+            if (c == dn.sl_sel || c == ns)
                 keys |= 1u << k;
             else
                 dim |= 1u << k;

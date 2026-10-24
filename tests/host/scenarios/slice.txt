@@ -22,12 +22,16 @@ tap FX
 expect smode.1 2
 expect sl.1.4 >12300
 turn K2 1
+press SAVE
 tap REC
+release SAVE
 expect ns.1 22
 shot slice-03-added.png
 tap HOME
 expect ns.1 21
+press SAVE
 tap REC
+release SAVE
 expect ns.1 22
 # kept over a restart (chops save themselves; SAVE for the rest)
 tap SAVE

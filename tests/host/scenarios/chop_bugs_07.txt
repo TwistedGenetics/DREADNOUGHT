@@ -15,5 +15,7 @@ expect slsel <21
 # (2) a chop can be put anywhere: the cursor far into the loop in a few turns, CHOP there
 turn K2 40
 expect cursor >30000
+press SAVE
 tap REC
+release SAVE
 expect ns.1 22

@@ -1,5 +1,5 @@
-# DREADNOUGHT host scenario (0.9): "the chop knob won't move off chop 1, so I can't set new chops". Every way in:
-# from a sound page with REESE selected, MANUAL chosen on BRK2 (empty the first time), REC straight away.
+# DREADNOUGHT host scenario (0.9): chopping by key. "Chop knob won't move off chop 1": with one chop KNOB 1 moves the
+# cursor; with REC lit each key puts its own chop (key 1 = chop 1, key 2 = chop 2 ...), in order, never silently.
 expect trk 1
 tap ARP
 tap ARP
@@ -11,25 +11,45 @@ tap ARP
 expect page 10
 expect cursor 0
 shot stuck-01-empty.png
-# REC on chop 1 (the cursor at 0): the loop splits in half, with a word on the screen
-tap REC
-expect ns.1 2
-expect sl.1.2 >38000
-expect sl.1.2 <40000
-shot stuck-02-split.png
-# KNOB 1 with two chops selects; HOME deletes back to one; then KNOB 1 moves the cursor
-turn K1 1
-expect slsel 1
-tap HOME
-expect ns.1 1
-# (the cursor was on chop 2, at the half: two eighths on)
+# one chop: KNOB 1 moves the cursor (two eighths of the loop)
 turn K1 2
-expect cursor >57000
+expect cursor >19000
+expect cursor <20000
+# REC: keys cut. Key 2 (index 1) adds chop 2 at the cursor
 tap REC
+tapkey 1 5
 expect ns.1 2
-expect sl.1.2 >57000
-expect sl.1.2 <59500
-# REC right by a chop (the cursor just past chop 2): a split of that slice, never nothing
-turn K3 3
-tap REC
+expect sl.1.2 >19000
+expect sl.1.2 <20000
+shot stuck-02-key.png
+# key 4 before key 3: refused, it says why
+turn K2 2
+tapkey 3 5
+expect ns.1 2
+shot stuck-03-refused.png
+tapkey 2 5
 expect ns.1 3
+expect sl.1.3 >38000
+# out of order: the cursor back before chop 2, key 3: refused (chop 3 must come after 2)
+turn K2 -2
+tapkey 2 5
+expect sl.1.3 >38000
+# a retake: chop 2 again, later (half way to chop 3): it moves, nothing added
+turn K2 1
+tapkey 1 5
+expect ns.1 3
+expect sl.1.2 >29000
+expect sl.1.2 <29500
+# the pattern's steps on a chop keep that chop when it moves (no renumbering)
+expect slsel 1
+# by ear: the loop playing, key 4 on a hit
+tap PLAY
+wait 700
+tapkey 3 5
+expect ns.1 4
+tap PLAY
+# REC off: the keys play and select again
+tap REC
+tapkey 2 60
+expect slsel 2
+expect ns.1 4

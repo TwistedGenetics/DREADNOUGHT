@@ -4,7 +4,7 @@ A dark jungle / drum & bass firmware for the **M-VAVE FM-1**: Reese and dread ba
 wavetables (with Serum import), a Rex-style break chopper, pads, tech stabs and a heavy FX section,
 sequenced from the box, with a Massive-style interface.
 
-**Status: 0.9 — LFOs you can draw, a progress bar, moving notes, chop mode fixed.** DREADNOUGHT's own app, screen and engines on [X0X](https://github.com/charlesvestal/fm1-x0x)'s
+**Status: 0.10 — chop on the keys; LFOs you can draw, a progress bar, moving notes.** DREADNOUGHT's own app, screen and engines on [X0X](https://github.com/charlesvestal/fm1-x0x)'s
 proven FM-1 platform (boot-loop guard, safe mode, USB, storage, updates). First engine: **REESE**, measured against
 the maths (see [docs/REESE.md](docs/REESE.md)), an 8-track step sequencer, and BREAKS, a Rex-style break chopper: track 1 plays
 REESE, tracks 2 and 3 chop breaks (two built in, or your own from the [breaks page](https://twistedgenetics.github.io/DREADNOUGHT/breaks/)),
@@ -27,14 +27,14 @@ remember the name from earlier firmware), Connect, and send the text from **Copy
 
 ## Download & install
 
-Go to [**Releases**](https://github.com/TwistedGenetics/DREADNOUGHT/releases/latest) and download `DREADNOUGHT-0.9.fwsc`
+Go to [**Releases**](https://github.com/TwistedGenetics/DREADNOUGHT/releases/latest) and download `DREADNOUGHT-0.10.fwsc`
 (the newest version's file). It's a beta that hasn't been played on a real FM-1 yet: read
 [docs/RECOVERY.md](docs/RECOVERY.md) first and back up your FM-1.
 
 - **Web flasher:** open [twistedgenetics.github.io/DREADNOUGHT/flasher](https://twistedgenetics.github.io/DREADNOUGHT/flasher/)
   in Chrome or Edge with the FM-1 on USB, back up, then pick the newest release from the list or choose the
   `.fwsc` file you downloaded, and press Install.
-- **Command line:** X0X's installer, `python3 x0x-firmware/tools/fm1_install.py DREADNOUGHT-0.9.fwsc` (needs `pip install mido python-rtmidi`).
+- **Command line:** X0X's installer, `python3 x0x-firmware/tools/fm1_install.py DREADNOUGHT-0.10.fwsc` (needs `pip install mido python-rtmidi`).
 
 The FM-1 restarts on the DREADNOUGHT screen. Press **PLAY** to hear the demo reese line.
 
@@ -63,20 +63,24 @@ The FM-1 restarts on the DREADNOUGHT screen. Press **PLAY** to hear the demo ree
 | SAVE held + OCT− / OCT+ | copy / paste the bar in view of the selected track |
 | OCT− + OCT+ held 5 s | update mode (recovery) |
 
-**Chop mode (ARP → BRK → BRK2 → SLICE)**, the MPC / SP-1200 way: a break in MANUAL starts as one slice, the whole
-loop, and you chop it where you hear the hits. Chops save themselves (3 s after the last edit, no SAVE needed), and
+**Chop mode (ARP → BRK → BRK2 → SLICE)**, the MPC / SP-404 way: a break in MANUAL starts as one slice, the whole
+loop, and you put each chop on its own key: press PLAY (the loop runs), press REC (lit: the keys cut), and hit the
+lowest key on the first hit, the next key on the next, and so on. Each key's chop lands where you hit it; hit a key
+again to retake it. REC off: the keys play the chops. Chops save themselves (3 s after the last edit, no SAVE needed), and
 adding or deleting one never changes what your pattern plays (the steps follow their chop).
 
 | Control (SLICE page) | Does |
 |---|---|
+| REC | the keys cut (lit) or play (off) |
+| Keys, REC lit | key n puts chop n where the loop is playing (PLAY) or, stopped, at the cursor; a key with a chop moves it (a retake), the next key adds one; the chops stay in order, so a key that would land before the chop below it or after the one above says so and cuts nothing; lit: the next key to cut |
+| Keys, REC off | play chop 1, 2, 3 … from the lowest key (OCT+ for the 28th and up), and select it; lit: the selected chop, dim: the others |
+| SAVE held + REC | a chop between the others, at the cursor (or where the loop plays): the ones after it move up a key (and the pattern's steps with them) |
 | KNOB 1 | select a chop (the cursor jumps to it, you hear it); with only one chop: moves the cursor |
 | KNOB 2 / KNOB 3 | the cursor through the loop: coarse (an eighth of the screen a detent) / fine (4 samples) |
 | KNOB 4 | zoom: the whole loop … 1/64 of it, around the cursor |
-| REC | chop at the cursor (snapped to a zero crossing); on a chop (an empty loop's cursor sits on chop 1): splits that slice in half; while PLAY loops it: chop where it's playing (tap along to the beat). It always does something, or says why not on the status line |
 | PLAY | loop the break from the cursor (again: stop) |
 | FX | move the selected chop to the cursor |
 | HOME | delete the selected chop; held 1 s: delete them all |
-| Keys | play chop 1, 2, 3 … from the lowest key (OCT+ for the 28th and up), and select it; lit: the selected chop, dim: the others |
 | SAVE held + OCT− / OCT+ | start from AUTO's hits / from the GRID instead |
 
 On MIDI tracks an overlap sends the new note-on before the old note-off (legato for the synth on the other end); the
@@ -116,7 +120,7 @@ each run attaches the `.fwsc` package as an artifact. To build on Linux x86-64 y
 ```
 git submodule update --init                     # X0X's platform, pinned
 tools/get_deps.sh                               # JieLi toolchain + 3 AC79 SDK files, hash-checked
-python3 tools/build_fm1.py --release 0.8        # build/fm1/DREADNOUGHT-0.9.fwsc (preflight included)
+python3 tools/build_fm1.py --release 0.8        # build/fm1/DREADNOUGHT-0.10.fwsc (preflight included)
 ```
 
 ## Tests

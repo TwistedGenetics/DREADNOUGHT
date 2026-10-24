@@ -197,3 +197,17 @@ moving), scenarios `chop_stuck`, `progress` (click timing to the sample, count-i
 editor's LFO commands and golden replies, the web editor end to end (drawing, presets, Diagnostics). Not yet tested
 on a real FM-1.
 
+## 0.10 — chop on the keys (2026-10-24)
+
+- **Chop mode, the MPC / SP-404 way** (the user's idea): REC on the SLICE page makes the keys cut. Key n puts chop n
+  where the loop is playing (PLAY) or, stopped, at the cursor; a key that has a chop moves it (a retake), the next key
+  adds one, and the chops stay in order (a key that would land out of order says so and cuts nothing). REC off: the
+  keys play the chops, as before. SAVE + REC puts a chop between others (the ones after move up a key, the pattern's
+  steps with them). REC no longer chops at the cursor by itself.
+- **The web editor reads the pattern again on a real FM-1:** it asked for 200 bytes in one SysEx byte (over 127:
+  Chrome refused the frame; found with the new Diagnostics). The simulated FM-1 now refuses 8-bit bytes as Web MIDI
+  does.
+
+Tested on the host (`chop_stuck`: keys cutting at the cursor and by ear, order refused, a retake, REC off playing;
+`chop`, `slice`, `chop_bugs_07` updated). Not yet tested on a real FM-1.
+

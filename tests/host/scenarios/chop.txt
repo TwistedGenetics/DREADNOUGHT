@@ -1,5 +1,6 @@
 # DREADNOUGHT host scenario: chop mode (0.8). The SLICE page: start empty, a cursor (K2 coarse, K3 fine, K4 zoom),
-# REC chops at the cursor (or where the loop plays, PLAY on this page), FX moves the selected chop to the cursor,
+# REC lit: the keys cut (key n = chop n, at the cursor, or where the loop plays with PLAY on this page); SAVE + REC
+# puts a chop between others; FX moves the selected chop to the cursor,
 # HOME deletes it (held 1 s: all). The keys pick a chop. Chops keep the pattern's audio and save themselves.
 # --- pattern steps on BREAKS A first (DRUM page): slices 2, 3, 5 on steps 1, 3, 5
 tap SEQ
@@ -31,7 +32,10 @@ turn K4 3
 turn K2 1
 expect cursor >5000
 expect cursor <7000
+# SAVE + REC: a chop between chops 2 and 3 (the later ones move up a key, and the steps with them)
+press SAVE
 tap REC
+release SAVE
 expect ns.1 22
 expect smode.1 2
 expect slsel 2
@@ -56,12 +60,15 @@ expect cursor 0
 shot chop-02-empty.png
 turn K4 -6
 turn K4 1
-turn K2 1
+# REC: the keys cut. Keys 1, 2, 3 (the second, third, fourth keys) put chops 2, 3, 4 at the cursor
 tap REC
+expect rec 0
 turn K2 1
-tap REC
+tapkey 1 5
 turn K2 1
-tap REC
+tapkey 2 5
+turn K2 1
+tapkey 3 5
 expect ns.1 4
 expect sl.1.2 >4800
 expect sl.1.2 <4950
@@ -76,7 +83,7 @@ turn K3 -4
 tap FX
 expect sl.1.3 <9700
 shot chop-03-cursor.png
-# --- tap-to-chop: PLAY runs the loop from the cursor, REC chops where it plays (12 ms early: the reaction)
+# --- cutting by ear: PLAY runs the loop from the cursor, key 4 (chop 5) cuts where it plays (12 ms early: the reaction)
 turn K1 1
 expect slsel 3
 tap PLAY
@@ -84,13 +91,15 @@ expect aud.1 1
 wait 500
 expect pos.1 >27700
 expect pos.1 <28000
-tap REC
+tapkey 4 5
 expect ns.1 5
 expect sl.1.5 >27400
 expect sl.1.5 <27750
 shot chop-04-playing.png
 tap PLAY
 expect aud.1 0
+# REC off: the keys play their chops again
+tap REC
 # --- a key picks its chop (BREAKS: key 0 = chop 1)
 key 2 down
 expect slsel 2
