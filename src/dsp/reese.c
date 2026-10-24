@@ -326,7 +326,7 @@ void reese_render(reese_t *r, int32_t *lr, uint32_t n)
         /* the LFO on the cutoff (a sine), advanced once a block of this length */
         r->lph += (uint32_t)(((uint64_t)DN_LFO_INC[dn_clamp(p[RP_LRATE], 0, 127)] * len) >> 5);
         lfo = p[RP_LFLT] ? (dn_sine(r->lph) * p[RP_LFLT]) >> 6 : 0;          /* +-32 steps of cutoff at full depth */
-        cut = (p[RP_CUT] << 8) + r->mod[RP_CUT] + (int32_t)(((int64_t)(r->fenv >> 8) * RS_M(r, RP_FENV, -64, 63)) >> 14)
+        cut = (p[RP_CUT] << 8) + r->mod[RP_CUT] + (int32_t)(((int64_t)(r->fenv >> 8) * RS_M(r, RP_FENV, -64, 63)) >> 8)
               + lfo;   /* FENV 63: +63 steps */
 
         /* the drift: a twice-smoothed random walk per oscillator, pulled back to centre */

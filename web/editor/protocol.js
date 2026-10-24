@@ -77,7 +77,8 @@ export const LFO_DIVS = ["8 BARS", "4 BARS", "2 BARS", "1 BAR", "1/2", "1/4D", "
   "1/16D", "1/8T", "1/16", "1/16T", "1/32"];
 export const LFO_DESTS = ["OFF", "CUTOFF", "RES", "DRIVE", "NOTCH", "DETUNE", "PITCH", "SUB", "LEVEL", "F.ENV",
   "A PITCH", "A DECAY", "A CRUSH", "A LEVEL", "B PITCH", "B DECAY", "B CRUSH", "B LEVEL",
-  "L1 DEPTH", "L2 DEPTH", "L3 DEPTH", "L4 DEPTH", "SUB CUT", "SUB RES", "SUB DRIVE", "SUB PITCH", "SUB LEVEL", "SUB PW"];
+  "L1 DEPTH", "L2 DEPTH", "L3 DEPTH", "L4 DEPTH", "SUB CUT", "SUB RES", "SUB DRIVE", "SUB PITCH", "SUB LEVEL", "SUB PW",
+  "SUB ENV", "SUB SUB", "SUB CRUSH", "SUB TONE", "SUB PULSE", "SUB NOISE"];
 export const LFO_MODES = ["FREE", "RETRIG", "1-SHOT"];
 export function lfoHz(v) { return 0.05 * Math.pow(400, v / 127); }
 // as the FM-1's text (dn_app.c dn_lfo_text); RATE reads by SYNC, given as `sync`

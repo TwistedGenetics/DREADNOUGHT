@@ -116,29 +116,29 @@ typedef struct { const char *name; int8_t v[SP_COUNT]; } dn_sub_preset_t;
 /*        SAW PUL SUB NOI  PW PWM PWR SBM  CUT RES ENV KEY  DRV TYP CRU TON  ATK DEC SUS REL  GLI GMO ACC VCA LEV TRN SPL */
 static const dn_sub_preset_t SB_PRESETS[] = {
     /* dread: a pulse and the sub, the filter low and round, driven soft, the clean low end split off */
-    {"DREAD",    {40, 90, 110, 0,  30,  0,  0,  0,  48, 30, 20, 40,  70,  0,  0, 90,   0, 70, 110, 30,  40, 1, 60, 0, 100, -24, 70}},
+    {"DREAD", {40, 90, 110, 0, 30, 0, 0, 0, 48, 30, 6, 40, 70, 0, 0, 90, 0, 70, 110, 30, 40, 1, 60, 0, 100, -24, 70}},
     /* donk: a short, plucky, resonant square bounce (the hardcore donk), quick decay */
-    {"DONK", {0, 120, 60, 0, 0, 0, 0, 0, 56, 90, 40, 64, 40, 1, 0, 110, 0, 40, 30, 20, 0, 0, 90, 0, 127, -12, 60}},
+    {"DONK", {0, 120, 60, 0, 0, 0, 0, 0, 56, 90, 30, 64, 40, 1, 0, 110, 0, 40, 30, 20, 0, 0, 90, 0, 127, -12, 60}},
     /* rolling sub: mostly sub and a little saw, the filter closed, a sine-ish rolling bass for steppers */
-    {"ROLLER", {30, 0, 127, 0, 0, 0, 0, 0, 38, 10, 10, 30, 30, 0, 0, 70, 2, 80, 120, 34, 30, 1, 40, 0, 127, -24, 90}},
+    {"ROLLER", {30, 0, 127, 0, 0, 0, 0, 0, 38, 10, 4, 30, 30, 0, 0, 70, 2, 80, 120, 34, 30, 1, 40, 0, 127, -24, 90}},
     /* wobble: resonant saw with the PWM; put an LFO on CUTOFF (LFO page) for the wobble */
-    {"WOBBLE",   {110, 60, 90, 0, 40, 60, 50,  0,  50, 70, 10, 50,  80,  0,  0, 100,  0, 70, 120, 30, 20, 1, 50, 0, 100, -24, 70}},
+    {"WOBBLE", {110, 60, 90, 0, 40, 60, 50, 0, 50, 70, 6, 50, 80, 0, 0, 100, 0, 70, 120, 30, 20, 1, 50, 0, 100, -24, 70}},
     /* acid: the 101 / 303 squelch: saw, high resonance, big envelope, accent and auto glide */
-    {"ACID 101", {127, 0, 30, 0, 0, 0, 0, 0, 44, 104, 50, 64, 50, 0, 0, 120, 0, 50, 20, 30, 50, 1, 110, 0, 127, -12, 0}},
+    {"ACID 101", {127, 0, 30, 0, 0, 0, 0, 0, 44, 104, 40, 64, 50, 0, 0, 120, 0, 50, 20, 30, 50, 1, 110, 0, 127, -12, 0}},
     /* an 808-style sine sub: the filter shut on the sub alone, folded for harmonics above the split */
-    {"808 SUB",  {0, 0, 127, 0,    0,  0,  0,  0,  20, 0, 30, 40,  90,  2,  0, 90,   0, 90, 0, 60,   45, 2, 30, 0, 100, -24, 100}},
+    {"808 SUB", {0, 0, 127, 0, 0, 0, 0, 0, 20, 0, 8, 40, 90, 2, 0, 90, 0, 90, 0, 60, 45, 2, 30, 0, 100, -24, 100}},
     /* growl: hard-driven saw and pulse, mid resonance, a slow PWM: the techstep growl */
-    {"GROWL", {120, 100, 80, 10, 60, 70, 30, 0, 62, 60, 20, 50, 120, 1, 0, 80, 0, 70, 120, 30, 20, 1, 60, 0, 60, -24, 80}},
+    {"GROWL", {120, 100, 80, 10, 60, 70, 30, 0, 62, 60, 8, 50, 120, 1, 0, 80, 0, 70, 120, 30, 20, 1, 60, 0, 60, -24, 80}},
     /* square sub: the 25 % pulse two octaves down under a hollow square: the 101 sub sound */
-    {"SQUARE SB", {0, 100, 127, 0, 0, 0, 0, 2, 52, 20, 10, 40, 20, 0, 0, 100, 0, 70, 120, 30, 0, 0, 40, 1, 120, -12, 0}},
+    {"SQUARE SB", {0, 100, 127, 0, 0, 0, 0, 2, 52, 20, 4, 40, 20, 0, 0, 100, 0, 70, 120, 30, 0, 0, 40, 1, 120, -12, 0}},
     /* punch: a fast filter snap on saw and sub, gated amp: the 101's tight bass */
-    {"PUNCH",    {100, 0, 100, 0,  0,  0,  0,  0,  40, 50, 60, 64,  50,  0,  0, 110,  0, 30, 0, 10,    0, 0, 80, 1, 100, -24, 60}},
+    {"PUNCH", {100, 0, 100, 0, 0, 0, 0, 0, 40, 50, 28, 64, 50, 0, 0, 110, 0, 30, 0, 10, 0, 0, 80, 1, 100, -24, 60}},
     /* tech sub: rectified for an octave-up rasp over a clean sub */
-    {"TECH SUB", {80, 80, 110, 0, 50, 20, 40, 0, 58, 40, 20, 50, 70, 3, 0, 90, 0, 70, 120, 30, 20, 1, 50, 0, 70, -24, 110}},
+    {"TECH SUB", {80, 80, 110, 0, 50, 20, 40, 0, 58, 40, 8, 50, 70, 3, 0, 90, 0, 70, 120, 30, 20, 1, 50, 0, 70, -24, 110}},
     /* crushed: bits and rate down on a resonant pulse, the low end kept clean: lo-fi jungle */
-    {"CRUSHED",  {60, 110, 100, 0, 20, 30, 20, 0,  60, 50, 20, 50,  40,  0, 70, 90,   0, 70, 120, 30, 20, 1, 50, 0, 100, -24, 80}},
+    {"CRUSHED", {60, 110, 100, 0, 20, 30, 20, 0, 60, 50, 8, 50, 40, 0, 70, 90, 0, 70, 120, 30, 20, 1, 50, 0, 100, -24, 80}},
     /* rave stab: bright saw + pulse, noise, a short env: the old-skool bleep-bass hit */
-    {"RAVE STAB", {127, 90, 40, 30, 30, 40, 70, 0, 70, 60, 40, 64, 60, 0, 0, 127, 0, 50, 20, 40, 0, 0, 70, 0, 120, 0, 0}},
+    {"RAVE STAB", {127, 90, 40, 30, 30, 40, 70, 0, 70, 60, 28, 64, 60, 0, 0, 127, 0, 50, 20, 40, 0, 0, 70, 0, 120, 0, 0}},
 };
 #define SB_NPRESETS (sizeof SB_PRESETS / sizeof SB_PRESETS[0])
 uint32_t dn_sub_preset_count(void) { return SB_NPRESETS; }
@@ -329,7 +329,7 @@ void dn_sub_render(dn_sub_t *s, int32_t *lr, uint32_t n)
         lsaw = SB_M(s, SP_SAW, 0, 127) * 100;
         lpul = SB_M(s, SP_PULSE, 0, 127) * 100;
         lsub = SB_M(s, SP_SUB, 0, 127) * 110;
-        lnoi = SB_M(s, SP_NOISE, 0, 127) * 60;
+        lnoi = SB_M(s, SP_NOISE, 0, 127) * 90;
         for (i = 0; i < len; i++) {
             int32_t x = 0;
             uint32_t q = s->ph, sq = s->sph;
@@ -344,7 +344,8 @@ void dn_sub_render(dn_sub_t *s, int32_t *lr, uint32_t n)
             s->sph = sq + sinc;
         }
         cut = (p[SP_CUT] << 8) + s->mod[SP_CUT]
-              + (int32_t)(((int64_t)(s->env >> 8) * (SB_M(s, SP_ENV, -64, 63) + (s->acc ? p[SP_ACC] / 3 : 0))) >> 14)
+              + (int32_t)(((int64_t)(s->env >> 8) * (SB_M(s, SP_ENV, -64, 63) + (s->acc ? p[SP_ACC] / 6 : 0))) >> 8)   /* ENV 63:
+                                                     * +63 steps (4.5 octaves) at the envelope's top */
               + ((s->note - 60) * SB_SEMI * SB_M(s, SP_KEY, 0, 127)) / 127 + (s->acc ? p[SP_ACC] * 8 : 0);
         sb_ladder_coef(&lc, cut, SB_M(s, SP_RES, 0, 127));
         drive = SB_M(s, SP_DRIVE, 0, 127);
@@ -357,7 +358,12 @@ void dn_sub_render(dn_sub_t *s, int32_t *lr, uint32_t n)
         {
             uint32_t pos = SB_CTL - s->ctl;
             int32_t a0 = s->amp_now, da = s->amp_next - s->amp_now;
-            int32_t ta = tone >= 127 ? 32768 : 600 + tone * tone * 2;
+            int32_t ta = 32768;                     /* TONE: a one-pole from 120 Hz (0) up to open (127) */
+            if (tone < 127) {
+                float g = (float)dn_svf_g16(24 * 256 + tone * 103 * 256 / 127) / 65536.0f;
+                ta = (int32_t)(2.0f * g / (1.0f + g) * 32768.0f);
+                if (ta > 32768) ta = 32768;
+            }
             for (i = 0; i < len; i++) {
                 int32_t amp = a0 + ((da * (int32_t)(pos + i)) >> 5), x, lo = 0, hi, y;
                 x = sb_ladder_tick(&lc, buf[i], s->lad);

@@ -154,6 +154,37 @@ int main(int argc, char **argv)
         render(&s, 64);
         check("AUTO: a fresh note jumps", s.pitch256 == 45 * 256, s.pitch256, 45 * 256);
     }
+    /* 6b: every value an LFO can reach on SUB changes the sound (its modulation, as the app sets it) */
+    {
+        static const int K[] = {SP_CUT, SP_RES, SP_DRIVE, SP_LEVEL, SP_PW, SP_ENV, SP_SUB, SP_CRUSH, SP_TONE, SP_PULSE, SP_NOISE};
+        static int32_t ref[2u * 22050u];
+        for (unsigned j = 0; j < sizeof K / sizeof K[0]; j++) {
+            double d = 0, e = 0;
+            char t[80];
+            for (int m = 0; m < 2; m++) {
+                zero_all(&s);
+                s.p[SP_SAW] = 60, s.p[SP_PULSE] = 60, s.p[SP_SUB] = 60, s.p[SP_NOISE] = 0, s.p[SP_PW] = 30;
+                s.p[SP_CUT] = 70, s.p[SP_RES] = 40, s.p[SP_ENV] = 20, s.p[SP_DRIVE] = 30, s.p[SP_TONE] = 60;
+                s.p[SP_SUS] = 80, s.p[SP_DEC] = 60, s.p[SP_LEVEL] = 80;
+                if (m) s.mod[K[j]] = 40 * 256;
+                dn_sub_note_on(&s, 45, 100, 0, 0);
+                render(&s, 22050);
+                if (!m) memcpy(ref, lr, sizeof ref);
+            }
+            for (uint32_t i = 2205; i < 22050; i++) {
+                double a = ref[2u * i], b = lr[2u * i];
+                d += (a - b) * (a - b), e += a * a;
+            }
+            snprintf(t, sizeof t, "LFO on SUB's %s: the sound changes (difference / signal energy)", dn_sub_param_name((uint32_t)K[j]));
+            check(t, d / e > (K[j] == SP_NOISE || K[j] == SP_CRUSH ? 0.003 : 0.01), d / e, 1);
+        }
+        zero_all(&s);
+        s.p[SP_SAW] = 100;
+        s.mod_pitch = 12 * 256;
+        dn_sub_note_on(&s, 45, 100, 0, 0);
+        render(&s, FS);
+        check("LFO on SUB's PITCH: +12 is an octave up (Hz)", fabs(freq(FS / 4u, FS) - 220.0) < 0.5, freq(FS / 4u, FS), 220);
+    }
     /* 7: no click as a note starts: the onset's click energy (the second difference, the first 5 ms) against the held
      * sound's (5 ms at 50 ms), every factory sound without noise in it (a noise hit is meant to bite) */
     for (uint32_t k = 0; k < dn_sub_preset_count(); k++) {
@@ -163,11 +194,12 @@ int main(int argc, char **argv)
         dn_sub_load_preset(&s, k);
         if (s.p[SP_NOISE])
             continue;
+        s.p[SP_ENV] = 0;                            /* (the amp's start: the filter's snap is a sound, not a click) */
         dn_sub_note_on(&s, 53, 100, 0, 0);
         render(&s, 4410);
         for (int i = 2; i < 220; i++) { double d = lr[2*i] - 2.0*lr[2*i-2] + lr[2*i-4]; a += d * d; }
         for (int i = 2205; i < 2425; i++) { double d = lr[2*i] - 2.0*lr[2*i-2] + lr[2*i-4]; b += d * d; }
-        snprintf(t, sizeof t, "%s: no click at the start (onset / held click energy)", dn_sub_preset_name(k));
+        snprintf(t, sizeof t, "%s: no click as the amp starts (onset / held click energy, ENV 0)", dn_sub_preset_name(k));
         check(t, a / (b + 1) < 5.0, a / (b + 1), 1);
     }
     /* 8: every factory sound: never wraps, never silent, and a WAV of each to listen to */

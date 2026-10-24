@@ -158,13 +158,32 @@ static const uint8_t DN_LFO_PAGE[2][4] = {{DN_PX_LSHAPE, DN_PX_LRATE, DN_PX_LDES
 enum { DN_LD_OFF, DN_LD_CUT, DN_LD_RES, DN_LD_DRV, DN_LD_NTCH, DN_LD_DTN, DN_LD_PITCH, DN_LD_SUB, DN_LD_LEVEL,
        DN_LD_FENV, DN_LD_APITCH, DN_LD_ADECAY, DN_LD_ACRUSH, DN_LD_ALEVEL, DN_LD_BPITCH, DN_LD_BDECAY, DN_LD_BCRUSH,
        DN_LD_BLEVEL, DN_LD_L1DEPTH, DN_LD_SCUT = DN_LD_L1DEPTH + DN_NLFO, DN_LD_SRES, DN_LD_SDRV, DN_LD_SPITCH,
-       DN_LD_SLEVEL, DN_LD_SPW, DN_LD_N };
+       DN_LD_SLEVEL, DN_LD_SPW, DN_LD_SENV, DN_LD_SSUB, DN_LD_SCRUSH, DN_LD_STONE, DN_LD_SPULSE, DN_LD_SNOISE,
+       DN_LD_N };
 #define DN_LD_IS_DEPTH(d) ((d) >= DN_LD_L1DEPTH && (d) < DN_LD_L1DEPTH + DN_NLFO)
 /* (the first ones are REESE's; SUB's own come after the depths, 0.13: an LFO set up for REESE never moves SUB) */
 static const char *const DN_LD_NAME[DN_LD_N] = {"OFF", "CUTOFF", "RES", "DRIVE", "NOTCH", "DETUNE", "PITCH", "SUB",
     "LEVEL", "F.ENV", "A PITCH", "A DECAY", "A CRUSH", "A LEVEL", "B PITCH", "B DECAY", "B CRUSH", "B LEVEL",
-    "L1 DEP", "L2 DEP", "L3 DEP", "L4 DEP", "S CUT", "S RES", "S DRIVE", "S PITCH", "S LEVEL", "S PW"};
-static const uint8_t DN_LD_SP[6] = {SP_CUT, SP_RES, SP_DRIVE, 0, SP_LEVEL, SP_PW};
+    "L1 DEP", "L2 DEP", "L3 DEP", "L4 DEP", "S CUT", "S RES", "S DRIVE", "S PITCH", "S LEVEL", "S PW", "S ENV",
+    "S SUB", "S CRUSH", "S TONE", "S PULSE", "S NOISE"};
+static const uint8_t DN_LD_SP[DN_LD_N - DN_LD_SCUT] = {SP_CUT, SP_RES, SP_DRIVE, 0, SP_LEVEL, SP_PW, SP_ENV, SP_SUB,
+                                                       SP_CRUSH, SP_TONE, SP_PULSE, SP_NOISE};
+/* the LFO page's DEST knob goes through the destinations of the synth whose pages these are, then the breaks', then
+ * the other LFOs' depths (an LFO already on the other synth's keeps it, shown by its name) */
+static uint32_t dn_ld_list(int sub, uint32_t *out)
+{
+    uint32_t n = 0, d;
+    out[n++] = DN_LD_OFF;
+    if (sub)
+        for (d = DN_LD_SCUT; d < DN_LD_N; d++)
+            out[n++] = d;
+    else
+        for (d = DN_LD_CUT; d <= DN_LD_FENV; d++)
+            out[n++] = d;
+    for (d = DN_LD_APITCH; d < DN_LD_L1DEPTH + DN_NLFO; d++)
+        out[n++] = d;
+    return n;
+}
 static const uint8_t DN_LD_RP[DN_LD_N] = {0, RP_CUT, RP_RES, RP_DRV, RP_NTCH, RP_DTN, 0, RP_SUB, RP_LEVEL, RP_FENV};
 
 typedef struct {
@@ -3224,6 +3243,16 @@ void dn_app_input(void)
                 uint32_t id = dn_dial(k);
                 if (id == DN_PX_NONE)
                     continue;
+                if (id == DN_PX_LDEST) {            /* DEST: along this synth's list (dn_ld_list) */
+                    uint32_t l[DN_LD_N], n = dn_ld_list(DN_IS_SUB(dn.trk), l), i, at = 0, cur = (uint32_t)dn_get(id);
+                    for (i = 0; i < n; i++)
+                        if (l[i] == cur)
+                            at = i + 1u;
+                    at = at ? at - 1u : (d > 0 ? 0u : n);   /* (on the other synth's: from the list's end) */
+                    at = (uint32_t)dn_clamp((int32_t)at + d, 0, (int32_t)n - 1);
+                    dn_set(id, (int32_t)l[at]);
+                    continue;
+                }
                 dn_set(id, dn_get(id) + (id == DN_PX_BSRC ? (d > 0 ? 1 : -1) : dn_accel(dn_max(id) - dn_min(id), d)));
             }
         }
