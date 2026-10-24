@@ -22,7 +22,7 @@
  *   CUT 0..127     30 Hz .. 16 kHz (log);  RES 0..127 (self-oscillates near the top);  ENV -64..63;  KEY 0..127
  *                  (127: the cutoff follows the keys a semitone a semitone)
  *   DRIVE 0..127;  DTYPE 0..3 SOFT HARD FOLD RECT;  CRUSH 0..127 (0 off);  TONE 0..127 (127 open)
- *   ATK DEC SUS REL 0..127 (1 ms .. 10 s);  GLIDE 0..127;  GMODE 0..2 OFF AUTO ON;  ACC 0..127;  VCA 0..1 ENV GATE
+ *   ATK DEC SUS REL 0..127 (1 ms .. 10 s; the attack never quicker than ~3 ms: a sharper start clicks);  GLIDE 0..127;  GMODE 0..2 OFF AUTO ON;  ACC 0..127;  VCA 0..1 ENV GATE
  *   LEVEL 0..127 (100 = unity);  TRANS -36..36;  SPLIT 0..127 (0 off; else 40 .. 300 Hz) */
 #include "dn_sub.h"
 #include "dn_dsp.h"
@@ -218,7 +218,7 @@ void dn_sub_note_on(dn_sub_t *s, uint8_t note, uint8_t vel, int legato, int acce
     }
     if (!s->active) {
         uint32_t j;
-        s->ph = 0;
+        s->ph = 0x80000000u;                        /* the saw from its zero crossing: no step at the start */
         s->sph = 0;
         for (j = 0; j < 4; j++)
             s->lad[j] = 0;
@@ -240,7 +240,7 @@ void dn_sub_note_off(dn_sub_t *s)
 static void sb_control(dn_sub_t *s)
 {
     const int16_t *p = s->p;
-    int32_t ka = DN_ENV_K[dn_clamp(p[SP_ATK], 0, 127)], kd = DN_ENV_K[dn_clamp(p[SP_DEC], 0, 127)];
+    int32_t ka = DN_ENV_K[dn_clamp(p[SP_ATK], 14, 127)], kd = DN_ENV_K[dn_clamp(p[SP_DEC], 0, 127)];
     int32_t kr = DN_ENV_K[dn_clamp(p[SP_REL], 0, 127)], sus = dn_clamp(p[SP_SUS], 0, 127) * (SB_FULL / 127), a;
     switch (s->stage) {
     case 1:
@@ -255,7 +255,7 @@ static void sb_control(dn_sub_t *s)
     default: break;
     }
     /* GATE: the amp follows the gate, declicked (~2 ms); ENV: the envelope */
-    s->gamp += dn_mulq16((s->gate ? SB_FULL : 0) - s->gamp, DN_ENV_K[8]);
+    s->gamp += dn_mulq16((s->gate ? SB_FULL : 0) - s->gamp, DN_ENV_K[14]);   /* (~3 ms: a declick, no click) */
     a = p[SP_VCA] ? s->gamp : s->env;
     if (!s->stage && (!p[SP_VCA] || s->gamp < SB_FULL / 4096))
         s->active = 0;

@@ -294,6 +294,8 @@ a real FM-1.
   PRESETS loads SUB's sounds with its track selected. VEL SENS (SETUP) counts for both synths. SUB has its own LFO
   destinations (S CUT, S RES, S DRIVE, S PITCH, S LEVEL, S PW, after L4 DEPTH): the first 0.13 build sent REESE's
   CUTOFF, LEVEL... to SUB as well, so an LFO set up for REESE made a held SUB note pulse; fixed the same evening.
+  Its notes start without a click: the attack is never quicker than ~3 ms and the saw starts at its zero crossing
+  (the click at the start of a note measured 3-10x lower on the snappy sounds).
 - Saved with the sound; the web editor has a **SUB** tab (every value, the factory sounds) and SUB in the Project tab's
   instruments. Editor: PARAMS ends with SUB's 27 values; NAMES kind 5; command 78 SUB_PRESET.
 

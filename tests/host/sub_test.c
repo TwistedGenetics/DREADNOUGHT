@@ -154,7 +154,23 @@ int main(int argc, char **argv)
         render(&s, 64);
         check("AUTO: a fresh note jumps", s.pitch256 == 45 * 256, s.pitch256, 45 * 256);
     }
-    /* 7: every factory sound: never wraps, never silent, and a WAV of each to listen to */
+    /* 7: no click as a note starts: the onset's click energy (the second difference, the first 5 ms) against the held
+     * sound's (5 ms at 50 ms), every factory sound without noise in it (a noise hit is meant to bite) */
+    for (uint32_t k = 0; k < dn_sub_preset_count(); k++) {
+        double a = 0, b = 0;
+        char t[80];
+        dn_sub_init(&s);
+        dn_sub_load_preset(&s, k);
+        if (s.p[SP_NOISE])
+            continue;
+        dn_sub_note_on(&s, 53, 100, 0, 0);
+        render(&s, 4410);
+        for (int i = 2; i < 220; i++) { double d = lr[2*i] - 2.0*lr[2*i-2] + lr[2*i-4]; a += d * d; }
+        for (int i = 2205; i < 2425; i++) { double d = lr[2*i] - 2.0*lr[2*i-2] + lr[2*i-4]; b += d * d; }
+        snprintf(t, sizeof t, "%s: no click at the start (onset / held click energy)", dn_sub_preset_name(k));
+        check(t, a / (b + 1) < 5.0, a / (b + 1), 1);
+    }
+    /* 8: every factory sound: never wraps, never silent, and a WAV of each to listen to */
     {
         char path[512];
         FILE *w;
