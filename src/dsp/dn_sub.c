@@ -114,7 +114,7 @@ void dn_sub_param_text(uint32_t k, int32_t v, char out[8])
 /* ---- the factory sounds -------------------------------------------------------------------------------------- */
 typedef struct { const char *name; int8_t v[SP_COUNT]; } dn_sub_preset_t;
 /*        SAW PUL SUB NOI  PW PWM PWR SBM  CUT RES ENV KEY  DRV TYP CRU TON  ATK DEC SUS REL  GLI GMO ACC VCA LEV TRN SPL */
-static const dn_sub_preset_t PRESETS[] = {
+static const dn_sub_preset_t SB_PRESETS[] = {
     /* dread: a pulse and the sub, the filter low and round, driven soft, the clean low end split off */
     {"DREAD",    {40, 90, 110, 0,  30,  0,  0,  0,  48, 30, 20, 40,  70,  0,  0, 90,   0, 70, 110, 30,  40, 1, 60, 0, 100, -24, 70}},
     /* donk: a short, plucky, resonant square bounce (the hardcore donk), quick decay */
@@ -140,14 +140,14 @@ static const dn_sub_preset_t PRESETS[] = {
     /* rave stab: bright saw + pulse, noise, a short env: the old-skool bleep-bass hit */
     {"RAVE STAB",{127, 90, 40, 30, 30, 40, 70,  0,  70, 60, 40, 64,  60,  0,  0, 127,  0, 50, 20, 40,  0, 0, 70, 0, 100, 0, 0}},
 };
-#define SB_NPRESETS (sizeof PRESETS / sizeof PRESETS[0])
+#define SB_NPRESETS (sizeof SB_PRESETS / sizeof SB_PRESETS[0])
 uint32_t dn_sub_preset_count(void) { return SB_NPRESETS; }
-const char *dn_sub_preset_name(uint32_t i) { return PRESETS[i % SB_NPRESETS].name; }
+const char *dn_sub_preset_name(uint32_t i) { return SB_PRESETS[i % SB_NPRESETS].name; }
 void dn_sub_load_preset(dn_sub_t *s, uint32_t i)
 {
     uint32_t k;
     for (k = 0; k < SP_COUNT; k++)
-        s->p[k] = PRESETS[i % SB_NPRESETS].v[k];
+        s->p[k] = SB_PRESETS[i % SB_NPRESETS].v[k];
 }
 
 void dn_sub_init(dn_sub_t *s)

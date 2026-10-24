@@ -11,6 +11,10 @@ python3 tools/gen_dn_breaks.py build/gen/dn_breaks_builtin.h --wav build/host >/
 mkdir -p build/gen/x0x
 [ -f build/gen/x0x/felucca_font.h ] || python3 x0x-firmware/tools/gen_font.py build/gen/x0x/felucca_font.h >/dev/null
 W="-O2 -std=c99 -ffp-contract=off -Wall -Wextra -Werror -Wno-unused-function -Ibuild/gen/x0x -Ibuild/gen -Isrc/dsp -Isrc/app"
+# the engines as the FM-1 builds them: one unit of every src/dsp/*.c (names must not clash)
+for f in src/dsp/*.c; do echo "#include \"../../$f\""; done > build/host/dsp_unity.c
+# shellcheck disable=SC2086
+$CC $W -c build/host/dsp_unity.c -o build/host/dsp_unity.o
 # shellcheck disable=SC2086
 $CC $W tests/host/reese_test.c src/dsp/reese.c -o build/host/reese_test
 build/host/reese_test build/host
