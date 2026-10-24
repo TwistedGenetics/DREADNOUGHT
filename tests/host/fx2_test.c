@@ -186,7 +186,7 @@ int main(int argc, char **argv)
         run(&s, &p, 0, FS * 3u, 172);
         ns = (now_s() - t0) * 1e9 / (FS * 3.0);
         snprintf(nm, sizeof nm, "fx-%s.wav", DN_FX_NAME[t]);
-        for (i = 4; nm[i]; i++)
+        for (i = 3; nm[i]; i++)
             nm[i] = (char)(nm[i] >= 'A' && nm[i] <= 'Z' ? nm[i] + 32 : nm[i]);
         wav(dir, nm, FS * 3u);
         snprintf(g, sizeof g, "%08x\n", fnv(0, FS * 3u));
