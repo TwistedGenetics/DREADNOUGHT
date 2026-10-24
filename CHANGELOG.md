@@ -105,3 +105,25 @@ Not yet tested on a real FM-1.
 
 Not yet tested on a real FM-1.
 
+## 0.6 — the mop-up (2026-10-24)
+
+From `docs/prompts/PROMPT-0.6.md`.
+
+- **Long notes.** A step's length runs from a quarter step to 64 steps and holds across the steps after it and the
+  pattern's end, until it runs out or a later note cuts it (or slides from it). 0.4 / 0.5 patterns are converted.
+  The overview shows how far each note reaches.
+- **ROLL**, a piano roll for REESE and the MIDI tracks: notes as long as they last, slides as ramps, accents bright,
+  an overview of the whole track above. STEP mode (white keys are steps) or KEYS mode (FX: the keys write notes at a
+  cursor). Live recording keeps how long each key was held. Copy / paste a bar (SAVE + OCT− / OCT+); transpose.
+- **DRUM**, a grid of a break track's slices against its steps.
+- **Choke groups** for BREAKS A and B (both in group 1 at first: a hit on one stops the other).
+- **Slicing.** GRID (16 a bar), AUTO (the loop's hits, found by an onset detector: every kick and snare of the
+  built-in loops within 3.3 ms), or MANUAL: set on the FM-1's SLICE page or, easier, on the breaks page in the browser
+  (drag, add, remove, hear each slice; Auto / Grid). Kept per loop, outside the sample slots.
+- **Stretch.** REPITCH (the jungle way, as before), SLICE (each slice at its own speed, so PITCH is free of the tempo)
+  and STRETCH (granular: tempo and pitch apart, the attack kept). Measured: pitch within 1 cent at 136 and 172 BPM;
+  STRETCH ~1.2× REPITCH's cost. BRK2 shows the FM-1's CPU load.
+- SAVE now acts when it comes up (so it can be held for copy / paste).
+
+Not yet tested on a real FM-1.
+

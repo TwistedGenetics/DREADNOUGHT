@@ -4,7 +4,7 @@ A dark jungle / drum & bass firmware for the **M-VAVE FM-1**: Reese and dread ba
 wavetables (with Serum import), a Rex-style break chopper, pads, tech stabs and a heavy FX section,
 sequenced from the box, with a Massive-style interface.
 
-**Status: 0.5 — breaks.** DREADNOUGHT's own app, screen and engines on [X0X](https://github.com/charlesvestal/fm1-x0x)'s
+**Status: 0.6 — the mop-up: long notes, piano roll, slicing, choke, stretch.** DREADNOUGHT's own app, screen and engines on [X0X](https://github.com/charlesvestal/fm1-x0x)'s
 proven FM-1 platform (boot-loop guard, safe mode, USB, storage, updates). First engine: **REESE**, measured against
 the maths (see [docs/REESE.md](docs/REESE.md)), an 8-track step sequencer, and BREAKS, a Rex-style break chopper: track 1 plays
 REESE, tracks 2 and 3 chop breaks (two built in, or your own from the [breaks page](https://twistedgenetics.github.io/DREADNOUGHT/breaks/)),
@@ -13,34 +13,38 @@ download (below).
 
 ## Download & install
 
-Go to [**Releases**](https://github.com/TwistedGenetics/DREADNOUGHT/releases/latest) and download `DREADNOUGHT-0.5.fwsc`
+Go to [**Releases**](https://github.com/TwistedGenetics/DREADNOUGHT/releases/latest) and download `DREADNOUGHT-0.6.fwsc`
 (the newest version's file). It's a beta that hasn't been played on a real FM-1 yet: read
 [docs/RECOVERY.md](docs/RECOVERY.md) first and back up your FM-1.
 
 - **Web flasher:** open [twistedgenetics.github.io/DREADNOUGHT/flasher](https://twistedgenetics.github.io/DREADNOUGHT/flasher/)
   in Chrome or Edge with the FM-1 on USB, back up, then pick the newest release from the list or choose the
   `.fwsc` file you downloaded, and press Install.
-- **Command line:** X0X's installer, `python3 x0x-firmware/tools/fm1_install.py DREADNOUGHT-0.5.fwsc` (needs `pip install mido python-rtmidi`).
+- **Command line:** X0X's installer, `python3 x0x-firmware/tools/fm1_install.py DREADNOUGHT-0.6.fwsc` (needs `pip install mido python-rtmidi`).
 
 The FM-1 restarts on the DREADNOUGHT screen. Press **PLAY** to hear the demo reese line.
 
 | Control | Does |
 |---|---|
 | PLAY | sequencer start / stop (MIDI clock, start and stop go out on USB) |
-| REC | record: keys write into the selected track (playing: at the nearest step; stopped: step by step) |
-| SEQ | the SEQ page; SEL / EDIT / ENV / LFO / GLO: REESE's pages (OSC, FILTER, AMP, MOD, OUT) |
-| ARP | the BRK page: BREAKS A (track 2) or B (track 3): the loop's picture; KNOB 1–4 loop, pitch, decay, crush; PRESETS picks the loop, SELECT flips A / B |
-| Keys (sound pages) | play (mono, last note wins; hold one key and press another to slide) |
-| KNOB 1–4 (sound pages) | the four dials on the page |
-| White keys (SEQ page) | the 16 steps: tap on / off; hold one and turn KNOB 1 note (on a break track: slice), 2 length, 3 accent, 4 slide (on a break track: reverse) |
-| Keys with track 2 or 3 selected | play the break's slices (OCT moves a bar) |
-| Black keys 1–8 (SEQ page) | mute tracks 1–8; black key 9 held 1 s clears the track; 10 / 11 move through steps 1–64 |
-| KNOB 1–4 (SEQ page) | track, track length (1–64), swing, steps in view |
-| PRESETS | the factory sounds |
+| REC | record: keys write into the selected track (playing: at the nearest step, as long as you hold the key; stopped: step by step) |
+| SEQ | the sequencer, pressed again to cycle: **OVERVIEW** (8 tracks) → **ROLL** (piano roll, synth and MIDI tracks) → **DRUM** (break slices) |
+| SEL / EDIT / ENV / LFO / GLO | REESE's pages (OSC, FILTER, AMP, MOD, OUT) |
+| ARP | BREAKS, pressed again to cycle: **BRK** (loop, pitch, decay, crush) → **BRK2** (choke group, slices GRID / AUTO / MANUAL, stretch REPITCH / SLICE / STRETCH, level, CPU load) → **SLICE** (the slice editor: slice, move, fine, add / delete) |
+| Keys (sound pages) | play (mono, last note wins; hold one key and press another to slide); with track 2 or 3 selected: the break's slices |
+| White keys (OVERVIEW, ROLL, DRUM) | the 16 steps: tap on / off; hold one and turn KNOB 1 note (break: slice), 2 length (¼ step to 64 steps), 3 accent, 4 slide (break: reverse) |
+| Black keys 1–8 (OVERVIEW, ROLL, DRUM) | mute tracks 1–8; black key 9 held 1 s clears the track; 10 / 11 move through steps 1–64 |
+| KNOB 1–4 (OVERVIEW) | track, track length, swing, steps in view |
+| KNOB 1–4 (ROLL) | scroll the pitches, transpose the track, track length, steps in view |
+| FX (ROLL) | KEYS mode: the keys write notes at a cursor (KNOB 2 their length, KNOB 4 the cursor, HOME a rest; a key under a held one: a slide) |
+| KNOB 1–4 (DRUM) | the slice row (a tap puts it on a step), track length, swing, steps in view |
+| SELECT | the page (sound pages), the track (OVERVIEW, ROLL), BREAKS A / B (BRK pages, DRUM) |
+| PRESETS | the factory sounds; on the BRK pages and DRUM, the loop |
 | ALGORITHM | tempo |
 | HOME | hold a note, hands free |
 | OCT− / OCT+ | octave |
-| SAVE | keep the sound and the pattern for next time (lit when changed) |
+| SAVE (tap) | keep the sound, the pattern and your slices for next time (lit when changed) |
+| SAVE held + OCT− / OCT+ | copy / paste the bar in view of the selected track |
 | OCT− + OCT+ held 5 s | update mode (recovery) |
 
 Releases are automatic: when the version in `VERSION` changes (e.g. `0.2`) and is pushed to main, Actions builds
@@ -63,7 +67,7 @@ each run attaches the `.fwsc` package as an artifact. To build on Linux x86-64 y
 ```
 git submodule update --init                     # X0X's platform, pinned
 tools/get_deps.sh                               # JieLi toolchain + 3 AC79 SDK files, hash-checked
-python3 tools/build_fm1.py --release 0.5        # build/fm1/DREADNOUGHT-0.5.fwsc (preflight included)
+python3 tools/build_fm1.py --release 0.6        # build/fm1/DREADNOUGHT-0.6.fwsc (preflight included)
 ```
 
 ## Tests
