@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # DREADNOUGHT firmware build. Every push / PR builds the firmware and runs the tests.
 # Releases: the version is in the VERSION file (X.Y; the FM-1 package identity is FM-1_9XXYY00, X0X's scheme).
-# A push to main publishes the Release vX.Y with DREADNOUGHT-X.Y.fwsc if it doesn't exist yet, or refreshes that
-# Release's files if it does. Pushing a vX.Y tag works too. The flasher site is then redeployed.
+# A push to main publishes the Release vX.Y with DREADNOUGHT-X.Y.fwsc if it doesn't exist yet; once it does, later
+# pushes leave it alone (work in progress never replaces a published file: bump VERSION for the next one). Running
+# this workflow on a vX.Y tag (or pushing one) rebuilds that Release's files from the tag. The flasher site is then
+# redeployed.
 #
 # From 0.3: DREADNOUGHT's own app and engines on X0X's platform (the x0x-firmware submodule, pinned), built the way
 # Carnac OS builds (tools/build_fm1.py). See docs/UPSTREAM.md.
@@ -125,7 +127,17 @@ jobs:
           v=$(tr -d ' \n' < VERSION)
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "tag=v$v" >> "$GITHUB_OUTPUT"
+      - name: Already published? (from main: never rebuilt from later code)
+        id: have
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" != tag ] && gh api "repos/$GITHUB_REPOSITORY/releases/tags/${{ steps.ver.outputs.tag }}" >/dev/null 2>&1; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Release::${{ steps.ver.outputs.tag }} is published already: left as it is"
+          fi
       - name: Publish release
+        if: steps.have.outputs.skip != '1'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
@@ -144,6 +156,7 @@ jobs:
 
             What's new: [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).
       - name: Redeploy the flasher site (lists this release)
+        if: steps.have.outputs.skip != '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main
