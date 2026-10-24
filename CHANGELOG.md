@@ -372,3 +372,13 @@ value. Not yet measured: the CPU load on the FM-1 (the PROJECT page shows it).
 Tested: every QUADRA configuration's peak on a loud mix (the 0.4 demo +3.5 dB, full return: 95 000 → under 30 000 at
 the defaults; no clamps), host scenario `loud.txt` (REESE and both breaks sent full to CELESTIAL and MASSIVE at full
 return: peaks held at the limiter's ceiling, the knee untouched), QUADRA's golden render renewed.
+
+## 0.18 — the FX list no longer sticks on "NO MEMORY" (2026-10-24)
+
+- Turning KNOB 1 through the effects now skips any effect that won't fit beside the other slot's, instead of stopping
+  on it. With DELAY on FX A, FX B's list went OFF → DELAY (no room for two) and stuck there, so TAPE, the reverbs,
+  QUADRA and MASSIVE couldn't be reached (Jamie: "a 'no memory, FX off first' warning"). The warning now only comes
+  when nothing further along fits. The editor's effect menu still refuses one that doesn't fit, as before.
+
+Tested: host scenario `project.txt` (FX B up from OFF beside DELAY lands on TAPE, down again on OFF), the editor's
+refusal unchanged.

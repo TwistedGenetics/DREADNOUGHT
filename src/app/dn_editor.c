@@ -324,7 +324,9 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         {
             uint32_t id = f < 16u ? DN_PX_SENDA : f < 24u ? DN_PX_SENDB : f < 26u ? DN_PX_RETA + (f - 24u)
                         : f < 34u ? DN_PX_FXA + (f - 26u) : f < 38u ? DN_PX_FXA2 + (f - 34u) : DN_PX_FXB2 + (f - 38u);
+            dn.fx_exact = 1;
             dn_set(id, v);
+            dn.fx_exact = 0;
             put(dn_get(id) == dn_clamp(v, dn_min(id), dn_max(id)) ? 0u : 1u);
         }
         dn.trk = trk;

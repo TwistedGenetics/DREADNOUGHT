@@ -285,7 +285,8 @@ static struct {
     uint32_t clk_count;                             /* (clicks so far: the tests count them) */
     uint8_t lfo_sel, lfo_view;                      /* the LFO page: which LFO (1-4 of the synth's); MAIN / MORE / DRAW */
     uint8_t lfo_force;
-    uint8_t store;                                  /* SAVE + PRESETS: the user slot to store into (1-8; 0 none) */                              /* the editor: the LFO values read set 1 (REESE) / 2 (SUB), 0: by page */
+    uint8_t store;                                  /* SAVE + PRESETS: the user slot to store into (1-8; 0 none) */
+    uint8_t fx_exact;                               /* (the editor sets an effect: no skipping past ones that don't fit) */                              /* the editor: the LFO values read set 1 (REESE) / 2 (SUB), 0: by page */
     uint8_t midi_sel;                               /* the MIDI page: MIDI 1..n (the tracks that play MIDI, in order) */
     uint8_t bk_last;                                /* the break the BRK pages showed last (0 A, 1 B) */
     uint8_t bk_force;                               /* the editor: the BRK values read B (2) / A (1) whatever is shown */
@@ -1299,8 +1300,17 @@ static void dn_pj_set(uint32_t id, int32_t v)
         uint32_t k;
         int i = dn_fx_pi(id, &k);
         dn_fx_p_t *f = &dn_fxp[k];
-        if (i < 0) {                                /* a new effect: its memory, or no */
-            if (!dn_fx_fits(k ? dn_fxp[0].type : (uint32_t)v, k ? (uint32_t)v : dn_fxp[1].type)) {
+        if (i < 0) {                                /* a new effect: its memory, or the next one along that fits
+                                                     * (0.17: a DELAY that didn't fit beside the other slot's DELAY
+                                                     * stopped the knob, so nothing after it could be reached) */
+            uint32_t other = dn_fxp[!k].type;
+            int32_t dir = v > (int32_t)f->type ? 1 : -1;
+            while (!dn.fx_exact && v >= 0 && v < (int32_t)DN_FX_N &&
+                   !dn_fx_fits(k ? other : (uint32_t)v, k ? (uint32_t)v : other))
+                v += dir;                           /* (the editor's choice is exact: refused, not moved on) */
+            if (dn.fx_exact && !dn_fx_fits(k ? other : (uint32_t)v, k ? (uint32_t)v : other))
+                v = -1;
+            if (v < 0 || v >= (int32_t)DN_FX_N || (uint32_t)v == f->type) {
                 dn_say("NO MEMORY: FX OFF FIRST");
                 dn.redraw |= DN_RD_ALL;
                 return;
