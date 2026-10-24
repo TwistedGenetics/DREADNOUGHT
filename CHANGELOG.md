@@ -237,3 +237,39 @@ next note, 0.4–0.10 patterns opening; scenarios `trigs` (held-step pages, ramp
 copy / paste, kept over a restart, the MIDI page) and `trig_wav` (a snare roll fading in, 50 % hats over 4 bars); every
 scenario moved to the instrument pages; the web editor end to end. Not yet tested on a real FM-1.
 
+
+## 0.12 — projects: any instrument on any track, the FX rack, samples from the editor (2026-10-24)
+
+- **Measured first:** CI now reports the firmware's real size on every build (the `.fwsc` is padded, so its size said
+  nothing): 200 KB of code and constants in the 568 KB app slot (381 KB free), RAM 49 KB of 96 KB, the pool 153 KB of
+  336 KB. The build fails if the app slot has less than 24 KB free. The flash map is in `docs/PLATFORM.md`: 240 KB
+  for samples, untouched by updates.
+- **Any instrument on any track:** the new **PROJECT** page (GLO ×5) shows the 8 tracks and what each plays. KNOB 1
+  the track, KNOB 2 an instrument (OFF, REESE, BRK A, BRK B, MIDI; red until it's in), FX puts it on. REESE and each
+  break are one each: given to another track they swap. A track's patterns stay with it; overlaps slide on the synths
+  and MIDI, never on the breaks, whichever tracks they're on. Saved with the sound.
+- **SEQ held + white key 1–8** picks track 1–8 and opens its instrument's page (on a sequencer page, its sequencer
+  page). SEQ now acts as it comes up.
+- **The FX rack:** every track has SEND A and SEND B (the FX page, GLO ×2: MIX), into two effect slots with their
+  RETURNs. The first effect is a tempo-synced ping-pong **DELAY** (1/32 … 1/2, dotted and triplets) run at half rate
+  for a darker, dub-like repeat and 1.1 s of memory, FEEDBACK past 100 building into a howl that never clips, TONE in
+  the loop, and a new TIME gliding there like tape. The two slots share one 144 KB memory arena; an effect that won't
+  fit is refused with a message (two delays don't). Reverbs come next.
+- **The voice pool** for the coming polyphonic engines (FM, JUNO, WAVE): one pool, a voice limit per track, a new note
+  taking the oldest released voice, then the oldest held (`src/dsp/dn_voice.c`, tested).
+- **The web editor's Project tab:** each track's instrument and sends, the FX rack, memory and CPU meters; **samples**
+  dropped in (WAV, MP3, AIFF…) go on the FM-1 in mono (L+R, left, right or side) at a rate you pick (44.1 kHz down to
+  8 kHz, 26 kHz for the SP-1200's sound) through a proper anti-aliasing filter, with each one's size, a ▶ to hear it as
+  the FM-1 will, and **Fit to space** lowering the longest first; and **projects**: one `.dnproj` file with
+  everything (the sounds, tempo, layout, all 8 patterns of every track, the samples, their slices, and the original
+  files so they can be converted again), saved to the computer or a projects folder, and loaded back (only what
+  differs is sent: a cut-off load carries on when run again). Editor commands 75–77 (PROJ, PROJ_SET, PROJ_NAME).
+- **CI:** a published release is never rebuilt from later code on main (a work-in-progress build had replaced 0.11's
+  file; it has been rebuilt from 0.11's own commit). Bump VERSION for a new release.
+
+Tested on the host: `project` (instruments swapped and kept, SEQ + key, the delay heard after a send, a second delay
+refused, the editor commands), `fx_test` (the delay's timing to the sample, feedback ratio, decay to silence, never
+wrapping at full feedback, no click on a time change; the voice pool's stealing rules), all earlier scenarios; the
+editor: `media` (folds, aliasing below −40 dB, ADPCM, fitting, slot images with a rate per zone, send / read back),
+`project` (a whole project from one simulated FM-1 to another), and the end-to-end run in Chromium. Not yet tested on
+a real FM-1.

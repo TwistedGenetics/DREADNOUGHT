@@ -20,6 +20,15 @@ as you like in the browser or as files; the selected note's velocity, condition 
 (shift-drag the velocity lane) and each instrument's 8 patterns (0.11); from 0.9 the **LFOs** tab, where you draw an LFO's shape with the mouse. It
 follows the box live: turn a knob on the FM-1 and the page moves too. **Demo** tries it with a simulated FM-1.
 
+The **Project** tab (0.12): what each track plays and its sends to the effects, the FX rack, how full the FM-1's
+memory is and its CPU load; **samples** (drop WAV, MP3, AIFF… files: each goes on in mono — L+R, left, right or side —
+at the rate you pick, 44.1 kHz down to 8 kHz with 26 kHz for the SP-1200's sound; **Fit to space** picks rates so they
+all fit, the longest lowered first; ▶ plays one as the FM-1 will); and **projects**: Save project to computer writes one
+`.dnproj` file with everything (sounds, tempo, layout, all 8 patterns of every track, the samples and their slices, and
+the original sample files, so you can convert them again later); Load a project sends one back (only what differs: a
+cut-off load carries on when you run it again); Choose a projects folder keeps them in a folder and lists them there
+(Chrome / Edge). Stop the FM-1 before saving or loading.
+
 **If it won't connect:** close everything else that uses the FM-1's MIDI port (Ableton, the breaks page or the flasher
 in another tab), reload the page, Connect again. If Chrome once refused MIDI for the site, click the icon left of the
 address bar and allow MIDI devices. Still nothing: open **Diagnostics** at the bottom of the page, press **Look for
@@ -35,7 +44,7 @@ Go to [**Releases**](https://github.com/TwistedGenetics/DREADNOUGHT/releases/lat
 - **Web flasher:** open [twistedgenetics.github.io/DREADNOUGHT/flasher](https://twistedgenetics.github.io/DREADNOUGHT/flasher/)
   in Chrome or Edge with the FM-1 on USB, back up, then pick the newest release from the list or choose the
   `.fwsc` file you downloaded, and press Install.
-- **Command line:** X0X's installer, `python3 x0x-firmware/tools/fm1_install.py DREADNOUGHT-0.11.fwsc` (needs `pip install mido python-rtmidi`).
+- **Command line:** X0X's installer, `python3 x0x-firmware/tools/fm1_install.py DREADNOUGHT-0.12.fwsc` (needs `pip install mido python-rtmidi`).
 
 The FM-1 restarts on the DREADNOUGHT screen. Press **PLAY** to hear the demo reese line.
 
@@ -44,7 +53,10 @@ The FM-1 restarts on the DREADNOUGHT screen. Press **PLAY** to hear the demo ree
 | PLAY | sequencer start / stop (MIDI clock, start and stop go out on USB); with REC armed, a bar's count-in first (SETUP) |
 | REC | record: keys write into the selected track (playing: at the nearest step, as long as you hold the key; stopped: step by step). On a sequencer page REC acts as it comes up (so it can be held for a ramp) |
 | SEQ | **this instrument's sequencer page**: from REESE's pages its piano roll (ROLL), from a break's BRK pages its slice grid (DRUM), from the MIDI page that MIDI instrument's roll; SEQ again goes back. (The 8-track OVERVIEW is gone: each instrument has its own page) |
-| SEL / EDIT / ENV / LFO / GLO | REESE's pages (OSC, FILTER, AMP, MOD, OUT); **LFO** again: LFO 1, 2, 3, 4 (below), back to MOD; **GLO** again: **SETUP** (CLICK OFF / REC / ON, its level, COUNT-IN off / 1 / 2 bars, **VEL SENS**: how much velocity changes REESE's level, 0 = not at all), again: **MIDI** (the MIDI instruments 1–5 = tracks 4–8: which, its channel, its OVERLAP; SELECT: the next) |
+| SEL / EDIT / ENV / LFO / GLO | REESE's pages (OSC, FILTER, AMP, MOD, OUT); **LFO** again: LFO 1, 2, 3, 4 (below), back to MOD; **GLO** again: **FX** (below), again: **SETUP** (CLICK OFF / REC / ON, its level, COUNT-IN off / 1 / 2 bars, **VEL SENS**: how much velocity changes REESE's level, 0 = not at all), again: **MIDI** (the MIDI instruments, the tracks playing MIDI in order: which, its channel, its OVERLAP; SELECT: the next), again: **PROJECT** (below) |
+| SEQ held + white key 1–8 | **track 1–8**: its instrument's page (on a sequencer page: its sequencer page) |
+| PROJECT (GLO ×5) | the project's 8 tracks and what each plays. KNOB 1 the track, KNOB 2 an instrument for it (OFF, REESE, BRK A, BRK B, MIDI), **FX** puts it on the track. REESE and each break are on one track at a time: given to another track, they swap. The patterns stay with their track. The status line: sample memory used, FX memory, CPU load |
+| FX (GLO ×2) | the FX rack. **MIX:** the selected track's SEND A and SEND B, and FX A / B's RETURN; **FX** button: **FX A** (its type: OFF / DELAY; DELAY's TIME, synced 1/32 … 1/2 with dotted and triplets, FEEDBACK — above 100 it builds up and howls without clipping — and TONE), again **FX B**. An effect that won't fit in the FX memory is refused (two delays don't) |
 | ARP | BREAKS, pressed again to cycle: **BRK** (loop, pitch, decay, crush) → **BRK2** (choke group, slices GRID / AUTO / MANUAL, stretch REPITCH / SLICE / STRETCH, level, CPU load) → **SLICE** (chop mode, below) |
 | Keys (sound pages) | play (mono, last note wins; hold one key and press another to slide); with track 2 or 3 selected: the break's slices |
 | White keys (ROLL, DRUM) | the 16 steps: tap on / off. **Hold one** and the knobs edit it: NOTE (break: slice), LENGTH, VELOCITY, CONDITION; **FX** (still holding): SLIDE (break: reverse), ACCENT, RETRIG, its RATE; FX again: the retrigs' LENGTH and VELOCITY fade. **Move a note:** hold its step and press the step it should go to (black keys 10 / 11 for another bar; onto a note: they swap; SAVE held: a copy), or turn **SELECT**; OCT− / OCT+ move it an octave. **A velocity ramp:** hold the first step, hold REC, press the last step; KNOB 3 / 4 set the ramp's start and end |

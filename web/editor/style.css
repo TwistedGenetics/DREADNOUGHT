@@ -101,3 +101,30 @@ footer { color: var(--dim); font-size: 12px; padding: 16px 20px 32px; text-align
 .insp label { display: flex; gap: 6px; align-items: center; }
 .insp input[type=range] { width: 120px; }
 
+
+/* the project tab (0.12) */
+.pcols { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; align-items: start; }
+.card.wide { max-width: none; margin-bottom: 0; }
+.card h2 input { font-size: 15px; margin-left: 10px; width: 180px; }
+.ptab, .mtab { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0 12px; }
+.ptab th, .mtab th { text-align: left; color: var(--dim); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.ptab td, .mtab td { padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.ptab input[type=range] { width: 110px; }
+.ptab .v, .mtab .v { font-variant-numeric: tabular-nums; color: var(--blue-d); font-weight: 600; margin-left: 6px; }
+.fxrow { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fxrow .grp { padding: 10px 12px; }
+.meters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
+.meter { height: 8px; background: var(--key-b); border-radius: 4px; overflow: hidden; margin: 3px 0; }
+.meter.big { height: 12px; margin: 6px 0 4px; }
+.meter i { display: block; height: 100%; width: 0; background: var(--blue); }
+.meter i.full { background: var(--red); }
+.mtab select { font-size: 13px; padding: 2px 4px; }
+.mtab .name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mtab tr.stale .name::after { content: " · not sent"; color: var(--red); font-size: 12px; }
+.mtab tr.over td { background: #fbeae7; }
+.flist { list-style: none; margin: 8px 0 0; padding: 0; }
+.flist li { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.flist li span { flex: 1; }
+#mediaCard.over { outline: 2px dashed var(--blue); }
+progress { width: 100%; }
+.pcols { margin-bottom: 16px; }

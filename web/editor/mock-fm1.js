@@ -34,6 +34,10 @@ export class MockFM1 {
     this.pattern = serializePattern(demoPattern());
     this.staging = new Uint8Array(this.pattern);
     this.rev = 1; this.playing = 0; this.preset = 0; this.dirty = 0; this.step = 0; this.saved = 0;
+    // the project (0.12): each track's instrument, sends, returns, the two FX slots; the sample slots (X0X's layout)
+    this.proj = { name: "PROJECT 1", eng: [1, 2, 3, 4, 4, 4, 4, 4], send: [Array(8).fill(0), Array(8).fill(0)], ret: [100, 100],
+      fx: [[1, 7, 60, 70], [0, 7, 60, 70]] };
+    this.slots = [0, 1, 2].map(() => ({ buf: new Uint8Array(0x14000).fill(0xFF), ok: false }));
     this.log = [];
     const self = this;
     this.input = { name: "DREADNOUGHT FM-1", state: "connected", onmidimessage: null, open: async () => {} };
@@ -139,8 +143,74 @@ export class MockFM1 {
       case CMD.TRANSPORT: this.playing = a[0] ? 1 : 0; if (this.playing) this.step = 0; return [this.playing];
       case CMD.SAVE: this.dirty = 0; this.saved++; return [0];
       case CMD.PRESET: this.preset = a[0]; this.rev++; return [0];
+      case CMD.PROJ: {
+        const P = this.proj, nm = P.name.padEnd(12, "\0").slice(0, 12).split("").map((c) => c.charCodeAt(0) & 127);
+        const used = this.slots.reduce((acc, sl) => acc + (sl.ok ? 512 + new DataView(sl.buf.buffer).getUint32(16, true) : 0), 0);
+        const fxk = P.fx.reduce((acc, f) => acc + (f[0] === 1 ? 96 : 0), 0);
+        return [...nm, ...P.eng, ...P.send[0], ...P.send[1], ...P.ret, ...P.fx[0], ...P.fx[1], ...digits(used, 3),
+          ...digits(3 * (0x14000 - 512), 3), ...digits(fxk, 2), ...digits(144, 2), 12, 5, 2];
+      }
+      case CMD.PROJ_SET: {
+        const f = a[0], v = a[1] | a[2] << 7, P = this.proj;
+        this.rev++; this.dirty = 1;
+        if (f < 8) {
+          if (v > 4) return [1];
+          if (v >= 1 && v <= 3) { const u = P.eng.indexOf(v); if (u >= 0 && u !== f) P.eng[u] = P.eng[f]; }
+          P.eng[f] = v;
+          return [0];
+        }
+        if (f < 16) { P.send[0][f - 8] = Math.min(127, v); return [0]; }
+        if (f < 24) { P.send[1][f - 16] = Math.min(127, v); return [0]; }
+        if (f < 26) { P.ret[f - 24] = Math.min(127, v); return [0]; }
+        if (f < 34) {
+          const k = f < 30 ? 0 : 1, i = (f - 26) % 4;
+          if (i === 0) {
+            if (v === 1 && P.fx[1 - k][0] === 1) return [1];   // two delays: no memory for the second
+            P.fx[k] = [v, 7, 60, 70];
+          } else P.fx[k][i] = Math.min(i === 1 ? 11 : 127, v);
+          return [0];
+        }
+        return [1];
+      }
+      case CMD.PROJ_NAME: this.proj.name = String.fromCharCode(...a.slice(0, 11)) || "P1"; this.rev++; this.dirty = 1; return [0];
+      case 11: { const sl = this.slots[a[0]]; if (!sl) return [a[0], 1]; sl.ok = false; sl.buf.fill(0xFF, 0, 512); return [a[0], 0]; }
+      case 12: {
+        const sl = this.slots[a[0]], off = a[1] | a[2] << 7 | a[3] << 14, b = unpack7(a.slice(4));
+        if (!sl || off < 512 || off + b.length > sl.buf.length) return [a[0], a[1], a[2], a[3], 1];
+        sl.buf.set(b, off);
+        return [a[0], a[1], a[2], a[3], 0];
+      }
+      case 13: {
+        const sl = this.slots[a[0]], h = unpack7(a.slice(1)).slice(0, 480);
+        if (!sl || h.length < 480) return [a[0], 1];
+        sl.buf.set(h, 0); sl.ok = true; this.rev++;
+        return [a[0], 0];
+      }
+      case 14: { const sl = this.slots[a[0]]; if (!sl) return [a[0], 1]; sl.buf.fill(0xFF); sl.ok = false; return [a[0], 0]; }
+      case 15: {
+        const out = [3, 80];
+        for (const sl of this.slots) {
+          const nz = sl.ok ? sl.buf[6] : 0, nm = sl.ok ? String.fromCharCode(...sl.buf.slice(8, 16)).replace(/\0.*$/, "") : "";
+          out.push(nz, ...nm.split("").map((c) => c.charCodeAt(0)), 0, sl.ok ? Math.ceil(new DataView(sl.buf.buffer).getUint32(16, true) / 1024) : 0);
+        }
+        return out;
+      }
+      case 16: {
+        const sl = this.slots[a[0]], off = a[1] | a[2] << 7 | a[3] << 14, n = Math.min(224, a[4] * 2);
+        if (!sl) return null;
+        return [a[0], a[1], a[2], a[3], ...pack7(sl.buf.subarray(off, Math.min(sl.buf.length, off + n)))];
+      }
+      case 50: { const sl = this.slices && this.slices[a.slice(0, 5).join(",")]; return [...a.slice(0, 5), sl ? sl.length : 0, ...(sl || []).flatMap((v) => [v & 127, (v >> 7) & 127, (v >> 14) & 127])]; }
+      case 51: {
+        const cnt = a[5], st = [];
+        for (let j = 0; j < cnt; j++) st.push(a[6 + 3 * j] | a[7 + 3 * j] << 7 | a[8 + 3 * j] << 14);
+        (this.slices = this.slices || {})[a.slice(0, 5).join(",")] = st;
+        return [...a.slice(0, 5), 0];
+      }
       case CMD.NAMES: {
-        const list = a[0] ? LOOPS : PRESETS, out = [list.length, a[1]];
+        const list = [PRESETS, LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI"], ["OFF", "DELAY"],
+          ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"]][a[0]] || [];
+        const out = [list.length, a[1]];
         for (let i = a[1]; i < list.length; i++) out.push(...list[i].split("").map((c) => c.charCodeAt(0)), 0);
         return out;
       }

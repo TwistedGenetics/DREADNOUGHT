@@ -228,12 +228,50 @@ with sync_playwright() as pw:
     p.wait_for_timeout(200)
     p.screenshot(path=str(shots / "editor-05-breaks-tab.png"), full_page=True)
 
-    # files: a backup comes down; a sound is kept in the library
+    # the project (0.12): a track's instrument and send, a sample in (mono, 16 kHz) and on the FM-1, the whole project
+    # saved to a file, changed on the FM-1, loaded back
+    p.click("#play")                                 # (stopped: a project is read and written stopped)
+    p.wait_for_timeout(300)
     p.click("[data-tab=files]")
-    with p.expect_download() as dl:
-        p.click("#backup")
+    p.wait_for_function("window.__dn.mediaRead")
+    p.wait_for_timeout(300)
+    check("project: 8 tracks listed", p.locator("#ptracks tr").count() == 8)
+    p.locator("#ptracks tr").nth(3).locator("select").select_option("1")
+    p.wait_for_timeout(400)
+    eng = p.evaluate("() => window.__dn.mock.proj.eng")
+    check("track 4 to REESE: it swaps with track 1 on the FM-1", eng[:4] == [4, 2, 3, 1], eng)
+    p.locator("#ptracks tr").nth(3).locator("input[type=range]").first.fill("90")
+    p.wait_for_timeout(400)
+    check("track 4's send A reaches the FM-1", p.evaluate("() => window.__dn.mock.proj.send[0][3]") == 90)
+    import io, math, struct, wave
+    wav = io.BytesIO()
+    with wave.open(wav, "wb") as w:
+        w.setnchannels(2); w.setsampwidth(2); w.setframerate(44100)
+        w.writeframes(b"".join(struct.pack("<hh", int(12000 * math.sin(i / 9)), int(-6000 * math.sin(i / 9))) for i in range(44100)))
+    p.set_input_files("#mfiles", files=[{"name": "kick.wav", "mimeType": "audio/wav", "buffer": wav.getvalue()}])
+    p.wait_for_function("window.__dn.media.length === 1")
+    p.locator("#mlist tr").first.locator("select").nth(1).select_option("16000")
+    p.wait_for_timeout(100)
+    check("a 1 s stereo WAV at 16 kHz mono: 8 KB", "7.8 KB" in p.locator("#mlist tr").first.inner_text(), p.locator("#mlist tr").first.inner_text())
+    p.screenshot(path=str(shots / "editor-12-project.png"), full_page=True)
+    p.click("#msend")
+    p.wait_for_function("window.__dn.mock.slots[0].ok", timeout=20000)
+    z = p.evaluate("() => { const b = window.__dn.mock.slots[0].buf, v = new DataView(b.buffer); return {nz: b[6], n: v.getUint32(36, true), rate: v.getUint32(48, true)}; }")
+    check("the sample is on the FM-1: one zone, ~16000 samples, at 16 kHz", z["nz"] == 1 and 15000 < z["n"] <= 16000 and z["rate"] == round(16000 / 44100 * 65536), z)
+    with p.expect_download(timeout=60000) as dl:
+        p.click("#psave")
     data = json.loads(Path(dl.value.path()).read_text())
-    check("backup: params and pattern", data["format"] == "dreadnought-backup" and len(data["params"]) == 67 and len(data["lfo"]) == 4)
+    check("project file: the layout, 8 patterns, the samples and the original", data["format"] == "dreadnought-project" and
+          data["proj"]["eng"][:4] == [4, 2, 3, 1] and len(data["patterns"]) == 8 and data["slots"][0] and data["media"][0]["file"], data["proj"]["eng"])
+    p.evaluate("() => { const P = window.__dn.mock.proj; P.eng = [1, 2, 3, 4, 4, 4, 4, 4]; P.send[0][3] = 0; window.__dn.mock.rev++; }")
+    with p.expect_file_chooser() as fc:
+        p.click("#pload")
+    fc.value.set_files(dl.value.path())
+    p.wait_for_function("window.__dn.mock.proj.eng[3] === 1", timeout=60000)
+    p.wait_for_timeout(500)
+    check("loaded back: the layout and the send", p.evaluate("() => window.__dn.mock.proj.send[0][3]") == 90)
+    check("loaded back: the sample can be converted again (its original came with it)",
+          p.evaluate("() => !!(window.__dn.media[0] && window.__dn.media[0].ch)"))
     p.fill("#sndname", "Dark one")
     p.click("#keep")
     check("library: kept", p.locator("#library li").count() == 1)

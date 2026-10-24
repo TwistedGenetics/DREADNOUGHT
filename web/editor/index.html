@@ -30,7 +30,7 @@
   <button role="tab" data-tab="sound">REESE</button>
   <button role="tab" data-tab="lfos">LFOs</button>
   <button role="tab" data-tab="breaks">Breaks</button>
-  <button role="tab" data-tab="files">Files</button>
+  <button role="tab" data-tab="files">Project</button>
 </nav>
 
 <main>
@@ -89,11 +89,42 @@
   </section>
 
   <section id="files" class="tab">
-    <div class="card">
-      <h2>Back up and restore</h2>
-      <p class="small">Everything the editor sees — the REESE sound, the breaks' settings, the tempo and all 8 tracks — as
-        one file on your computer. Restoring sends it to the FM-1 (press Save on FM-1 to keep it there).</p>
-      <div class="row"><button id="backup">Back up to a file</button><button id="restore" class="quiet">Restore from a file…</button></div>
+    <p class="small" id="projOld" hidden>The FM-1 runs DREADNOUGHT 0.11 or older: update it to 0.12 for projects.</p>
+    <div class="pcols">
+    <div class="card wide" id="projCard">
+      <h2>Project <input id="pname" type="text" maxlength="11" placeholder="Name"></h2>
+      <p class="small">What each track plays, and how much of it goes to the effects. REESE and each break are on one
+        track at a time: give one to another track and they swap. The patterns stay with their track.</p>
+      <table class="ptab"><thead><tr><th>Track</th><th>Plays</th><th>Send A</th><th>Send B</th></tr></thead><tbody id="ptracks"></tbody></table>
+      <div class="fxrow" id="fxbox"></div>
+      <div class="meters">
+        <div><span class="small">Samples</span><div class="meter"><i id="m-smp"></i></div><span class="small" id="m-smpv"></span></div>
+        <div><span class="small">FX memory</span><div class="meter"><i id="m-fx"></i></div><span class="small" id="m-fxv"></span></div>
+        <div><span class="small">CPU</span><div class="meter"><i id="m-cpu"></i></div><span class="small" id="m-cpuv"></span></div>
+      </div>
+    </div>
+    <div class="card wide">
+      <h2>Save and load</h2>
+      <p class="small">A project is everything on the FM-1 for one piece: the sounds, the tempo, every track's instrument,
+        sends and effects, all 8 patterns of every track, and the samples with their slices, plus the original sample
+        files added here, so you can change how they're converted later. Stop the FM-1 first. Loading sends only what
+        differs: if it's cut off, load again and it carries on.</p>
+      <div class="row"><button id="psave">Save project to computer</button><button id="pload" class="quiet">Load a project to the FM-1…</button>
+        <button id="pfolder" class="quiet">Choose a projects folder…</button></div>
+      <progress id="pprog" max="1" value="0" hidden></progress>
+      <ul id="pfiles" class="flist"></ul>
+    </div>
+    <div class="card wide" id="mediaCard">
+      <h2>Samples</h2>
+      <p class="small">Drop WAV (or MP3, AIFF…) files here. Each goes on the FM-1 in mono, at the rate you pick: lower rates
+        fit more (and 26 kHz is the SP-1200's). <b>Fit to space</b> picks the rates so they all fit, the longest samples
+        lowered first. Listen with ▶ before you send. The breaks play them (ARP: the BRK page, PRESETS for the loop).</p>
+      <div class="row"><button id="madd" class="quiet">Add files…</button><button id="mfit" class="quiet">Fit to space</button>
+        <button id="msend">Send samples to the FM-1</button><span class="small" id="mtotal"></span></div>
+      <div class="meter big"><i id="m-media"></i></div>
+      <table class="mtab"><thead><tr><th>Sample</th><th>Length</th><th>Mono</th><th>Rate</th><th>Size</th><th></th></tr></thead><tbody id="mlist"></tbody></table>
+      <input type="file" id="mfiles" accept="audio/*,.wav,.aif,.aiff,.mp3,.flac" multiple hidden>
+    </div>
     </div>
     <div class="card">
       <h2>Your REESE sounds</h2>
@@ -103,7 +134,7 @@
         <button id="import" class="quiet">Load a file…</button></div>
       <ul id="library"></ul>
     </div>
-    <input type="file" id="file" accept=".json,application/json" hidden>
+    <input type="file" id="file" accept=".json,.dnproj,application/json" hidden>
   </section>
 </main>
 

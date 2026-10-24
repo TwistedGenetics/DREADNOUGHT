@@ -3,14 +3,21 @@
 import {
   connect, REESE, BPM_INDEX, brkParams, brkIndex, KIND, ST_ON, ST_SLIDE, ST_ACC, LEN_STEP, LEN_MAX, noteEnd, lenText,
   noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
-  lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES,
+  lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
+  PF, FX_NAMES, FX_PARAMS, E,
 } from "./protocol.js";
+import {
+  readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
+  slotSamples, CAP, RATES, RATE_NAME, FOLDS,
+} from "./media.js";
+import { readProject, writeProject, checkProject, mediaOf, FORMAT } from "./project.js";
 
 const $ = (id) => document.getElementById(id);
 const S = {
   link: null, mock: null, st: null, params: [], presets: [], loops: [], pat: null, sel: 0, lo: 36, playStep: -1,
   writing: 0, lastRev: -1, poll: null, dirtyPat: false, drag: null, selNote: -1, zoom: 0, x0: 0,
   lfo: null, lfoNow: null, lfoDraw: null, pats: null,
+  proj: null, media: [], dev: null, mediaRead: false, dir: null,
 };
 const ROWS = 36, ROW_H = 14, GUT = 46;
 
@@ -29,12 +36,16 @@ async function start(link, label) {
   S.params = await link.params();
   S.pat = await link.readPattern(S.st.patSize);
   S.lfo = await readLfos();
+  S.proj = await link.proj().catch(() => null);      // (0.12: the project; older firmware has none)
+  if (S.proj) setEngines(S.proj.eng);
+  S.media = []; S.dev = null; S.mediaRead = false;
   S.lastRev = S.st.rev;
   S.sel = 0;
   fit();
   buildSound();
   buildBreaks();
   buildLfos();
+  buildProject();
   ["play", "bpm", "save"].forEach((id) => { $(id).disabled = false; });
   say(label, "ok");
   render();
@@ -52,7 +63,11 @@ function diag(line) {
 const hex = (d) => [...d].map((x) => x.toString(16).padStart(2, "0")).join(" ");
 function frameTap(dir, d) {
   if (dir === "!") return diag(`timeout: no answer to command ${d[0]}`);
-  if (d[4] === 60 || d[4] === 72) return;            // (the 4 polls a second: not logged)
+  if (d[4] === 60 || d[4] === 72 || d[4] === 75) return;   // (the 4 polls a second: not logged)
+  if (d[4] === 12 || d[4] === 16 || d[4] === 63 || d[4] === 64) {   // (sample and pattern transfers: a line a 32)
+    S.bulk = (S.bulk || 0) + 1;
+    if (S.bulk % 32 !== 1) return;
+  }
   diag(`${dir === ">" ? "sent" : "got "} ${d.length > 40 ? `${hex(d.slice(0, 40))} … (${d.length} bytes)` : hex(d)}`);
 }
 const PORT_KEY = "dreadnought-port";
@@ -117,7 +132,12 @@ async function poll() {
     S.params = await S.link.params();
     S.pat = await S.link.readPattern(st.patSize);
     if (!S.lfoDraw) S.lfo = await readLfos();
+    if (S.proj) { S.proj = await S.link.proj().catch(() => S.proj); setEngines(S.proj.eng); }
     refreshValues();
+    refreshProject();
+  } else if (S.proj && $("files").classList.contains("on")) {
+    S.proj = await S.link.proj().catch(() => S.proj);   // (the CPU and the memory, live)
+    refreshMeters();
   }
   if (S.lfo && $("lfos").classList.contains("on")) S.lfoNow = await S.link.lfoNow().catch(() => null);
   if (S.st.patSize >= PAT_BYTES) S.pats = await S.link.pats().catch(() => null);   // (0.11: 8 patterns a track)
@@ -163,14 +183,15 @@ $("save").onclick = () => guard(async () => { await S.link.save(); say("Kept on 
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", x === b));
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.id === b.dataset.tab));
+  if (b.dataset.tab === "files" && S.link && S.proj && !S.mediaRead) guard(readMedia);
   render();
 });
 
 // ---- the pattern: tracks ----------------------------------------------------------------------------------------
 function trackLabel(t) {
   const k = KIND(t);
-  return k === "REESE" ? ["REESE", "bass"] : k === "BREAKS" ? [t === 1 ? "BREAKS A" : "BREAKS B", "slices"]
-    : ["MIDI", `channel ${S.pat.tracks[t].chan + 1}`];
+  return k === "REESE" ? ["REESE", "bass"] : k === "BREAKS" ? [brkOf(t) ? "BREAKS B" : "BREAKS A", "slices"]
+    : k === "MIDI" ? [`MIDI ${midiNo(t)}`, `channel ${S.pat.tracks[t].chan + 1}`] : ["OFF", "plays nothing"];
 }
 function renderTracks() {
   const box = $("tracks");
@@ -196,7 +217,8 @@ $("up").onclick = () => { S.lo = Math.min(S.lo + 6, isBrk() ? 0 : 127 - ROWS + 1
 $("down").onclick = () => { S.lo = Math.max(S.lo - 6, 0); render(); };
 
 const isBrk = () => KIND(S.sel) === "BREAKS";
-const slices = () => (S.st ? S.st.slices[S.sel - 1] || 32 : 32);
+const slices = () => (S.st ? S.st.slices[brkOf(S.sel)] || 32 : 32);
+const trans = () => (KIND(S.sel) === "REESE" ? S.params[17] || 0 : 0);   // (REESE's TRANS: the roll names the notes it plays)
 
 // the rows in view: pitches for a synth track (high at the top), slices for a break track (slice 1 at the top)
 function rows() { return isBrk() ? slices() : ROWS; }
@@ -243,7 +265,7 @@ function drawRoll() {
   c.clearRect(0, 0, g.W, g.H);
   c.save();
   for (let r = 0; r < rows(); r++) {                 // rows: piano keys (black keys darker), or slices
-    const v = valOf(r), y = r * g.rh, pc = (((v + (S.sel === 0 ? S.params[17] || 0 : 0)) % 12) + 12) % 12;
+    const v = valOf(r), y = r * g.rh, pc = (((v + trans()) % 12) + 12) % 12;
     const black = !isBrk() && [1, 3, 6, 8, 10].includes(pc);
     c.fillStyle = black ? "#e6e9ee" : "#fbfcfd";
     c.fillRect(GUT, y, g.W - GUT, g.rh);
@@ -252,7 +274,7 @@ function drawRoll() {
     if (isBrk() || pc === 0) {
       c.fillStyle = black ? "#fff" : "#6b7280";
       c.font = "10px -apple-system, Helvetica, Arial";
-      c.fillText(isBrk() ? `SL ${v + 1}` : noteName(v + (S.sel === 0 ? S.params[17] || 0 : 0)), 4, y + g.rh - 3);
+      c.fillText(isBrk() ? `SL ${v + 1}` : noteName(v + trans()), 4, y + g.rh - 3);
       if (!isBrk()) { c.fillStyle = "#d9dde3"; c.fillRect(GUT, y + g.rh - 1, g.W - GUT, 1); }
     }
   }
@@ -514,7 +536,8 @@ function buildBreaks() {
     const box = $(k ? "brkB" : "brkA"), g = document.createElement("div");
     box.textContent = "";
     g.className = "grp";
-    g.innerHTML = `<h3>BREAKS ${k ? "B · TRACK 3" : "A · TRACK 2"}</h3>`;
+    const t = S.proj ? S.proj.eng.indexOf(k ? E.BRKB : E.BRKA) : k + 1;
+    g.innerHTML = `<h3>BREAKS ${k ? "B" : "A"} · ${t >= 0 ? `TRACK ${t + 1}` : "ON NO TRACK"}</h3>`;
     box.appendChild(g);
     brkParams(S.loops).forEach((p, i) => slider(g, brkIndex(k, i), p));
   });
@@ -707,6 +730,7 @@ function drawLfos() {
 
 function refreshValues() {                           // the FM-1 changed: the controls follow (not the one in your hand)
   document.querySelectorAll(".prm").forEach((el) => {
+    if (!el.p) return;                               // (the project's FX rows: refreshProject keeps those)
     const i = +el.dataset.i, inp = el.querySelector("input,select");
     if (inp === document.activeElement) return;
     inp.value = S.params[i];
@@ -715,7 +739,7 @@ function refreshValues() {                           // the FM-1 changed: the co
   });
   if (S.st) $("preset").value = S.st.preset;
   document.querySelectorAll(".lfo .prm").forEach((el) => {   // RATE: note lengths synced, Hz free
-    if (el.p.name === "RATE") el.querySelector("input").max = S.params[+el.dataset.i - 1] ? 15 : 127;
+    if (el.p && el.p.name === "RATE") el.querySelector("input").max = S.params[+el.dataset.i - 1] ? 15 : 127;
   });
   drawLfos();
 }
@@ -739,15 +763,9 @@ $("file").onchange = async (ev) => {
   fileWant = null;
   await guard(async () => want(JSON.parse(await f.text())));
 };
-$("backup").onclick = () => {
-  if (!S.pat) return say("Connect first.", "bad");
-  download(`dreadnought-${new Date().toISOString().slice(0, 10)}.json`,
-    { format: "dreadnought-backup", version: 2, params: S.params, pattern: b64(serializePattern(S.pat)), lfo: S.lfo });
-};
-$("restore").onclick = () => {
-  if (!S.pat) return say("Connect first.", "bad");
-  fileWant = async (o) => {
-    if (o.format !== "dreadnought-backup") throw new Error("That file is not a DREADNOUGHT backup.");
+// a backup from the 0.7-0.11 editor (the sound and the one pattern): still loads
+async function restoreBackup(o) {
+  {
     S.writing++;
     try {
       for (let i = 0; i < o.params.length && i < S.params.length; i++) await S.link.setParam(i, o.params[i]);
@@ -761,9 +779,8 @@ $("restore").onclick = () => {
     refreshValues();
     render();
     say("Restored. Press Save on FM-1 to keep it there.", "ok");
-  };
-  $("file").click();
-};
+  }
+}
 const LIB = "dreadnought-sounds";
 const lib = () => { try { return JSON.parse(localStorage.getItem(LIB)) || []; } catch (_) { return []; } };
 const saveLib = (l) => { try { localStorage.setItem(LIB, JSON.stringify(l)); } catch (_) { /* (private window) */ } };
@@ -817,6 +834,286 @@ $("import").onclick = () => {
   $("file").click();
 };
 
+// ---- the project (0.12): each track's instrument and sends, the FX rack, memory and load --------------------------
+const projTimers = {};
+function projSet(f, v, after) {
+  clearTimeout(projTimers[f]);
+  projTimers[f] = setTimeout(() => guard(async () => {
+    S.writing++;
+    try {
+      const rc = await S.link.projSet(f, v);
+      S.proj = await S.link.proj();
+      setEngines(S.proj.eng);
+      S.lastRev = (await S.link.state()).rev;
+      if (rc) say(f >= PF.fx(0, 0) ? "No memory for that effect: turn the other one off first." : "The FM-1 didn't take that.", "bad");
+    } finally { S.writing--; }
+    refreshProject();
+    if (after) after();
+    render();
+  }), 60);
+}
+function rangeCell(val, onv) {
+  const td = document.createElement("td");
+  td.innerHTML = `<input type="range" min="0" max="127"><span class="v"></span>`;
+  const r = td.querySelector("input"), v = td.querySelector(".v");
+  r.value = val; v.textContent = val;
+  r.oninput = () => { v.textContent = r.value; onv(+r.value); };
+  return td;
+}
+function buildProject() {
+  $("projOld").hidden = !!S.proj;
+  document.querySelectorAll("#files .pcols").forEach((x) => { x.hidden = !S.proj; });
+  if (!S.proj) return;
+  refreshProject();
+}
+function refreshProject() {
+  if (!S.proj || !S.pat) return;
+  const P = S.proj, tb = $("ptracks");
+  if (document.activeElement !== $("pname")) $("pname").value = P.name;
+  if (!tb.contains(document.activeElement)) {
+    tb.textContent = "";
+    for (let t = 0; t < 8; t++) {
+      const tr = document.createElement("tr"), td = document.createElement("td"), te = document.createElement("td"), sel = document.createElement("select");
+      td.textContent = t + 1;
+      ENG_NAMES.forEach((n, e) => { const o = document.createElement("option"); o.value = e; o.textContent = n === "MIDI" ? "MIDI out" : n; sel.appendChild(o); });
+      sel.value = P.eng[t];
+      sel.onchange = () => projSet(PF.eng(t), +sel.value, buildBreaks);
+      te.appendChild(sel);
+      tr.append(td, te, rangeCell(P.send[0][t], (v) => projSet(PF.sendA(t), v)), rangeCell(P.send[1][t], (v) => projSet(PF.sendB(t), v)));
+      tb.appendChild(tr);
+    }
+  }
+  const fb = $("fxbox");
+  if (!fb.contains(document.activeElement)) {
+    fb.textContent = "";
+    [0, 1].forEach((k) => {
+      const f = P.fx[k], g = document.createElement("div");
+      g.className = "grp";
+      g.innerHTML = `<h3>FX ${k ? "B" : "A"}</h3>`;
+      const row = (name, el) => { const d = document.createElement("div"); d.className = "prm"; d.innerHTML = `<span class="nm">${name}</span>`; d.appendChild(el); g.appendChild(d); return d; };
+      const ty = document.createElement("select");
+      FX_NAMES.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = n; ty.appendChild(o); });
+      ty.value = f.type;
+      ty.onchange = () => projSet(PF.fx(k, 0), +ty.value);
+      row("TYPE", ty);
+      (FX_PARAMS[f.type] || []).forEach(([name, lo, hi, text], i) => {
+        const d = row(name, document.createElement("span"));
+        d.lastChild.remove();
+        d.insertAdjacentHTML("beforeend", `<input type="range" min="${lo}" max="${hi}"><span class="v"></span>`);
+        const r = d.querySelector("input"), v = d.querySelector(".v"), show = () => { v.textContent = text ? text(+r.value) : r.value; };
+        r.value = f.p[i]; show();
+        r.oninput = () => { show(); projSet(PF.fx(k, i + 1), +r.value); };
+      });
+      const rt = row("RETURN", document.createElement("span"));
+      rt.lastChild.remove();
+      rt.insertAdjacentHTML("beforeend", `<input type="range" min="0" max="127"><span class="v"></span>`);
+      const r = rt.querySelector("input"), v = rt.querySelector(".v");
+      r.value = P.ret[k]; v.textContent = P.ret[k];
+      r.oninput = () => { v.textContent = r.value; projSet(PF.ret(k), +r.value); };
+      fb.appendChild(g);
+    });
+  }
+  refreshMeters();
+}
+function meter(id, used, cap, text) {
+  const f = cap ? Math.min(1, used / cap) : 0;
+  $(id).style.width = `${(100 * f).toFixed(1)}%`;
+  $(id).classList.toggle("full", f > 0.95);
+  $(`${id}v`).textContent = text;
+}
+function refreshMeters() {
+  if (!S.proj) return;
+  const P = S.proj;
+  meter("m-smp", P.smpUsed, P.smpCap, `${Math.round(P.smpUsed / 1024)} of ${Math.round(P.smpCap / 1024)} KB`);
+  meter("m-fx", P.fxUsed, P.fxCap, `${P.fxUsed} of ${P.fxCap} KB`);
+  meter("m-cpu", P.cpu, 100, S.mock ? "— (the demo)" : `${P.cpu}%`);
+}
+$("pname").onchange = () => guard(async () => {
+  S.writing++;
+  try { await S.link.projName($("pname").value.trim() || "PROJECT"); S.proj = await S.link.proj(); } finally { S.writing--; }
+});
+
+// ---- samples ------------------------------------------------------------------------------------------------
+// S.media: [{name, set: {rate, fold}, lock, ch / rate (decoded from orig: changeable), adpcm / n (as on the FM-1),
+//            orig (the file's bytes), stale (changed, not sent)}]
+const isSrc = (m) => !!m.ch;                         // (converted here: its settings can change)
+const sizeOf = (m) => (isSrc(m) && (m.stale || !m.adpcm) ? costAt(m, m.set.rate) : m.adpcm.length);
+const proxy = (m) => (isSrc(m) ? m : { rate: m.rate, ch: [{ length: m.n }], set: { rate: m.rate }, lock: true });
+async function decodeFile(bytes) {
+  try { return readWav(bytes); } catch (_) { /* not a WAV the reader takes: the browser's decoder */ }
+  const ctx = new OfflineAudioContext(1, 1, 44100), ab = await ctx.decodeAudioData(bytes.slice().buffer);
+  const ch = [];
+  for (let c = 0; c < Math.min(2, ab.numberOfChannels); c++) ch.push(Float32Array.from(ab.getChannelData(c)));
+  return { rate: ab.sampleRate, ch };
+}
+async function readMedia() {
+  S.mediaRead = true;
+  say("Reading the samples on the FM-1…");
+  S.writing++;
+  try { S.dev = await readSlots(S.link); } finally { S.writing--; }
+  const kept = S.media.filter((m) => !m.sent);       // (added here, not sent yet: they stay)
+  S.media = slotSamples(S.dev).map((x, i) => ({ name: `Sample ${i + 1}`, adpcm: x.adpcm, n: x.n, rate: x.rate, set: { rate: x.rate, fold: "mix" }, sent: true }));
+  S.media.push(...kept);
+  say("Samples read.", "ok");
+  renderMedia();
+}
+async function addMedia(files) {
+  for (const f of files) {
+    try {
+      const orig = new Uint8Array(await f.arrayBuffer()), d = await decodeFile(orig);
+      if (!d.ch[0].length) throw new Error("no audio");
+      S.media.push({ name: f.name.replace(/\.[^.]+$/, ""), ch: d.ch, rate: d.rate, orig, set: { rate: 22050, fold: "mix" }, stale: true });
+    } catch (e) { say(`Couldn't read ${f.name}: ${e.message}`, "bad"); }
+  }
+  renderMedia();
+}
+let playing = null;
+function preview(m) {
+  if (playing) { try { playing.stop(); } catch (_) { /* (ended) */ } playing = null; }
+  const c = isSrc(m) && (m.stale || !m.adpcm) ? convert(m) : { s: imaDecode(m.adpcm, m.n), rate: isSrc(m) ? m.set.rate : m.rate };
+  const ctx = S.actx || (S.actx = new AudioContext()), buf = ctx.createBuffer(1, c.s.length, c.rate), d = buf.getChannelData(0);
+  for (let i = 0; i < c.s.length; i++) d[i] = c.s[i] / 32768;
+  const src = ctx.createBufferSource();
+  src.buffer = buf; src.connect(ctx.destination); src.start();
+  playing = src;
+}
+function renderMedia() {
+  const tb = $("mlist");
+  tb.textContent = "";
+  const plan = packPlan(S.media.length, (i) => sizeOf(S.media[i])), total = S.media.reduce((a, m) => a + sizeOf(m), 0);
+  S.media.forEach((m, i) => {
+    const tr = document.createElement("tr");
+    tr.className = (m.stale ? "stale " : "") + (!plan ? "over" : "");
+    const len = isSrc(m) ? seconds(m) : m.n / m.rate;
+    tr.innerHTML = `<td class="name"></td><td>${len.toFixed(2)} s</td><td></td><td></td><td class="v">${(sizeOf(m) / 1024).toFixed(1)} KB</td>
+      <td><button class="quiet small" title="Listen (as it will be on the FM-1)">▶</button><button class="quiet small" title="Remove">✕</button></td>`;
+    tr.querySelector(".name").textContent = m.name;
+    tr.querySelector(".name").title = isSrc(m) ? `${m.name} (${m.rate} Hz, ${m.ch.length > 1 ? "stereo" : "mono"})` : "On the FM-1 as it is (load the project file it came from to convert it again)";
+    const fs = document.createElement("select"), rs = document.createElement("select");
+    FOLDS.forEach((f) => { const o = document.createElement("option"); o.value = f; o.textContent = f === "mix" ? "L+R" : f; fs.appendChild(o); });
+    RATES.forEach((r) => { const o = document.createElement("option"); o.value = r; o.textContent = RATE_NAME[r]; rs.appendChild(o); });
+    fs.value = m.set.fold; rs.value = m.set.rate;
+    if (!rs.value) { const o = document.createElement("option"); o.value = m.set.rate; o.textContent = `${m.set.rate} Hz`; rs.appendChild(o); rs.value = m.set.rate; }
+    fs.disabled = rs.disabled = !isSrc(m) || (m.ch.length < 2 && false);
+    if (isSrc(m) && m.ch.length < 2) fs.disabled = true;
+    fs.onchange = () => { m.set = { ...m.set, fold: fs.value }; m.stale = true; renderMedia(); };
+    rs.onchange = () => { m.set = { ...m.set, rate: +rs.value }; m.stale = true; m.lock = true; renderMedia(); };
+    tr.children[2].appendChild(fs);
+    tr.children[3].appendChild(rs);
+    const [pl, rm] = tr.querySelectorAll("button");
+    pl.onclick = () => preview(m);
+    rm.onclick = () => { S.media.splice(i, 1); renderMedia(); };
+    tb.appendChild(tr);
+  });
+  $("m-media").style.width = `${Math.min(100, (100 * total) / CAP).toFixed(1)}%`;
+  $("m-media").classList.toggle("full", !plan);
+  $("mtotal").textContent = `${(total / 1024).toFixed(0)} of ${(CAP / 1024).toFixed(0)} KB${plan ? "" : " — too much: lower some rates, or Fit to space"}`;
+  $("msend").disabled = !plan || !S.link || !S.media.some((m) => m.stale) && S.media.length === slotSamples(S.dev || [null, null, null]).length;
+}
+$("madd").onclick = () => $("mfiles").click();
+$("mfiles").onchange = (ev) => { addMedia([...ev.target.files]); ev.target.value = ""; };
+$("mediaCard").ondragover = (ev) => { ev.preventDefault(); $("mediaCard").classList.add("over"); };
+$("mediaCard").ondragleave = () => $("mediaCard").classList.remove("over");
+$("mediaCard").ondrop = (ev) => { ev.preventDefault(); $("mediaCard").classList.remove("over"); addMedia([...ev.dataTransfer.files]); };
+$("mfit").onclick = () => {
+  const px = S.media.map(proxy), r = fitToSpace(px);
+  if (!r) return say("Even at 8 kHz these don't all fit: remove some.", "bad");
+  S.media.forEach((m, i) => { if (isSrc(m) && m.set.rate !== r[i]) { m.set = { ...m.set, rate: r[i] }; m.stale = true; } });
+  say("Rates picked to fit. Listen, then send.", "ok");
+  renderMedia();
+};
+$("msend").onclick = () => guard(async () => {
+  if (S.st.playing) throw new Error("Stop the FM-1 first: writing its memory interrupts the sound.");
+  const parts = S.media.map((m) => {
+    if (isSrc(m) && (m.stale || !m.adpcm)) { const c = convert(m); m.adpcm = imaEncode(c.s); m.n = c.s.length; }
+    return { adpcm: m.adpcm, n: m.n, rate: isSrc(m) ? m.set.rate : m.rate };   // (a source's m.rate is its file's)
+  });
+  const ims = imagesOf(parts);
+  $("pprog").hidden = false;
+  S.writing++;
+  try {
+    if (!S.dev) S.dev = await readSlots(S.link);
+    await writeSlots(S.link, ims, S.dev, (f) => { $("pprog").value = f; }, (t) => say(t));
+    S.media.forEach((m) => { m.stale = false; m.sent = true; });
+    S.loops = await S.link.names(1);
+    S.proj = await S.link.proj();
+  } finally { S.writing--; $("pprog").hidden = true; }
+  buildBreaks(); renderMedia(); refreshMeters();
+  say("Samples on the FM-1. The breaks play them: ARP, then PRESETS for the loop.", "ok");
+});
+
+// ---- projects: save, load, a folder of them ----------------------------------------------------------------
+const projFileName = (o) => `${(o.name || "project").replace(/[^\w-]+/g, "_")}.dnproj`;
+async function saveProject() {
+  if (!S.link || !S.proj) return say("Connect first.", "bad");
+  $("pprog").hidden = false;
+  let o;
+  S.writing++;
+  try { o = await readProject(S.link, { media: S.media, onPart: (f) => { $("pprog").value = f; }, say }); } finally { S.writing--; $("pprog").hidden = true; }
+  const text = JSON.stringify(o);
+  if (S.dir) {
+    const fh = await S.dir.getFileHandle(projFileName(o), { create: true }), w = await fh.createWritable();
+    await w.write(text);
+    await w.close();
+    await listFolder();
+    say(`Saved ${projFileName(o)} in your projects folder.`, "ok");
+  } else {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    a.download = projFileName(o);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    say(`Saved ${projFileName(o)} to your downloads.`, "ok");
+  }
+}
+async function loadProject(o) {
+  if (o.format === "dreadnought-backup") return restoreBackup(o);
+  checkProject(o);
+  if (!S.link || !S.proj) throw new Error("Connect to an FM-1 running DREADNOUGHT 0.12 or later first.");
+  $("pprog").hidden = false;
+  S.writing++;
+  try {
+    await writeProject(S.link, o, { onPart: (f) => { $("pprog").value = f; }, say });
+    S.params = await S.link.params();
+    S.proj = await S.link.proj();
+    setEngines(S.proj.eng);
+    S.lfo = await readLfos();
+    S.pat = await S.link.readPattern(S.st.patSize);
+    S.loops = await S.link.names(1);
+    S.dev = null;
+    S.media = mediaOf(o);
+    for (const m of S.media) if (m.orig) {          // (the originals back: they can be converted again)
+      try { const d = await decodeFile(m.orig); m.ch = d.ch; m.rate = d.rate; } catch (_) { /* kept as stored */ }
+    }
+    S.lastRev = (await S.link.state()).rev;
+  } finally { S.writing--; $("pprog").hidden = true; }
+  buildBreaks(); refreshValues(); refreshProject(); renderMedia(); render();
+  say(`"${o.name}" is on the FM-1. Press Save on FM-1 to keep it there.`, "ok");
+}
+async function listFolder() {
+  const ul = $("pfiles");
+  ul.textContent = "";
+  if (!S.dir) return;
+  const files = [];
+  for await (const [name, h] of S.dir.entries()) if (h.kind === "file" && /\.dnproj$/i.test(name)) files.push(h);
+  files.sort((a, b) => a.name.localeCompare(b.name));
+  for (const h of files) {
+    const f = await h.getFile(), li = document.createElement("li");
+    li.innerHTML = `<span></span><small class="small">${(f.size / 1024).toFixed(0)} KB · ${new Date(f.lastModified).toLocaleDateString()}</small><button class="quiet small">Load to FM-1</button>`;
+    li.querySelector("span").textContent = h.name.replace(/\.dnproj$/i, "");
+    li.querySelector("button").onclick = () => guard(async () => loadProject(JSON.parse(await (await h.getFile()).text())));
+    ul.appendChild(li);
+  }
+  if (!files.length) ul.innerHTML = `<li><span class="small">No projects in this folder yet: Save puts them here.</span></li>`;
+}
+$("psave").onclick = () => guard(saveProject);
+$("pload").onclick = () => { fileWant = loadProject; $("file").click(); };
+$("pfolder").onclick = () => guard(async () => {
+  if (!window.showDirectoryPicker) throw new Error("This browser can't open a folder: Save downloads the file instead (Chrome and Edge can).");
+  S.dir = await window.showDirectoryPicker({ id: "dreadnought-projects", mode: "readwrite" });
+  await listFolder();
+});
+
 // ---- drawing it all -------------------------------------------------------------------------------------------
 function render() {
   if (!S.pat) return;
@@ -841,7 +1138,7 @@ function render() {
   renderInsp();
   if (S.selNote >= 0 && tr.steps[S.selNote] && (tr.steps[S.selNote].flags & ST_ON)) {
     const st = tr.steps[S.selNote];
-    $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `slice ${st.note + 1}` : noteName(st.note + (S.sel === 0 ? S.params[17] : 0))}, `
+    $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `slice ${st.note + 1}` : noteName(st.note + trans())}, `
       + `${lenText(st.len)} step${st.len === 4 ? "" : "s"}, velocity ${st.flags & ST_ACC ? "accent" : st.vel}`
       + `${st.flags & ST_SLIDE ? (isBrk() ? ", reversed" : ", slides in") : !isBrk() && overlapSlide(S.pat, S.sel, S.selNote) ? ", slides in (the note before overlaps it)" : ""}.`;
   }

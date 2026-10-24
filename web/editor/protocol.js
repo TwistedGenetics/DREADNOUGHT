@@ -8,7 +8,7 @@
 
 export const HDR = [0x7D, 0x46, 0x4C];
 export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, PATS: 73, PAT_SEL: 74, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
-  TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69 };
+  TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
 export const digits = (v, n) => { const o = []; for (let i = 0; i < n; i++) { o.push(v & 127); v = Math.floor(v / 128); } return o; };
@@ -136,7 +136,15 @@ export function parseNames(r) {
 // ---- the pattern (dn_seq.h dn_pattern_t, little-endian) ------------------------------------------------------------
 export const TRACKS = 8, STEPS = 64, LEN_STEP = 4, LEN_MAX = 255;
 export const ST_ON = 1, ST_SLIDE = 2, ST_ACC = 4;
-export const KIND = (t) => (t === 0 ? "REESE" : t === 1 || t === 2 ? "BREAKS" : "MIDI");
+// what each track plays (0.12: the project says; before it, REESE / BREAKS A / B / MIDI x5)
+export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI"];
+export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4 };
+let ENG = [1, 2, 3, 4, 4, 4, 4, 4];
+export function setEngines(e) { ENG = e.slice(0, 8); }
+export const engines = () => ENG.slice();
+export const KIND = (t) => (ENG[t] === E.REESE ? "REESE" : ENG[t] === E.BRKA || ENG[t] === E.BRKB ? "BREAKS" : ENG[t] === E.MIDI ? "MIDI" : "OFF");
+export const brkOf = (t) => (ENG[t] === E.BRKB ? 1 : 0);   // a break track's voice: 0 A, 1 B
+export const midiNo = (t) => ENG.slice(0, t).filter((e) => e === E.MIDI).length + 1;   // "MIDI n"
 export const ST_RTRG = 8;
 // trig conditions, as the FM-1 numbers them (dn_seq.h DN_CO_*: Digitakt's list)
 export const CO_PCT = [1, 2, 4, 6, 9, 13, 19, 25, 33, 41, 50, 59, 67, 75, 81, 87, 91, 94, 96, 98, 99, 100];
@@ -222,6 +230,21 @@ export function noteName(n) {
   return ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][((n % 12) + 12) % 12] + (Math.floor(n / 12) - 1);
 }
 
+// ---- the project (0.12): PROJ ---------------------------------------------------------------------------------
+export const FX_NAMES = ["OFF", "DELAY"];
+export const FX_DIVS = ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"];
+export const FX_PARAMS = { 1: [["TIME", 0, 11, (v) => FX_DIVS[v]], ["FEEDBACK", 0, 127], ["TONE", 0, 127]] };
+export function parseProj(r) {
+  let name = "";
+  for (let i = 0; i < 12 && r[i]; i++) name += String.fromCharCode(r[i]);
+  const eng = r.slice(12, 20), send = [r.slice(20, 28), r.slice(28, 36)], ret = [r[36], r[37]];
+  const fx = [r.slice(38, 42), r.slice(42, 46)].map((f) => ({ type: f[0], p: f.slice(1) }));
+  return { name, eng, send, ret, fx, smpUsed: num(r, 46, 3), smpCap: num(r, 49, 3), fxUsed: num(r, 52, 2), fxCap: num(r, 54, 2),
+    cpu: r[56], nEng: r[57], nFx: r[58] };
+}
+// PROJ_SET's fields
+export const PF = { eng: (t) => t, sendA: (t) => 8 + t, sendB: (t) => 16 + t, ret: (k) => 24 + k, fx: (k, i) => 26 + 4 * k + i };
+
 // ---- the link --------------------------------------------------------------------------------------------------
 // one request at a time; a reply is the next editor frame with the same command
 export class Link {
@@ -292,6 +315,9 @@ export class Link {
   async patSel(t, n) { return (await this.req(CMD.PAT_SEL, [t, n]))[0]; }
   async save() { return (await this.req(CMD.SAVE, [], 8000))[0]; }
   async preset(i) { return (await this.req(CMD.PRESET, [i]))[0]; }
+  async proj() { return parseProj(await this.req(CMD.PROJ)); }
+  async projSet(f, v) { return (await this.req(CMD.PROJ_SET, [f, ...digits(v, 2)]))[0]; }
+  async projName(n) { return (await this.req(CMD.PROJ_NAME, n.split("").map((c) => c.charCodeAt(0) & 127).filter((c) => c >= 32).slice(0, 11)))[0]; }
   async info() { return String.fromCharCode(...(await this.req(CMD.INFO, [], 1500)).filter((c, i, a) => i < a.indexOf(0))); }
 }
 
