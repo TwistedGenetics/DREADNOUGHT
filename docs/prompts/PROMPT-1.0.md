@@ -39,7 +39,8 @@ The user asked (his words):
 ## The limits everything is designed around
 
 From `docs/PLATFORM.md`:
-- **CPU:** 360 MHz, two cores. One 128-frame block lasts 2.9 ms.
+- **CPU:** 360 MHz, two cores. One 128-frame block lasts 2.9 ms. Measured on Jamie's FM-1 (0.12): REESE and both
+  breaks playing, **18 %** of one core (the second is idle).
 - **RAM:** about 512 KB, with no external RAM.
 - **Flash:** 1 MB, single bank. The firmware takes ~600 KB, which leaves **~300 KB for everything the user loads**:
   - samples and breaks;
@@ -230,7 +231,9 @@ Report these to Jamie in plain words before Part 1, along with the revised per-e
      and word length on purpose.
 
    It is one slot's worth of RAM, so its reverb and delay are smaller than Carnac's.
-3. **Jamie's "hollow" FX.** See the open questions. Don't build it until he's said what it is.
+3. **Jamie's "hollow" FX = his Super-Massive** (his Valhalla Supermassive-style reverb / delay for the microKORG 2,
+   logue SDK, repo TwistedGenetics/Super-Massive). Port its algorithms from his code (his own, so no licence
+   question), fitted to the FX arena; measure its RAM and CPU like the others.
 
 Each FX gets:
 - a golden render;
@@ -346,17 +349,14 @@ clone it; make an engine in its spirit.
   - formant voice.
 - Every algorithm shares the same 4 macro knobs (TIMBRE, COLOUR, MOTION, SPACE), as a module would expose them, plus a
   built-in stereo effect per algorithm (shimmer, smear, freeze).
-- Ask Jamie first which Vhikk X sounds or algorithms he's after (see the open questions). His answer decides the
-  algorithm list.
+- Jamie's answer (2026-10-24): "all of them, if you can make them i want something that creates dark sounds like it
+  does". So: as many of its algorithm families as fit (research the module's manual and demos first), each tuned
+  for dark drones, basses and textures. It can't be a copy of a module's firmware: an engine of our own in its spirit.
 
 ## Open questions: ask Jamie before the part that needs them
 
-1. **"My hollow FX".** What is it? Options to ask about:
-   - one of his own units (the Super-Massive reverb / delay or EraCrush from the microKORG 2, which could be ported
-     from his logue SDK code);
-   - the HOLLOW RS notch movement as an effect on any track;
-   - something else.
-2. **Vhikk X.** Which sounds or algorithms he wants; a demo or video he likes would help.
+1. ~~"My hollow FX"~~: answered, his Super-Massive (Part 3).
+2. ~~Vhikk X~~: answered, all of its kinds of sound, dark (Part 8).
 3. **Engine order.** The order above puts jungle bass first. He may want to reorder.
 4. **Second on-device project slot vs more sample space.** Decide after Part 0's numbers.
 
