@@ -85,3 +85,23 @@ reboot
 expect eng.5 5
 expect sbpreset 4
 expect s.RES 104
+# an LFO set up for REESE (LFO 1 to CUTOFF, the depth up) never moves SUB (0.13: on the FM-1 SUB pulsed with it);
+# SUB's own destination (S CUT) does
+press SEQ
+tapkey 7 40
+release SEQ
+tap LFO
+tap LFO
+expect page 12
+turn K3 1
+expect ldest 1
+turn K4 20
+key 0 down
+wait 300
+expect smodcut 0
+turn K3 21
+expect ldest 22
+wait 300
+expect smodcut 1
+shot sub-09-lfo-scut.png
+key 0 up

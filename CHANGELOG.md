@@ -291,8 +291,9 @@ a real FM-1.
 - Put it on a track on the PROJECT page (or the editor's Project tab); SEQ + its track's white key opens its pages:
   the same buttons as REESE's (OSC, FILTER, AMP, MOD, OUT), SEL again for OSC2, EDIT again for DIRT. The sound pages
   follow the synth on the selected track (REESE or SUB); from a break or MIDI track they go to the synth shown last.
-  PRESETS loads SUB's sounds with its track selected. VEL SENS (SETUP) counts for both synths. The LFOs' CUTOFF, RES,
-  DRIVE, PITCH, LEVEL, F.ENV and SUB reach SUB too.
+  PRESETS loads SUB's sounds with its track selected. VEL SENS (SETUP) counts for both synths. SUB has its own LFO
+  destinations (S CUT, S RES, S DRIVE, S PITCH, S LEVEL, S PW, after L4 DEPTH): the first 0.13 build sent REESE's
+  CUTOFF, LEVEL... to SUB as well, so an LFO set up for REESE made a held SUB note pulse; fixed the same evening.
 - Saved with the sound; the web editor has a **SUB** tab (every value, the factory sounds) and SUB in the Project tab's
   instruments. Editor: PARAMS ends with SUB's 27 values; NAMES kind 5; command 78 SUB_PRESET.
 

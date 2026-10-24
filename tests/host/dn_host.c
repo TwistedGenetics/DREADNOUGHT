@@ -550,6 +550,7 @@ int main(int argc, char **argv)
             } else if (!strcmp(b, "legato")) got = dn_sq.legato;
             else if (!strcmp(b, "sbgate")) got = dn_sb.gate;       /* SUB (0.13) */
             else if (!strcmp(b, "sbpreset")) got = dn.sb_preset;
+            else if (!strcmp(b, "smodcut")) got = dn_sb.mod[SP_CUT] != 0;
             else if (!strcmp(b, "sbnote")) got = dn_sb.gate ? dn_sb.note : -1;
             else if (!strncmp(b, "s.", 2)) {
                 got = -9999;

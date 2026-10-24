@@ -157,10 +157,14 @@ static const uint8_t DN_LFO_PAGE[2][4] = {{DN_PX_LSHAPE, DN_PX_LRATE, DN_PX_LDES
 /* where an LFO goes */
 enum { DN_LD_OFF, DN_LD_CUT, DN_LD_RES, DN_LD_DRV, DN_LD_NTCH, DN_LD_DTN, DN_LD_PITCH, DN_LD_SUB, DN_LD_LEVEL,
        DN_LD_FENV, DN_LD_APITCH, DN_LD_ADECAY, DN_LD_ACRUSH, DN_LD_ALEVEL, DN_LD_BPITCH, DN_LD_BDECAY, DN_LD_BCRUSH,
-       DN_LD_BLEVEL, DN_LD_L1DEPTH, DN_LD_N = DN_LD_L1DEPTH + DN_NLFO };
+       DN_LD_BLEVEL, DN_LD_L1DEPTH, DN_LD_SCUT = DN_LD_L1DEPTH + DN_NLFO, DN_LD_SRES, DN_LD_SDRV, DN_LD_SPITCH,
+       DN_LD_SLEVEL, DN_LD_SPW, DN_LD_N };
+#define DN_LD_IS_DEPTH(d) ((d) >= DN_LD_L1DEPTH && (d) < DN_LD_L1DEPTH + DN_NLFO)
+/* (the first ones are REESE's; SUB's own come after the depths, 0.13: an LFO set up for REESE never moves SUB) */
 static const char *const DN_LD_NAME[DN_LD_N] = {"OFF", "CUTOFF", "RES", "DRIVE", "NOTCH", "DETUNE", "PITCH", "SUB",
     "LEVEL", "F.ENV", "A PITCH", "A DECAY", "A CRUSH", "A LEVEL", "B PITCH", "B DECAY", "B CRUSH", "B LEVEL",
-    "L1 DEP", "L2 DEP", "L3 DEP", "L4 DEP"};
+    "L1 DEP", "L2 DEP", "L3 DEP", "L4 DEP", "S CUT", "S RES", "S DRIVE", "S PITCH", "S LEVEL", "S PW"};
+static const uint8_t DN_LD_SP[6] = {SP_CUT, SP_RES, SP_DRIVE, 0, SP_LEVEL, SP_PW};
 static const uint8_t DN_LD_RP[DN_LD_N] = {0, RP_CUT, RP_RES, RP_DRV, RP_NTCH, RP_DTN, 0, RP_SUB, RP_LEVEL, RP_FENV};
 
 typedef struct {
@@ -374,19 +378,24 @@ static void dn_rs_on(uint8_t note, uint8_t vel, int legato)
 static void dn_lfo_tick(uint32_t n)
 {
     int32_t dm[DN_NLFO] = {0}, rm[RP_COUNT] = {0}, pitch = 0, bp[DN_NBRK] = {0}, bd[DN_NBRK] = {0}, bc[DN_NBRK] = {0};
-    int32_t bl[DN_NBRK] = {0};
+    int32_t bl[DN_NBRK] = {0}, sm[SP_COUNT] = {0}, spitch = 0;
     uint32_t j, k;
     for (j = 0; j < DN_NLFO; j++)
         dn_lfo_run(&dn_ls[j], &dn_lp[j], n, dn_sq.bpm);
     for (j = 0; j < DN_NLFO; j++)                   /* the LFOs on other LFOs' depth first */
-        if (dn_lp[j].dest >= DN_LD_L1DEPTH && dn_lp[j].dest < DN_LD_N)
+        if (DN_LD_IS_DEPTH(dn_lp[j].dest))
             dm[dn_lp[j].dest - DN_LD_L1DEPTH] += (dn_ls[j].out * dn_lp[j].depth) >> 6;
     for (j = 0; j < DN_NLFO; j++) {
         uint32_t d = dn_lp[j].dest;
         int32_t dep = dn_clamp(dn_lp[j].depth * (32767 + dm[j]) / 32767, -128, 127), a = (dn_ls[j].out * dep) >> 6;
-        if (!d || d >= DN_LD_L1DEPTH)
+        if (!d || DN_LD_IS_DEPTH(d) || d >= DN_LD_N)
             continue;
-        if (d == DN_LD_CUT)
+        if (d >= DN_LD_SCUT) {                      /* SUB's: CUT a full sweep, PITCH +-12, the others +-64 steps */
+            if (d == DN_LD_SPITCH)
+                spitch += (a * 3) >> 5;
+            else
+                sm[DN_LD_SP[d - DN_LD_SCUT]] += d == DN_LD_SCUT ? a : a >> 1;
+        } else if (d == DN_LD_CUT)
             rm[RP_CUT] += a;
         else if (d == DN_LD_PITCH)
             pitch += (a * 3) >> 5;                  /* 12 semitones x 256 at 32767 */
@@ -405,10 +414,9 @@ static void dn_lfo_tick(uint32_t n)
     for (k = 0; k < RP_COUNT; k++)
         dn_rs.mod[k] = rm[k];
     dn_rs.mod_pitch = pitch;
-    dn_sb.mod[SP_CUT] = rm[RP_CUT], dn_sb.mod[SP_RES] = rm[RP_RES], dn_sb.mod[SP_DRIVE] = rm[RP_DRV];   /* (SUB: the
-                                                     * same places, where it has them) */
-    dn_sb.mod[SP_LEVEL] = rm[RP_LEVEL], dn_sb.mod[SP_ENV] = rm[RP_FENV], dn_sb.mod[SP_SUB] = rm[RP_SUB];
-    dn_sb.mod_pitch = pitch;
+    for (k = 0; k < SP_COUNT; k++)
+        dn_sb.mod[k] = sm[k];
+    dn_sb.mod_pitch = spitch;
     for (k = 0; k < DN_NBRK; k++) {
         dn_brk_t *b = &dn_bk[k];
         b->mdecay = (int16_t)bd[k], b->mcrush = (int16_t)bc[k], b->mlevel = (int16_t)bl[k];
@@ -3275,13 +3283,18 @@ static void dn_knob(int32_t cx, int32_t cy, uint32_t id, int focus)
     char t[8];
     dn_arc(cx, cy, 19, 22, -DN_KA, DN_KA, DN_C_TRACK);
     dn_arc(cx, cy, 19, 22, a0, av, focus ? DN_C_BLUE : DN_C_BLUE_D);
-    if (id < RP_COUNT) {                            /* an LFO on it: its reach, red outside the ring (as Massive) */
+    if (id < RP_COUNT || DN_IS_SPX(id)) {           /* an LFO on it: its reach, red outside the ring (as Massive) */
         uint32_t j;
         int32_t r = 0;
-        for (j = 0; j < DN_NLFO; j++)
-            if (dn_lp[j].dest && dn_lp[j].dest < DN_LD_APITCH && dn_lp[j].dest != DN_LD_PITCH &&
-                DN_LD_RP[dn_lp[j].dest] == id)
-                r += (dn_lp[j].depth < 0 ? -dn_lp[j].depth : dn_lp[j].depth) * (dn_lp[j].dest == DN_LD_CUT ? 2 : 1);
+        for (j = 0; j < DN_NLFO; j++) {
+            uint32_t d = dn_lp[j].dest;
+            int32_t dep = dn_lp[j].depth < 0 ? -dn_lp[j].depth : dn_lp[j].depth;
+            if (id < RP_COUNT && d && d < DN_LD_APITCH && d != DN_LD_PITCH && DN_LD_RP[d] == id)
+                r += dep * (d == DN_LD_CUT ? 2 : 1);
+            if (DN_IS_SPX(id) && d >= DN_LD_SCUT && d < DN_LD_N && d != DN_LD_SPITCH &&
+                DN_PX_SUB0 + DN_LD_SP[d - DN_LD_SCUT] == id)
+                r += dep * (d == DN_LD_SCUT ? 2 : 1);
+        }
         if (r) {
             int32_t m0 = dn_clamp(v - r, lo, hi), m1 = dn_clamp(v + r, lo, hi);
             dn_arc(cx, cy, 23, 25, -DN_KA + (2 * DN_KA * (m0 - lo)) / span, -DN_KA + (2 * DN_KA * (m1 - lo)) / span,
