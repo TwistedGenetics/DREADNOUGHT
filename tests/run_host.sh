@@ -16,7 +16,7 @@ $CC $W tests/host/reese_test.c src/dsp/reese.c -o build/host/reese_test
 build/host/reese_test build/host
 python3 tests/host/reese_measure.py
 # shellcheck disable=SC2086
-$CC $W tests/host/seq_test.c src/dsp/dn_seq.c -o build/host/seq_test
+$CC $W tests/host/seq_test.c src/dsp/dn_seq.c -o build/host/seq_test -lm
 build/host/seq_test
 # shellcheck disable=SC2086
 $CC $W tests/host/brk_test.c src/dsp/dn_breaks.c -o build/host/brk_test -lm

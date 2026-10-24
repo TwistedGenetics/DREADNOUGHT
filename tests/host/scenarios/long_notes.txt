@@ -1,0 +1,33 @@
+# DREADNOUGHT host scenario: long notes (0.6). A 4-step REESE note holds for 4 steps and shows across them.
+tap SEQ
+key 20 down
+wait 1200
+key 20 up
+expect on.1 0
+# step 1 on, then KNOB 2 to a length of 4 steps (16 quarter steps)
+key 0 down
+turn K2 9
+shot long-01-held.png
+key 0 up
+expect ln.1.1 16
+tapkey 9 40
+key 9 down
+turn K2 17
+key 9 up
+expect ln.1.6 32
+shot long-02-grid.png
+wav long-notes.wav
+tap PLAY
+# (tap PLAY takes 100 ms from the press, which starts it.) 4 steps at 172 BPM = 349 ms: still sounding at 330 ms,
+# gone at 390 ms; step 6 (436 ms) holds 8 steps
+wait 230
+expect gate 1
+wait 60
+expect gate 0
+wait 100
+expect gate 1
+wait 600
+expect gate 1
+wait 1300
+tap PLAY
+wavstop

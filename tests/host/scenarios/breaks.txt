@@ -25,7 +25,7 @@ tapkey 24 40
 tapkey 26 40
 expect on.2 16
 expect nt.2.5 4
-expect ln.2.5 16
+expect ln.2.5 4
 # chop: step 13 plays slice 5, step 16 reversed
 key 21 down
 turn K1 -7

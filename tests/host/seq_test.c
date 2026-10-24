@@ -2,6 +2,7 @@
  * DREADNOUGHT host test: the step sequencer's timing and logic against what the tempo says.
  * Runs the sequencer the way the audio interrupt does (128-frame blocks cut at every event) and logs each event with
  * its sample. Copyright (C) 2026 Jamie (TwistedGenetics). */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -97,8 +98,8 @@ int main(void)
     /* 3: a slide: the second note starts without the first ending first (legato), then the first ends */
     nev = 0; now = 0;
     dn_seq_init(&s);
-    s.pat.tr[0].st[0] = (dn_step_t){53, DN_ST_ON, 12, 100};
-    s.pat.tr[0].st[1] = (dn_step_t){56, DN_ST_ON | DN_ST_SLIDE, 8, 100};
+    s.pat.tr[0].st[0] = (dn_step_t){53, DN_ST_ON, 3, 100};
+    s.pat.tr[0].st[1] = (dn_step_t){56, DN_ST_ON | DN_ST_SLIDE, 2, 100};
     dn_seq_start(&s, &CB);
     run(&s, (uint64_t)(spb * 3));
     {
@@ -136,7 +137,91 @@ int main(void)
     run(&s, (uint64_t)(44100.0 * 15 / 120 * 8) - 10);
     check("120 BPM: 8 sixteenths in 1 s", count('N', 0) == 8, count('N', 0), 8);
 
-    /* 6: the demo pattern is valid and plays */
+    /* 6: long notes (0.6): a 4-step note holds 4 steps, across steps that are off */
+    {
+        uint64_t on_at = 0, off_at = 0;
+        nev = 0; now = 0;
+        dn_seq_init(&s);
+        s.pat.tr[0].st[0] = (dn_step_t){53, DN_ST_ON, 16, 100};
+        dn_seq_start(&s, &CB);
+        run(&s, (uint64_t)(spb * 8));
+        for (i = 0; i < nev; i++) {
+            if (ev[i].kind == 'N' && !on_at) on_at = ev[i].at;
+            if (ev[i].kind == 'O' && !off_at) off_at = ev[i].at;
+        }
+        check("a 4-step note lasts 4 steps (samples)", off_at && fabs((double)(off_at - on_at) - 4 * spb) < 3,
+              (double)(off_at - on_at), 4 * spb);
+    }
+    /* across the pattern's end: a 4-step track, a 2-step note on its last step */
+    {
+        uint64_t on_at = 0, off_at = 0;
+        nev = 0; now = 0;
+        dn_seq_init(&s);
+        s.pat.tr[0].len = 4;
+        s.pat.tr[0].st[3] = (dn_step_t){53, DN_ST_ON, 8, 100};
+        dn_seq_start(&s, &CB);
+        run(&s, (uint64_t)(spb * 6));
+        for (i = 0; i < nev; i++) {
+            if (ev[i].kind == 'N' && !on_at) on_at = ev[i].at;
+            if (ev[i].kind == 'O' && !off_at) off_at = ev[i].at;
+        }
+        check("a note across the pattern's end holds (samples)", off_at && fabs((double)(off_at - on_at) - 2 * spb) < 3,
+              (double)(off_at - on_at), 2 * spb);
+    }
+    /* a later step cuts a long note; a later step with slide glides from it (no gap) */
+    {
+        uint64_t off_at = 0, on2 = 0;
+        nev = 0; now = 0;
+        dn_seq_init(&s);
+        s.pat.tr[0].st[0] = (dn_step_t){53, DN_ST_ON, 32, 100};
+        s.pat.tr[0].st[2] = (dn_step_t){56, DN_ST_ON, 4, 100};
+        dn_seq_start(&s, &CB);
+        run(&s, (uint64_t)(spb * 3));
+        for (i = 0; i < nev; i++) {
+            if (ev[i].kind == 'O' && ev[i].note == 53 && !off_at) off_at = ev[i].at;
+            if (ev[i].kind == 'N' && ev[i].note == 56 && !on2) on2 = ev[i].at;
+        }
+        check("a later step cuts the long note at its own time", off_at && on2 && off_at <= on2 && on2 - off_at < 2,
+              (double)off_at, (double)on2);
+        nev = 0; now = 0;
+        dn_seq_init(&s);
+        s.pat.tr[0].st[0] = (dn_step_t){53, DN_ST_ON, 8, 100};
+        s.pat.tr[0].st[2] = (dn_step_t){56, DN_ST_ON | DN_ST_SLIDE, 4, 100};
+        dn_seq_start(&s, &CB);
+        run(&s, (uint64_t)(spb * 3));
+        {
+            int ok = 0;
+            for (i = 0; i + 1 < nev; i++)
+                if (ev[i].kind == 'N' && ev[i].note == 56)
+                    ok = ev[i].slide && ev[i + 1].kind == 'O' && ev[i + 1].note == 53;
+            check("a slide two steps on glides from the long note (no gap)", ok, ok, 1);
+        }
+    }
+    /* a 0.5 pattern (DNQ1, lengths in sixteenths of a step) comes up to date */
+    {
+        dn_pattern_t p;
+        dn_pattern_clear(&p);
+        p.magic = DN_SEQ_MAGIC_V1;
+        p.tr[0].st[0].len = 16;
+        p.tr[0].st[1].len = 12;
+        p.tr[0].st[2].len = 1;
+        check("0.5 pattern migrates", dn_pattern_valid(&p) && p.magic == DN_SEQ_MAGIC && p.tr[0].st[0].len == 4 &&
+              p.tr[0].st[1].len == 3 && p.tr[0].st[2].len == 1, p.tr[0].st[0].len, 4);
+    }
+    /* the coverage the screen draws: a note's length reaches into the steps after it, up to the next note */
+    {
+        dn_pattern_t p;
+        uint8_t cov[DN_SEQ_STEPS];
+        dn_pattern_clear(&p);
+        p.tr[0].st[0] = (dn_step_t){53, DN_ST_ON, 16, 100};
+        p.tr[0].st[2] = (dn_step_t){53, DN_ST_ON, 4, 100};
+        p.tr[0].st[14] = (dn_step_t){53, DN_ST_ON, 12, 100};
+        dn_pattern_coverage(&p, 0, cov);
+        check("coverage: start, held, cut by the next note, wraps", cov[0] == 1 && cov[1] == 2 && cov[2] == 1 &&
+              cov[3] == 0 && cov[15] == 2 && cov[0] == 1 && cov[14] == 1, cov[1], 2);
+    }
+
+    /* 7: the demo pattern is valid and plays */
     {
         dn_pattern_t p;
         dn_pattern_demo(&p);

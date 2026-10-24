@@ -27,22 +27,19 @@ void dn_pattern_clear(dn_pattern_t *p)
         p->tr[t].last_note = 53;                    /* F3, the lowest key: F1 on the reese presets (TRANS -24) */
         for (i = 0; i < DN_SEQ_STEPS; i++) {
             p->tr[t].st[i].note = 53;
-            p->tr[t].st[i].len = 12;
+            p->tr[t].st[i].len = 3;                 /* three quarters of a step */
             p->tr[t].st[i].vel = 100;
         }
     }
 }
 
-/* a rolling reese line in F for the first PLAY: held roots (a slide on the same note is a tie), a climb that glides,
- * a drop to the lower octave on the last beat */
+/* a rolling reese line in F for the first PLAY: a held root, a stab, a climb that glides and holds, a drop to the
+ * lower octave on the last beat */
 void dn_pattern_demo(dn_pattern_t *p)
 {
     static const uint8_t S = DN_ST_SLIDE, A = DN_ST_ACC;
-    static const uint8_t D[][4] = {      /* step, note, gate (sixteenths), flags */
-        {0, 53, 16, 0}, {1, 53, 16, S}, {2, 53, 8, S}, {3, 53, 6, A},
-        {6, 56, 16, 0}, {7, 58, 16, S}, {8, 58, 12, S},
-        {10, 53, 16, 0}, {11, 53, 10, S}, {12, 51, 16, 0}, {13, 51, 8, S},
-        {14, 41, 16, A}, {15, 41, 12, S},
+    static const uint8_t D[][4] = {      /* step, note, length (quarter steps), flags */
+        {0, 53, 11, 0}, {3, 53, 2, A}, {6, 56, 4, 0}, {7, 58, 7, S}, {10, 53, 7, 0}, {12, 51, 7, 0}, {14, 41, 7, A},
     };
     uint32_t i;
     dn_pattern_clear(p);
@@ -59,6 +56,14 @@ int dn_pattern_valid(const dn_pattern_t *cp)
 {
     dn_pattern_t *p = (dn_pattern_t *)cp;
     uint32_t t, i;
+    if (p->magic == DN_SEQ_MAGIC_V1) {              /* 0.4 / 0.5: a length was sixteenths of one step */
+        for (t = 0; t < DN_SEQ_TRACKS; t++)
+            for (i = 0; i < DN_SEQ_STEPS; i++) {
+                uint32_t l = clampi(p->tr[t].st[i].len, 1, 16);
+                p->tr[t].st[i].len = (uint8_t)((l + 2u) / 4u ? (l + 2u) / 4u : 1u);
+            }
+        p->magic = DN_SEQ_MAGIC;
+    }
     if (p->magic != DN_SEQ_MAGIC)
         return 0;
     p->swing = (uint8_t)clampi(p->swing, 50, 75);
@@ -72,11 +77,34 @@ int dn_pattern_valid(const dn_pattern_t *cp)
             dn_step_t *st = &tr->st[i];
             st->note &= 127u;
             st->flags &= DN_ST_ON | DN_ST_SLIDE | DN_ST_ACC;
-            st->len = (uint8_t)clampi(st->len, 1, 16);
+            st->len = (uint8_t)clampi(st->len, 1, DN_LEN_MAX);
             st->vel = (uint8_t)clampi(st->vel, 1, 127);
         }
     }
     return 1;
+}
+
+void dn_pattern_coverage(const dn_pattern_t *p, uint32_t t, uint8_t out[DN_SEQ_STEPS])
+{
+    const dn_track_t *tr = &p->tr[t];
+    uint32_t L = tr->len ? tr->len : 1u, i, j;
+    for (i = 0; i < DN_SEQ_STEPS; i++)
+        out[i] = 0;
+    for (i = 0; i < L; i++) {
+        const dn_step_t *st = &tr->st[i];
+        uint32_t span;
+        if (!(st->flags & DN_ST_ON))
+            continue;
+        out[i] = 1;
+        span = (st->len + DN_LEN_STEP - 1u) / DN_LEN_STEP;      /* the steps it reaches into */
+        for (j = 1; j < span && j < L; j++) {
+            uint32_t k = (i + j) % L;
+            if (tr->st[k].flags & DN_ST_ON)
+                break;                              /* cut (or slid into) there */
+            if (!out[k])
+                out[k] = 2;
+        }
+    }
 }
 
 void dn_seq_init(dn_seq_t *s)
@@ -146,14 +174,15 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
     for (t = 0; t < DN_SEQ_TRACKS; t++) {
         const dn_track_t *tr = &s->pat.tr[t];
         uint32_t L = tr->len ? tr->len : 1u, i = k % L;
-        const dn_step_t *st = &tr->st[i], *nx = &tr->st[(i + 1u) % L];
+        const dn_step_t *st = &tr->st[i];
         int slide;
         s->cur[t] = (uint8_t)i;
-        if (!(st->flags & DN_ST_ON) || tr->mute) {
-            if (s->sounding[t] != 0xFF && s->gate[t] == 0)
-                release(s, t, cb);                  /* a note tied into a step that is off: it ends here */
+        if (tr->mute) {
+            release(s, t, cb);
             continue;
         }
+        if (!(st->flags & DN_ST_ON))
+            continue;                               /* a long note sounds on through steps that are off */
         slide = (st->flags & DN_ST_SLIDE) && s->sounding[t] != 0xFF;
         if (s->sounding[t] != 0xFF && !slide)
             release(s, t, cb);
@@ -161,10 +190,22 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
         if (slide && s->sounding[t] != st->note)
             cb->note_off(t, s->sounding[t]);        /* (MIDI: the old note ends after the new one starts) */
         s->sounding[t] = st->note;
-        if ((nx->flags & (DN_ST_ON | DN_ST_SLIDE)) == (DN_ST_ON | DN_ST_SLIDE) && L > 1u && !tr->mute)
-            s->gate[t] = 0;                         /* the next step slides from this one: hold on into it */
-        else
-            s->gate[t] = (int32_t)(((q >> 8) * st->len) / 16) > 0 ? ((q >> 8) * st->len) / 16 : 1;
+        {
+            /* the length: quarter steps at the pair's average (swing evens out over two steps) */
+            uint32_t pair = (uint32_t)(dn_seq_step_q8(s, k) + dn_seq_step_q8(s, k + 1u)) >> 8, j, span, dist = 0;
+            int32_t g = (int32_t)(pair * st->len / (2u * DN_LEN_STEP));
+            span = (st->len + DN_LEN_STEP - 1u) / DN_LEN_STEP;
+            for (j = 1; j <= span && L > 1u; j++) {            /* the next step that plays, inside the length */
+                const dn_step_t *nx = &tr->st[(i + j) % L];
+                dist += (uint32_t)dn_seq_step_q8(s, k + j - 1u) >> 8;
+                if (nx->flags & DN_ST_ON) {
+                    if (nx->flags & DN_ST_SLIDE)
+                        g = (int32_t)dist + 64;     /* it slides from this note: hold on into it (just past it) */
+                    break;
+                }
+            }
+            s->gate[t] = g > 0 ? g : 1;
+        }
     }
     s->pos++;
     s->until_step += q;

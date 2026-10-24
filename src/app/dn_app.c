@@ -503,7 +503,7 @@ static void dn_rec_note(uint8_t note, int legato)
     }
     tr->st[i].note = note;
     tr->st[i].flags = (uint8_t)(DN_ST_ON | (legato && !DN_IS_BRK(dn.trk) ? DN_ST_SLIDE : 0u));
-    tr->st[i].len = DN_IS_BRK(dn.trk) ? 16 : 12;
+    tr->st[i].len = DN_IS_BRK(dn.trk) ? DN_LEN_STEP : 3;
     tr->st[i].vel = 100;
     tr->last_note = note;
     dn_unlock();
@@ -550,9 +550,10 @@ static void dn_keys_seq(uint32_t keys)              /* the SEQ page: white keys 
                 if (!(tr->st[i].flags & DN_ST_ON)) {
                     dn_lock();
                     tr->st[i].flags |= DN_ST_ON;
+                    tr->st[i].len = 3;              /* a fresh step: three quarters of a step (breaks: a whole one) */
                     if (DN_IS_BRK(dn.trk)) {         /* a break: the slice that belongs on this step, whole */
                         tr->st[i].note = (uint8_t)(i % dn_slices(dn.trk));
-                        tr->st[i].len = 16;
+                        tr->st[i].len = DN_LEN_STEP;
                     } else {
                         tr->st[i].note = tr->last_note;
                     }
@@ -619,7 +620,12 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
             st->note = (uint8_t)dn_clamp(st->note + d, 0, DN_IS_BRK(dn.trk) ? (int32_t)dn_slices(dn.trk) - 1 : 127),
             tr->last_note = st->note;
         else if (k == 1u)
-            st->len = (uint8_t)dn_clamp(st->len + d, 1, 16);
+        {                                           /* a quarter step at a time while short, coarser when long */
+            int32_t l = st->len, n = d < 0 ? -d : d;
+            while (n--)
+                l = dn_clamp(l + (d < 0 ? -1 : 1) * (l < 8 ? 1 : l < 32 ? 2 : 4), 1, DN_LEN_MAX);
+            st->len = (uint8_t)l;
+        }
         else if (k == 2u)
             st->flags = (uint8_t)(d > 0 ? st->flags | DN_ST_ACC : st->flags & ~DN_ST_ACC);
         else
@@ -866,6 +872,20 @@ static void dn_draw_loop(const dn_brk_t *b)
     }
 }
 
+/* a length in quarter steps as steps: "1/4", "1/2", "3/4", "1", "2 1/2" */
+static void dn_len_text(char *o, uint32_t ticks)
+{
+    static const char *const FR[4] = {"", "1/4", "1/2", "3/4"};
+    uint32_t whole = ticks / DN_LEN_STEP, fr = ticks % DN_LEN_STEP;
+    o[0] = 0;
+    if (whole) {
+        dn_num(o, (int32_t)whole);
+        if (fr)
+            dn_cat(o, " ");
+    }
+    dn_cat(o, FR[fr]);
+}
+
 static void dn_draw_top(void)
 {
     char t[16];
@@ -949,6 +969,7 @@ static void dn_draw_seq(void)
 {
     uint32_t t, i;
     char line[48], v[8];
+    uint8_t cov[DN_SEQ_STEPS];
     cv_rect(0, 17, 240, 104, DN_C_PANEL);
     cv_rect(0, 17, 240, 1, DN_C_EDGE);
     for (t = 0; t < DN_SEQ_TRACKS; t++) {
@@ -958,6 +979,7 @@ static void dn_draw_seq(void)
         line[1] = ' ';
         line[2] = DN_IS_BRK(t) ? 'B' : t ? 'M' : 'R';
         line[3] = 0;
+        dn_pattern_coverage(&dn_sq.pat, t, cov);
         cv_rect(2, y, 25, 11, sel ? DN_C_BLUE : DN_C_BG);
         cv_text(5, y - 1, &FONT_T, line, tr->mute ? DN_C_RED : sel ? DN_C_BAR : DN_C_LABEL);
         for (i = 0; i < 16u; i++) {
@@ -971,7 +993,16 @@ static void dn_draw_seq(void)
                 : (st->flags & DN_ST_ACC) ? DN_C_BLUE : DN_C_BLUE_D;
             if ((st->flags & DN_ST_ON) && tr->mute)
                 c = DN_C_KNOB;
-            cv_rect(x, y, 11, 10, c);
+            cv_rect(x, y, 11, 10, cov[si] == 1 ? (i % 4u ? DN_C_TRACK : DN_C_WELL) : c);
+            if (cov[si] == 1)                       /* a note: as wide as it lasts (a short one, part of the cell) */
+                cv_rect(x, y, st->len >= DN_LEN_STEP ? 11 : (int32_t)(11u * st->len / DN_LEN_STEP), 10, c);
+            if (cov[si] == 2 || (cov[si] && si + 1u < tr->len && cov[si + 1u] == 2 && i < 15u)) {
+                uint16_t hc = tr->mute ? DN_C_KNOB : DN_C_BLUE_D;   /* a long note: one bar through the steps it holds */
+                if (cov[si] == 2)
+                    cv_rect(x - 2, y + 2, 13, 6, hc);
+                else
+                    cv_rect(x + 11, y + 2, 2, 6, hc);
+            }
             if ((st->flags & (DN_ST_ON | DN_ST_SLIDE)) == (DN_ST_ON | DN_ST_SLIDE))
                 cv_rect(x - 2, y + 4, 3, 2, DN_C_BLUE);   /* a slide: joined to the step before */
             if ((int32_t)si == dn.step_held && sel)
@@ -1001,7 +1032,7 @@ static void dn_draw_seq(void)
         }
         dn_cat(line, v);
         dn_cat(line, "  LEN ");
-        dn_num(v, st->len);
+        dn_len_text(v, st->len);
         dn_cat(line, v);
         if (st->flags & DN_ST_ACC)
             dn_cat(line, "  ACC");

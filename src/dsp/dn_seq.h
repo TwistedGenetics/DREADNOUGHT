@@ -14,14 +14,20 @@
 
 #define DN_SEQ_TRACKS 8u
 #define DN_SEQ_STEPS 64u
-#define DN_SEQ_MAGIC 0x31514E44u                    /* "DNQ1" */
+#define DN_SEQ_MAGIC 0x32514E44u                    /* "DNQ2": lengths in quarter steps (0.6) */
+#define DN_SEQ_MAGIC_V1 0x31514E44u                 /* "DNQ1": 0.4 / 0.5, lengths in sixteenths of a step */
+#define DN_LEN_STEP 4u                              /* length ticks a step */
+#define DN_LEN_MAX 255u                             /* 63 3/4 steps */
 
 enum { DN_ST_ON = 1u, DN_ST_SLIDE = 2u, DN_ST_ACC = 4u };
 
 typedef struct {
     uint8_t note;                                   /* MIDI note */
     uint8_t flags;                                  /* DN_ST_* */
-    uint8_t len;                                    /* gate, 1..16 sixteenths of the step (16: the whole step) */
+    uint8_t len;                                    /* how long the note lasts, in quarter steps: 1 (a 64th note)
+                                                     * .. 255 (~64 steps); 4 = one step. It holds across the steps
+                                                     * after it (and the pattern's end) until it runs out or a later
+                                                     * step on the track cuts it (or slides from it) */
     uint8_t vel;                                    /* 1..127 */
 } dn_step_t;
 
@@ -55,7 +61,7 @@ typedef struct {
     int32_t until_step;                             /* samples to the next step, Q8 */
     int32_t until_clock;                            /* samples to the next clock pulse, Q8 */
     uint8_t pulses;                                 /* clock pulses sent in this step (6 a step) */
-    int32_t gate[DN_SEQ_TRACKS];                    /* samples the note sounds on; 0: off or held into the next step */
+    int32_t gate[DN_SEQ_TRACKS];                    /* samples the note sounds on (0: none) */
     uint8_t sounding[DN_SEQ_TRACKS];                /* the note each track holds (0xFF: none) */
     uint8_t cur[DN_SEQ_TRACKS];                     /* each track's step now */
 } dn_seq_t;
@@ -63,7 +69,11 @@ typedef struct {
 void dn_seq_init(dn_seq_t *s);
 void dn_pattern_clear(dn_pattern_t *p);
 void dn_pattern_demo(dn_pattern_t *p);              /* a first-boot pattern: a reese line on track 1 */
-int dn_pattern_valid(const dn_pattern_t *p);        /* also clamps every value into range */
+int dn_pattern_valid(const dn_pattern_t *p);        /* also clamps every value into range, and brings a 0.4 / 0.5
+                                                     * pattern (DNQ1) up to date */
+/* which steps of track t sound, for the screen: for each step, 0 nothing, 1 a note starts, 2 a note started earlier
+ * still sounds (its length reaches here) */
+void dn_pattern_coverage(const dn_pattern_t *p, uint32_t t, uint8_t out[DN_SEQ_STEPS]);
 void dn_seq_start(dn_seq_t *s, const dn_seq_cb_t *cb);
 void dn_seq_stop(dn_seq_t *s, const dn_seq_cb_t *cb);
 uint32_t dn_seq_next(const dn_seq_t *s);            /* samples until the next event (at least 1; large when stopped) */
