@@ -106,6 +106,7 @@ static struct {
     uint8_t view;                                   /* the 16 steps in view on the SEQ page (0..3) */
     uint8_t rec_cur;                                /* the step-record cursor */
     int8_t step_held;                               /* the step key held on the SEQ page (-1: none) */
+    int8_t step_key;                                /* the key holding it (the step can move away from that key) */
     uint8_t step_edited;                            /* a knob moved it (or it was just turned on): no toggle off */
     uint8_t key_page;                               /* the page the keys down were pressed on (they act for it) */
     uint8_t key_mode;                               /* ... and ROLL's mode then */
@@ -889,6 +890,7 @@ static void dn_keys_seq(uint32_t keys)
             uint32_t i = (uint32_t)o + 16u * dn.view;
             if ((down & (1u << k)) && i < tr->len) {
                 dn.step_held = (int8_t)i;
+                dn.step_key = (int8_t)k;
                 dn.step_edited = 0;
                 if (drum && (tr->st[i].flags & DN_ST_ON) && tr->st[i].note != dn.drum_row) {
                     dn_lock();
@@ -913,7 +915,8 @@ static void dn_keys_seq(uint32_t keys)
                     dn_mark();
                 }
             }
-            if ((up & (1u << k)) && dn.step_held == (int8_t)i) {
+            if ((up & (1u << k)) && dn.step_held >= 0 && dn.step_key == (int8_t)k) {
+                i = (uint32_t)dn.step_held;         /* (moved with SELECT: no longer under this key) */
                 if (!dn.step_edited) {
                     dn_lock();
                     tr->st[i].flags &= (uint8_t)~DN_ST_ON;
@@ -993,6 +996,53 @@ static int32_t dn_accel(int32_t span, int32_t d)   /* a detent: one step, faster
     return d;
 }
 
+/* the view follows a held note: ROLL keeps its pitch a row inside the window, DRUM its slice row */
+static void dn_view_follow(uint32_t note)
+{
+    if (dn.page == DN_PG_ROLL && !DN_IS_BRK(dn.trk)) {
+        int32_t lo = dn.roll_lo;
+        if ((int32_t)note < lo + 1)
+            lo = (int32_t)note - 1;
+        if ((int32_t)note > lo + (int32_t)DN_ROLL_ROWS - 2)
+            lo = (int32_t)note - (int32_t)DN_ROLL_ROWS + 2;
+        dn.roll_lo = (uint8_t)dn_clamp(lo, 0, 127 - DN_ROLL_ROWS + 1);
+    } else if (dn.page == DN_PG_DRUM) {
+        if (note < dn.drum_top)
+            dn.drum_top = (uint8_t)note;
+        if (note >= dn.drum_top + DN_DRUM_ROWS)
+            dn.drum_top = (uint8_t)(note - DN_DRUM_ROWS + 1u);
+    }
+    dn.redraw |= DN_RD_ALL;
+}
+
+/* SELECT with a step held: the note moves in time (over the steps that have a note: it never overwrites one), and
+ * the 16 steps in view follow it across the bars */
+static void dn_step_move(int32_t d)
+{
+    dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
+    int32_t i = dn.step_held, L = tr->len ? tr->len : 1, to = i, n = d < 0 ? -d : d;
+    while (n--) {
+        int32_t j = to;
+        do
+            j += d < 0 ? -1 : 1;
+        while (j >= 0 && j < L && (tr->st[j].flags & DN_ST_ON));
+        if (j < 0 || j >= L)
+            break;                                  /* (the track's ends: no further) */
+        to = j;
+    }
+    if (to == i)
+        return;
+    dn_lock();
+    tr->st[to] = tr->st[i];
+    tr->st[i].flags = 0;
+    dn_unlock();
+    dn.step_held = (int8_t)to;
+    dn.step_edited = 1;
+    dn.view = (uint8_t)(to / 16);
+    dn_mark();
+    dn.redraw |= DN_RD_ALL;
+}
+
 static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page */
 {
     dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
@@ -1004,6 +1054,7 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
             tr->last_note = st->note;
             if (dn.page == DN_PG_DRUM)
                 dn.drum_row = st->note;             /* the row follows the slice */
+            dn_view_follow(st->note);
         }
         else if (k == 1u)
         {                                           /* a quarter step at a time while short, coarser when long */
@@ -1507,7 +1558,9 @@ void dn_app_input(void)
         dn.redraw |= DN_RD_BOTTOM;
     }
     if ((d = plat_enc(EN_SELECT)) != 0) {
-        if (dn.page == DN_PG_SEQ) {
+        if (DN_IS_SEQPG(dn.page) && dn.step_held >= 0) {
+            dn_step_move(d);                        /* a step held: it moves in time */
+        } else if (dn.page == DN_PG_SEQ) {
             dn_seq_knob(0, d > 0 ? 1 : -1);         /* the track */
         } else if (dn.page == DN_PG_ROLL) {         /* the next synth / MIDI track (not the breaks) */
             int32_t t = dn.trk;

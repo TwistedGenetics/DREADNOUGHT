@@ -465,6 +465,9 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "rollkeys")) got = dn.roll_keys;
             else if (!strcmp(b, "row")) got = dn.drum_row;
             else if (!strcmp(b, "glide")) got = (dn_rs.target256 - dn_rs.pitch256) / 32;   /* eighths of a semitone to go */
+            else if (!strcmp(b, "rolllo")) got = dn.roll_lo;
+            else if (!strcmp(b, "drumtop")) got = dn.drum_top;
+            else if (!strcmp(b, "held")) got = dn.step_held + 1;
             else if (!strcmp(b, "cut")) got = DN_PAT_CUT(&dn_sq.pat);
             else if (!strcmp(b, "slsel")) got = dn.sl_sel;
             else if (!strcmp(b, "cursor")) got = (long)dn.sl_cur;

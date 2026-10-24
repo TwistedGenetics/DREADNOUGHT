@@ -8,7 +8,7 @@ import {
 const $ = (id) => document.getElementById(id);
 const S = {
   link: null, mock: null, st: null, params: [], presets: [], loops: [], pat: null, sel: 0, lo: 36, playStep: -1,
-  writing: 0, lastRev: -1, poll: null, dirtyPat: false, drag: null, selNote: -1,
+  writing: 0, lastRev: -1, poll: null, dirtyPat: false, drag: null, selNote: -1, zoom: 0, x0: 0,
 };
 const ROWS = 36, ROW_H = 14, GUT = 46;
 
@@ -127,7 +127,7 @@ function renderTracks() {
     b.className = "trk" + (t === S.sel ? " sel" : "");
     b.innerHTML = `<span class="n">${t + 1}</span><span class="k">${k}<small>${sub} · ${on} notes · ${tr.len} steps</small></span>
       <button class="m${tr.mute ? " on" : ""}" title="Mute">M</button>`;
-    b.onclick = () => { S.sel = t; S.selNote = -1; fit(); render(); };
+    b.onclick = () => { S.sel = t; S.selNote = -1; S.x0 = 0; fit(); render(); };
     b.querySelector(".m").onclick = (ev) => { ev.stopPropagation(); tr.mute = tr.mute ? 0 : 1; patternChanged(); };
     box.appendChild(b);
   });
@@ -135,6 +135,9 @@ function renderTracks() {
 $("overlap").onchange = () => { setOverlapCut(S.pat, S.sel, $("overlap").value === "cut"); patternChanged(); };
 $("trklen").onchange = () => { S.pat.tracks[S.sel].len = Math.max(1, Math.min(64, +$("trklen").value || 16)); patternChanged(); };
 $("swing").oninput = () => { S.pat.swing = +$("swing").value; $("swingv").textContent = S.pat.swing; patternChanged(); };
+$("zoom").onchange = () => { S.zoom = +$("zoom").value; if (S.selNote >= 0) showNote(S.selNote); render(); };
+$("left").onclick = () => { S.x0 = Math.max(0, S.x0 - 16); render(); };
+$("right").onclick = () => { S.x0 += 16; render(); };
 $("up").onclick = () => { S.lo = Math.min(S.lo + 6, isBrk() ? 0 : 127 - ROWS + 1); render(); };
 $("down").onclick = () => { S.lo = Math.max(S.lo - 6, 0); render(); };
 
@@ -154,18 +157,37 @@ function fit() {                                     // the pitch window: around
 
 // ---- the roll ---------------------------------------------------------------------------------------------------
 function geom() {
-  const cv = $("roll"), dpr = window.devicePixelRatio || 1, W = cv.clientWidth, n = rows();
-  const rh = isBrk() ? Math.max(8, Math.min(ROW_H, Math.floor(504 / n))) : ROW_H, H = rh * n;
+  const cv = $("roll"), dpr = window.devicePixelRatio || 1, W = cv.clientWidth, nr = rows();
+  const rh = isBrk() ? Math.max(8, Math.min(ROW_H, Math.floor(504 / nr))) : ROW_H, H = rh * nr;
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.height = `${H}px`;
   }
-  const len = S.pat.tracks[S.sel].len, cw = (W - GUT) / len;
-  return { cv, dpr, W, H, rh, len, cw, x: (s) => GUT + s * cw, step: (x) => Math.floor((x - GUT) / cw), row: (y) => Math.floor(y / rh) };
+  const { len, n, x0 } = span(), cw = (W - GUT) / n;
+  return { cv, dpr, W, H, rh, len, n, x0, cw, x: (s) => GUT + (s - x0) * cw, step: (x) => x0 + Math.floor((x - GUT) / cw), row: (y) => Math.floor(y / rh) };
+}
+// the steps in view: all of the track, or 1 / 2 bars of it from S.x0 (the horizontal zoom)
+function span() {
+  const len = S.pat.tracks[S.sel].len, n = S.zoom && S.zoom < len ? S.zoom : len;
+  S.x0 = Math.max(0, Math.min(len - n, S.x0));
+  return { len, n, x0: S.x0 };
+}
+// keep a note in view (a row of margin): the pitch window and the steps follow it
+function showNote(i) {
+  const st = S.pat.tracks[S.sel].steps[i], { n } = span();
+  if (!isBrk()) {
+    if (st.note > S.lo + ROWS - 2) S.lo = st.note - ROWS + 2;
+    if (st.note < S.lo + 1) S.lo = st.note - 1;
+    S.lo = Math.max(0, Math.min(127 - ROWS + 1, S.lo));
+  }
+  if (i < S.x0) S.x0 = i;
+  if (i >= S.x0 + n) S.x0 = i - n + 1;
+  span();
 }
 function drawRoll() {
   const tr = S.pat.tracks[S.sel], g = geom(), c = g.cv.getContext("2d");
   c.setTransform(g.dpr, 0, 0, g.dpr, 0, 0);
   c.clearRect(0, 0, g.W, g.H);
+  c.save();
   for (let r = 0; r < rows(); r++) {                 // rows: piano keys (black keys darker), or slices
     const v = valOf(r), y = r * g.rh, pc = (((v + (S.sel === 0 ? S.params[17] || 0 : 0)) % 12) + 12) % 12;
     const black = !isBrk() && [1, 3, 6, 8, 10].includes(pc);
@@ -180,7 +202,8 @@ function drawRoll() {
       if (!isBrk()) { c.fillStyle = "#d9dde3"; c.fillRect(GUT, y + g.rh - 1, g.W - GUT, 1); }
     }
   }
-  for (let s = 0; s <= g.len; s++) {                 // steps; beats stronger, bars strongest
+  c.beginPath(); c.rect(GUT, 0, g.W - GUT, g.H); c.clip();   // (zoomed in: the notes outside stay outside)
+  for (let s = g.x0; s <= g.x0 + g.n; s++) {          // steps; beats stronger, bars strongest
     c.fillStyle = s % 16 === 0 ? "#9aa3ad" : s % 4 === 0 ? "#c5cbd3" : "#e9ecf0";
     c.fillRect(Math.round(g.x(s)), 0, 1, g.H);
   }
@@ -216,11 +239,12 @@ function drawRoll() {
     }
     prev = { end, r };
   }
+  c.restore();
 }
 function drawVel() {
   const cv = $("vel"), dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = 72, tr = S.pat.tracks[S.sel];
   if (cv.width !== Math.round(W * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
-  const c = cv.getContext("2d"), cw = (W - GUT) / tr.len;
+  const c = cv.getContext("2d"), { n, x0 } = span(), cw = (W - GUT) / n;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W, H);
   c.fillStyle = "#fbfcfd";
@@ -230,7 +254,7 @@ function drawVel() {
     if (!(st.flags & ST_ON)) continue;
     const v = st.flags & ST_ACC ? 127 : st.vel, h = (H - 16) * v / 127;
     c.fillStyle = st.flags & ST_ACC ? "#1b5c99" : "#2f7fc1";
-    c.fillRect(GUT + i * cw + cw * 0.3, H - 4 - h, Math.max(3, cw * 0.4), h);
+    if (i >= x0 && i < x0 + n) c.fillRect(GUT + (i - x0) * cw + cw * 0.3, H - 4 - h, Math.max(3, cw * 0.4), h);
   }
 }
 
@@ -249,7 +273,7 @@ $("roll").oncontextmenu = (ev) => ev.preventDefault();
 $("roll").onpointerdown = (ev) => {
   if (!S.pat) return;
   const g = geom(), { x, y } = posOf(ev), step = g.step(x), val = valOf(g.row(y)), tr = S.pat.tracks[S.sel];
-  if (step < 0 || step >= g.len) return;
+  if (step < g.x0 || step >= Math.min(g.len, g.x0 + g.n) || x < GUT) return;
   const at = noteAt(step, val);
   if (at >= 0 && (ev.button === 2 || ev.altKey)) {   // delete
     tr.steps[at].flags = 0;
@@ -274,12 +298,31 @@ $("roll").onpointerdown = (ev) => {
 };
 $("roll").onpointermove = (ev) => {
   if (!S.drag) return;
-  const g = geom(), { x, y } = posOf(ev), tr = S.pat.tracks[S.sel], d = S.drag;
+  S.drag.last = posOf(ev);
+  if (!S.edgeT) S.edgeT = setInterval(edgeScroll, 90);
+  dragTo(S.drag.last);
+};
+// dragging past an edge scrolls: above / below the roll for higher / lower notes, past the right / left end (zoomed
+// in) for the next / last steps; the note being dragged comes along
+function edgeScroll() {
+  const d = S.drag;
+  if (!d || !d.last) { clearInterval(S.edgeT); S.edgeT = 0; return; }
+  const g = geom(), { x, y } = d.last, lo = S.lo, x0 = S.x0;
+  if (!isBrk() && y < g.rh / 2) S.lo = Math.min(127 - ROWS + 1, S.lo + 1);
+  if (!isBrk() && y > g.H - g.rh / 2) S.lo = Math.max(0, S.lo - 1);
+  if (x > g.W - g.cw / 3) S.x0 += 1;
+  if (x < GUT + g.cw / 3 && d.mode === "move") S.x0 = Math.max(0, S.x0 - 1);
+  span();
+  if (S.lo !== lo || S.x0 !== x0) dragTo(d.last);
+}
+function dragTo({ x, y }) {
+  const g = geom(), tr = S.pat.tracks[S.sel], d = S.drag;
   if (d.mode === "len") {
     const q = g.cw / LEN_STEP, len = Math.max(1, Math.min(LEN_MAX, Math.round((x - g.x(d.i)) / q)));
     if (!d.fresh || len > 1 || Math.abs(x - g.x(d.i)) > 4) tr.steps[d.i].len = len;
   } else {
-    const to = Math.max(0, Math.min(g.len - 1, g.step(x) - d.grab)), val = Math.max(0, Math.min(isBrk() ? slices() - 1 : 127, valOf(g.row(y))));
+    const to = Math.max(g.x0, Math.min(Math.min(g.len, g.x0 + g.n) - 1, g.step(x) - d.grab));
+    const val = Math.max(0, Math.min(isBrk() ? slices() - 1 : 127, valOf(Math.max(0, Math.min(rows() - 1, g.row(y))))));
     if (to !== d.i) {                                // move along: the note takes the new step
       tr.steps[to] = { ...tr.steps[d.i] };
       tr.steps[d.i] = { ...tr.steps[d.i], flags: 0 };
@@ -290,8 +333,9 @@ $("roll").onpointermove = (ev) => {
   }
   d.moved = true;
   render();
-};
+}
 $("roll").onpointerup = () => {
+  clearInterval(S.edgeT); S.edgeT = 0;
   if (!S.drag) return;
   const d = S.drag;
   S.drag = null;
@@ -302,15 +346,20 @@ $("roll").ondblclick = (ev) => {
   if (at >= 0) { S.pat.tracks[S.sel].steps[at].flags ^= ST_SLIDE; patternChanged(); }
 };
 $("roll").onwheel = (ev) => {
-  if (isBrk()) return;
   ev.preventDefault();
+  if (ev.shiftKey || Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) {   // sideways: along the steps (zoomed in)
+    S.x0 += (ev.deltaX || ev.deltaY) > 0 ? 1 : -1;
+    span();
+    return render();
+  }
+  if (isBrk()) return;
   S.lo = Math.max(0, Math.min(127 - ROWS + 1, S.lo + (ev.deltaY < 0 ? 1 : -1)));
   render();
 };
 let velDrag = false;
 function velAt(ev) {
-  const cv = $("vel"), r = cv.getBoundingClientRect(), tr = S.pat.tracks[S.sel], cw = (r.width - GUT) / tr.len;
-  const i = Math.floor((ev.clientX - r.left - GUT) / cw), v = Math.round(127 * (1 - (ev.clientY - r.top - 4) / (72 - 16)));
+  const cv = $("vel"), r = cv.getBoundingClientRect(), tr = S.pat.tracks[S.sel], { n, x0 } = span(), cw = (r.width - GUT) / n;
+  const i = x0 + Math.floor((ev.clientX - r.left - GUT) / cw), v = Math.round(127 * (1 - (ev.clientY - r.top - 4) / (72 - 16)));
   if (i < 0 || i >= tr.len || !(tr.steps[i].flags & ST_ON)) return;
   tr.steps[i].vel = Math.max(1, Math.min(127, v));
   tr.steps[i].flags &= ~ST_ACC;
@@ -319,14 +368,25 @@ function velAt(ev) {
 $("vel").onpointerdown = (ev) => { velDrag = true; $("vel").setPointerCapture(ev.pointerId); velAt(ev); };
 $("vel").onpointermove = (ev) => { if (velDrag) velAt(ev); };
 $("vel").onpointerup = () => { if (velDrag) { velDrag = false; patternChanged(); } };
-document.onkeydown = (ev) => {                       // the selected note: Delete, arrows (pitch / slice)
+document.onkeydown = (ev) => {                       // the selected note: Delete, arrows (pitch / slice, in time)
   if (!S.pat || S.selNote < 0 || /INPUT|SELECT/.test(document.activeElement.tagName)) return;
-  const st = S.pat.tracks[S.sel].steps[S.selNote];
+  const tr = S.pat.tracks[S.sel], st = tr.steps[S.selNote];
   if (!(st.flags & ST_ON)) return;
   if (ev.key === "Delete" || ev.key === "Backspace") { st.flags = 0; S.selNote = -1; }
   else if (ev.key === "ArrowUp" || ev.key === "ArrowDown") {   /* up: a higher note (a break: the slice above) */
     const d = (ev.key === "ArrowUp" ? 1 : -1) * (isBrk() ? -1 : 1);
     st.note = Math.max(0, Math.min(isBrk() ? slices() - 1 : 127, st.note + d));
+    showNote(S.selNote);
+  } else if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {   /* in time, over the other notes (as the FM-1's
+                                                                      * SELECT with a step held) */
+    const dir = ev.key === "ArrowRight" ? 1 : -1;
+    let j = S.selNote + dir;
+    while (j >= 0 && j < tr.len && (tr.steps[j].flags & ST_ON)) j += dir;
+    if (j < 0 || j >= tr.len) return;
+    tr.steps[j] = { ...st };
+    tr.steps[S.selNote] = { ...st, flags: 0 };
+    S.selNote = j;
+    showNote(j);
   }
   else return;
   ev.preventDefault();
@@ -496,11 +556,13 @@ function render() {
   $("swing").value = S.pat.swing;
   $("swingv").textContent = S.pat.swing;
   $("up").hidden = $("down").hidden = isBrk();
+  { const { len, n, x0 } = span(); $("left").disabled = x0 === 0; $("right").disabled = x0 + n >= len;
+    $("left").hidden = $("right").hidden = n >= len; }
   $("ovlbox").hidden = isBrk();
   $("overlap").value = overlapCut(S.pat, S.sel) ? "cut" : "slide";
   $("hint").textContent = isBrk()
     ? "Click a slice's row to play it on that step, drag to move it, drag its right end to hold it longer. Shift-click: accent. Double-click: reverse. Right-click or Alt-click: delete."
-    : "Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent. Double-click: slide. A note that reaches past the next one slides into it (Overlap: Slide). Right-click or Alt-click: delete. Scroll for higher or lower notes.";
+    : "Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent. Double-click: slide. A note that reaches past the next one slides into it (Overlap: Slide). Right-click or Alt-click: delete. Arrow keys move the selected note (up / down, along the steps). Scroll for higher or lower notes; drag past an edge and the roll follows.";
   if ($("pattern").classList.contains("on")) { drawRoll(); drawVel(); }
   if (S.selNote >= 0 && tr.steps[S.selNote] && (tr.steps[S.selNote].flags & ST_ON)) {
     const st = tr.steps[S.selNote];

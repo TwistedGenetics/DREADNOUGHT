@@ -1,0 +1,74 @@
+# DREADNOUGHT host scenario: the view follows a held note (0.8). ROLL: KNOB 1 takes the held note an octave up and
+# the window scrolls with it; SELECT moves the held note in time, over the other notes, and the 16 steps in view
+# follow it into bar 3. DRUM: the slice rows follow too.
+tap SEQ
+tap SEQ
+expect page 7
+expect rolllo 46
+key 0 down
+turn K1 2
+turn K1 2
+turn K1 2
+turn K1 2
+turn K1 2
+turn K1 2
+expect nt.1.1 65
+expect rolllo 55
+shot follow-01-pitch.png
+key 0 up
+expect held 0
+expect st.1.1 1
+# the track to 3 bars (KNOB 3), then step 1 held and SELECT 30 detents on
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+turn K3 2
+expect len.1 48
+key 0 down
+turn SELECT 30
+expect held 37
+expect view 2
+shot follow-02-moved.png
+key 0 up
+expect held 0
+expect st.1.1 0
+expect st.1.37 1
+expect nt.1.37 65
+expect on.1 7
+# back again: step 37 is key 7 in bar 3; held, SELECT all the way back (it stops at step 1), the view with it
+key 7 down
+expect held 37
+turn SELECT -40
+expect held 1
+expect view 0
+key 7 up
+expect st.1.1 1
+expect nt.1.1 65
+expect on.1 7
+# DRUM: a slice on step 1, held, KNOB 1 down the slices: the rows scroll
+tap SEQ
+expect page 8
+tapkey 0 60
+expect drumtop 0
+key 0 down
+turn K1 2
+turn K1 2
+turn K1 2
+turn K1 2
+turn K1 2
+expect nt.2.1 10
+expect drumtop 3
+shot follow-03-drum.png
+key 0 up

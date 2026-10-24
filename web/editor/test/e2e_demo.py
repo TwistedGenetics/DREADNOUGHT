@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """The DREADNOUGHT editor end to end in Chromium, in demo mode (the simulated FM-1, web/editor/mock-fm1.js): draw,
 lengthen, move, accent, slide and delete notes on the piano roll, place and reverse slices on a break track, turn a
-REESE control, play, back up, keep a sound. Checks what reached the simulated FM-1, not just the screen.
+REESE control, play, back up, keep a sound; overlaps (0.8), the view following a dragged or moved note. Checks what reached the simulated FM-1, not just the screen.
 
     python3 web/editor/test/e2e_demo.py SITE_DIR [SHOTS_DIR]     (SITE_DIR: tools/make_site.py's output)
 Needs playwright (pip install playwright)."""
@@ -83,6 +83,59 @@ with sync_playwright() as pw:
     p.mouse.click(X(9, 0.3), Y(pitch + 2), button="right")
     p.wait_for_timeout(600)
     check("right-click: deleted", not p.evaluate(DEV, [0, 9])["flags"] & 1)
+
+    # 0.8: overlaps slide (a ramp, and Overlap: Cut per track), the view follows a dragged / moved note
+    p.mouse.move(X(14, 0.3), Y(41))                     # the demo's last note (step 15, F2 with an accent)
+    p.evaluate("""() => { const S = window.__dn, st = S.pat.tracks[0].steps; st[12].len = 12; }""")
+    p.select_option("#overlap", "cut")
+    p.wait_for_timeout(600)
+    check("Overlap: Cut reaches the FM-1 (pattern pad[0])", p.evaluate("() => window.__dn.mock.pattern[5]") & 1 == 1)
+    p.select_option("#overlap", "slide")
+    p.wait_for_timeout(600)
+    check("Overlap: Slide again", p.evaluate("() => window.__dn.mock.pattern[5]") & 1 == 0)
+    p.screenshot(path=str(shots / "editor-07-overlap.png"), full_page=True)
+    # 2 bars of track, 1 bar in view
+    p.fill("#trklen", "32")
+    p.dispatch_event("#trklen", "change")
+    p.select_option("#zoom", "16")
+    p.wait_for_timeout(300)
+    z = p.evaluate("() => { const S = window.__dn; return {x0: S.x0, zoom: S.zoom, lo: S.lo}; }")
+    check("1 bar in view of 2", z["zoom"] == 16 and z["x0"] == 0, z)
+    cw = (box["width"] - 46) / 16
+    XZ = lambda step, frac=0.5: box["x"] + 46 + (step - p.evaluate("() => window.__dn.x0") + frac) * cw
+    YZ = lambda note: box["y"] + ((p.evaluate("() => window.__dn.lo") + 35) - note) * 14 + 7
+    # drag the first note (step 1) up past the top of the roll and hold there: the roll scrolls, the note comes along
+    lo0 = z["lo"]
+    n0 = p.evaluate(DEV, [0, 0])["note"]
+    p.mouse.move(XZ(0, 0.3), YZ(n0))
+    p.mouse.down()
+    p.mouse.move(XZ(0, 0.3), box["y"] - 30, steps=8)
+    p.wait_for_timeout(1200)
+    p.mouse.up()
+    p.wait_for_timeout(600)
+    lo1, n1 = p.evaluate("() => window.__dn.lo"), p.evaluate(DEV, [0, 0])["note"]
+    check("dragged past the top: the roll scrolled up and the note came along", lo1 > lo0 + 4 and n1 > lo1 + 30 and n1 > n0,
+          (lo0, lo1, n0, n1))
+    # arrows: the selected note along the steps, past the bar in view: the view follows it into bar 2
+    for _ in range(12):
+        p.keyboard.press("ArrowRight")
+    p.wait_for_timeout(600)
+    f = p.evaluate("() => { const S = window.__dn; return {sel: S.selNote, x0: S.x0}; }")
+    check("ArrowRight x12 (over the other notes): into bar 2, the view with it", f["sel"] >= 16 and f["x0"] > 0 and
+          f["sel"] < f["x0"] + 16, f)
+    check("... and on the FM-1", p.evaluate(DEV, [0, f["sel"]])["note"] == n1 and not p.evaluate(DEV, [0, 0])["flags"] & 1)
+    # a drag past the right end scrolls on too
+    s0 = f["sel"]
+    p.mouse.move(XZ(s0, 0.3), YZ(n1))
+    p.mouse.down()
+    p.mouse.move(box["x"] + box["width"] + 10, YZ(n1), steps=6)
+    p.wait_for_timeout(2500)
+    p.mouse.up()
+    p.wait_for_timeout(300)
+    f2 = p.evaluate("() => { const S = window.__dn; return {sel: S.selNote, x0: S.x0}; }")
+    check("dragged past the right end: the steps scroll on (to the last bar's end)", f2["sel"] == 31 and f2["x0"] == 16, f2)
+    p.screenshot(path=str(shots / "editor-08-follow.png"), full_page=True)
+    p.select_option("#zoom", "0")
 
     # BREAKS A: a slice on a step, reversed
     p.locator(".trk").nth(1).click()
