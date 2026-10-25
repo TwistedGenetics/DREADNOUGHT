@@ -180,6 +180,69 @@
     return new DirHandle();
   };
 
+  // ---- touch: what a mouse and keyboard give the pages, by finger ----------------------------------------------------
+  // SHIFT and DELETE toggles (in the editor's top bar, or in a corner): while lit, every click / drag has Shift (accent,
+  // hold a panel button down, a velocity ramp, faster knobs) or Alt (delete a note: the editor's right-click / Alt-click)
+  // held. A double tap is a double-click (slide, reverse), as iPad's WebKit doesn't always give one.
+  const mods = { shift: false, alt: false };
+  for (const [key, m] of [["shiftKey", "shift"], ["altKey", "alt"]]) {
+    const d = Object.getOwnPropertyDescriptor(MouseEvent.prototype, key);
+    if (d && d.get) Object.defineProperty(MouseEvent.prototype, key,
+      { configurable: true, enumerable: true, get() { return mods[m] || d.get.call(this); } });
+  }
+  const touchBar = () => {
+    if (document.getElementById("dn-touch")) return;
+    const st = document.createElement("style");
+    st.textContent = `
+      #dn-touch { display: flex; gap: 8px; align-items: center; z-index: 9999; }
+      #dn-touch.float { position: fixed; right: 12px; bottom: 12px; background: #fff; padding: 6px; border-radius: 12px;
+        border: 2px solid #b9b7ae; }
+      #dn-touch button { font: 800 17px/1 "Barlow Semi Condensed", "Arial Narrow", Arial, sans-serif; letter-spacing: .04em;
+        min-width: 92px; padding: 10px 14px; border-radius: 8px; background: #fff; color: #101114;
+        border: 2px solid #101114; cursor: pointer; -webkit-user-select: none; user-select: none; }
+      #dn-touch button.on { background: #ff6a2b; border-color: #101114; color: #101114; }`;
+    document.head.appendChild(st);
+    const bar = document.createElement("div");
+    bar.id = "dn-touch";
+    for (const [m, label, title] of [["shift", "SHIFT", "Shift held for every tap: accent, hold a button down, a velocity ramp"],
+      ["alt", "DELETE", "Tap a note to delete it (the right-click)"]]) {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = label; b.title = title; b.dataset.mod = m;
+      b.setAttribute("aria-pressed", "false");
+      b.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+      b.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        mods[m] = !mods[m];
+        if (mods[m]) mods[m === "shift" ? "alt" : "shift"] = false;      // (one at a time)
+        for (const x of bar.querySelectorAll("button")) {
+          x.classList.toggle("on", mods[x.dataset.mod]);
+          x.setAttribute("aria-pressed", String(mods[x.dataset.mod]));
+        }
+      });
+      bar.appendChild(b);
+    }
+    const top = document.querySelector("header.top");
+    if (top) top.appendChild(bar); else { bar.classList.add("float"); document.body.appendChild(bar); }
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", touchBar); else touchBar();
+
+  let lastTap = null, synthAt = 0;
+  document.addEventListener("pointerup", (ev) => {
+    if (ev.pointerType !== "touch") return;
+    const now = performance.now(), t = ev.target;
+    if (lastTap && lastTap.t === t && now - lastTap.time < 350 &&
+        Math.hypot(ev.clientX - lastTap.x, ev.clientY - lastTap.y) < 24) {
+      lastTap = null;
+      synthAt = now;
+      const o = { bubbles: true, cancelable: true, view: window, detail: 2, clientX: ev.clientX, clientY: ev.clientY,
+        screenX: ev.screenX, screenY: ev.screenY };
+      setTimeout(() => t.dispatchEvent(new MouseEvent("dblclick", o)), 0);
+    } else lastTap = { t, time: now, x: ev.clientX, y: ev.clientY };
+  }, true);
+  document.addEventListener("dblclick", (ev) => {           // (WebKit's own, after ours: not twice)
+    if (ev.isTrusted && performance.now() - synthAt < 600) ev.stopImmediatePropagation();
+  }, true);
+
   // ---- the clipboard -------------------------------------------------------------------------------------------------
   const clip = { writeText: (text) => fileCall({ op: "clip", text: String(text) }).then(() => undefined) };
   try {
