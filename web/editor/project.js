@@ -39,6 +39,7 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   const params = await link.params(), proj = await link.proj(), lfo = [];
   for (let k = 0; k < nLfos(params.length); k++) lfo.push(await link.lfoPts(k));   // (0.15: SUB's too)
   const smp = await readSampler(link);                 // (0.23; null before)
+  const smp2 = await readSampler(link, 1);             // (0.36: SAMPLER 2; null before)
   const fm = await readFm(link);                       // (0.25; null before)
   const wave = await readWave(link);                   // (0.32; null before)
   const juno = await readJuno(link);                   // (0.36; null before)
@@ -62,7 +63,7 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   onPart(1);
   return {
     format: FORMAT, version: VERSION, saved: new Date().toISOString(), firmware: link.name || "",
-    name: proj.name, params, lfo, smp, fm, wave, juno, proj: { eng: proj.eng, send: proj.send, ret: proj.ret, fx: proj.fx },
+    name: proj.name, params, lfo, smp, smp2, fm, wave, juno, proj: { eng: proj.eng, send: proj.send, ret: proj.ret, fx: proj.fx },
     patterns, current: cur, patSize: st.patSize,
     slots: dev.map((im) => (im ? { hdr: b64(im.hdr), data: b64(im.data) } : null)), slices,
     media: media.map((m) => ({ name: m.name, set: m.set, lock: !!m.lock, file: m.orig ? b64(m.orig) : undefined })),
@@ -104,7 +105,7 @@ export function checkProject(o) {
   if (o.version > VERSION) throw new Error("That project was saved by a newer editor: reload the page to update it.");
   if (!Array.isArray(o.patterns) || o.patterns.length !== NPAT) throw new Error("The project's patterns are missing.");
   const eng = o.proj.eng;
-  for (const e of [1, 2, 3, 5, 6, 7, 8, 9]) if (eng.filter((x) => x === e).length > 1) throw new Error("The project has an instrument twice.");
+  for (const e of [1, 2, 3, 5, 6, 7, 8, 9, 10]) if (eng.filter((x) => x === e).length > 1) throw new Error("The project has an instrument twice.");
   return o;
 }
 
@@ -136,6 +137,7 @@ export async function writeProject(link, o, { onPart = () => {}, say = () => {} 
   const nl = nLfos((await link.params()).length);
   for (let k = 0; k < Math.min(NLFO_ALL, nl) && o.lfo && o.lfo[k]; k++) await link.setLfoPts(k, o.lfo[k].npts, o.lfo[k].pts);
   if (o.smp && (await readSampler(link))) await writeSampler(link, o.smp);   // (an FM-1 before 0.23: no SAMPLER)
+  if (o.smp2 && (await readSampler(link, 1))) await writeSampler(link, o.smp2, 1);   // (0.36)
   if (o.fm && (await readFm(link))) await writeFm(link, o.fm);   // (before 0.25: no FM)
   onPart(0.1);
   say("Sending the patterns…");

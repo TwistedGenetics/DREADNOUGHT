@@ -168,13 +168,14 @@ export function parseNames(r) {
 export const TRACKS = 8, STEPS = 64, LEN_STEP = 4, LEN_MAX = 255;
 export const ST_ON = 1, ST_SLIDE = 2, ST_ACC = 4;
 // what each track plays (0.12: the project says; before it, REESE / BREAKS A / B / MIDI x5)
-export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE", "JUNO"];
-export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4, SUB: 5, SMP: 6, FM: 7, WAVE: 8, JUNO: 9 };
+export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE", "JUNO", "SAMPLER 2"];
+export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4, SUB: 5, SMP: 6, FM: 7, WAVE: 8, JUNO: 9, SMP2: 10 };
 let ENG = [1, 2, 3, 4, 4, 4, 4, 4];
 export function setEngines(e) { ENG = e.slice(0, 8); }
 export const engines = () => ENG.slice();
 export const KIND = (t) => (ENG[t] === E.REESE ? "REESE" : ENG[t] === E.BRKA || ENG[t] === E.BRKB ? "BREAKS" : ENG[t] === E.MIDI ? "MIDI"
-  : ENG[t] === E.SUB ? "SUB" : ENG[t] === E.SMP ? "SAMPLER" : ENG[t] === E.FM ? "FM" : ENG[t] === E.WAVE ? "WAVE" : ENG[t] === E.JUNO ? "JUNO" : "OFF");
+  : ENG[t] === E.SUB ? "SUB" : ENG[t] === E.SMP || ENG[t] === E.SMP2 ? "SAMPLER" : ENG[t] === E.FM ? "FM" : ENG[t] === E.WAVE ? "WAVE" : ENG[t] === E.JUNO ? "JUNO" : "OFF");
+export const smpIdx = (t) => (ENG[t] === E.SMP2 ? 1 : 0);   // (0.36) a sampler track's: SAMPLER 0, SAMPLER 2 1
 export const brkOf = (t) => (ENG[t] === E.BRKB ? 1 : 0);   // a break track's voice: 0 A, 1 B
 export const midiNo = (t) => ENG.slice(0, t).filter((e) => e === E.MIDI).length + 1;   // "MIDI n"
 export const ST_RTRG = 8;
@@ -415,9 +416,10 @@ export class Link {
   async pats() { return parsePats(await this.req(CMD.PATS)); }
   async patSel(t, n) { return (await this.req(CMD.PAT_SEL, [t, n]))[0]; }
   async save() { return (await this.req(CMD.SAVE, [], 8000))[0]; }
-  async smpGet(kind, i) { return parseSmp(await this.req(CMD.SMP_GET, [kind, i])); }
-  async smpSet(kind, i, k, v) { return (await this.req(CMD.SMP_SET, [kind, i, k, ...digits(v + 8192, 2)]))[0]; }
-  async smpPlay(note, on) { return (await this.req(CMD.SMP_PLAY, [note & 127, on ? 1 : 0]))[0]; }
+  // (0.36: w 1, SAMPLER 2: its kinds are 4-7)
+  async smpGet(kind, i, w = 0) { const r = parseSmp(await this.req(CMD.SMP_GET, [kind + 4 * w, i])); r.kind &= 3; return r; }
+  async smpSet(kind, i, k, v, w = 0) { return (await this.req(CMD.SMP_SET, [kind + 4 * w, i, k, ...digits(v + 8192, 2)]))[0]; }
+  async smpPlay(note, on, w = 0) { return (await this.req(CMD.SMP_PLAY, w ? [note & 127, on ? 1 : 0, 1] : [note & 127, on ? 1 : 0]))[0]; }
   async chords() { return parseChords(await this.req(CMD.CHORDS, [])); }   // (0.27+: the FM-1 plays chords)
   async ui() { return parseUi(await this.req(CMD.UI_STATE, [], 800)); }
   async uiInput(kind, id, v = 64) { return (await this.req(CMD.UI_INPUT, [kind, id, v]))[0]; }
@@ -509,21 +511,22 @@ export function parseSmp(r) {
   return { kind: r[0], idx: r[1], vals };
 }
 // the whole SAMPLER: { mode, pads: 16 x 16, zones: 8 x 10, keys: 9 }; null from firmware before 0.23
-export async function readSampler(link) {
+// (w 1: SAMPLER 2, 0.36; null before)
+export async function readSampler(link, w = 0) {
   let mode;
-  try { mode = (await link.smpGet(3, 0)).vals[0]; } catch (_) { return null; }
+  try { mode = (await link.smpGet(3, 0, w)).vals[0]; } catch (_) { return null; }
   const pads = [], zones = [];
-  for (let i = 0; i < SMP_NPADS; i++) pads.push((await link.smpGet(0, i)).vals);
-  for (let j = 0; j < SMP_NZONES; j++) zones.push((await link.smpGet(1, j)).vals);
-  return { mode, pads, zones, keys: (await link.smpGet(2, 0)).vals };
+  for (let i = 0; i < SMP_NPADS; i++) pads.push((await link.smpGet(0, i, w)).vals);
+  for (let j = 0; j < SMP_NZONES; j++) zones.push((await link.smpGet(1, j, w)).vals);
+  return { mode, pads, zones, keys: (await link.smpGet(2, 0, w)).vals };
 }
 // a sampler object -> the FM-1 (each value; the mode last, so its voices start clean)
-export async function writeSampler(link, o) {
+export async function writeSampler(link, o, w = 0) {
   if (!o) return;
-  for (let i = 0; i < SMP_NPADS && o.pads && o.pads[i]; i++) for (let k = 0; k < o.pads[i].length; k++) await link.smpSet(0, i, k, o.pads[i][k]);
-  for (let j = 0; j < SMP_NZONES && o.zones && o.zones[j]; j++) for (let k = 0; k < o.zones[j].length; k++) await link.smpSet(1, j, k, o.zones[j][k]);
-  for (let k = 0; o.keys && k < o.keys.length; k++) await link.smpSet(2, 0, k, o.keys[k]);
-  await link.smpSet(3, 0, 0, o.mode || 0);
+  for (let i = 0; i < SMP_NPADS && o.pads && o.pads[i]; i++) for (let k = 0; k < o.pads[i].length; k++) await link.smpSet(0, i, k, o.pads[i][k], w);
+  for (let j = 0; j < SMP_NZONES && o.zones && o.zones[j]; j++) for (let k = 0; k < o.zones[j].length; k++) await link.smpSet(1, j, k, o.zones[j][k], w);
+  for (let k = 0; o.keys && k < o.keys.length; k++) await link.smpSet(2, 0, k, o.keys[k], w);
+  await link.smpSet(3, 0, 0, o.mode || 0, w);
 }
 
 // ---- FM (0.25): the voice (dx7.js: 156 values, OP6 first), LEVEL, VOICES, the macros, where PRESETS is -----------

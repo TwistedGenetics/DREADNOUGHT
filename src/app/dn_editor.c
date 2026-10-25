@@ -42,7 +42,8 @@
  *                                                                    PD_*, 16), 1 zone i's (ZN_*, 10), 2 the keys'
  *                                                                    (KY_*, 9), 3 the mode (0 ONE-SHOT, 1 KEYS)
  *   81 SMP_SET kind i k v(2)   -> rc (0 set)                         one of those (a SAMPLE: the loops' order, -1 OFF)
- *   82 SMP_PLAY note on        -> rc                                 a hit (ONE-SHOT: note is the pad) or a key of the
+ *      (0.36: kinds 4-7 the same of SAMPLER 2)
+ *   82 SMP_PLAY note on [2]    -> rc                                 a hit (ONE-SHOT: note is the pad) or a key of the
  *                                                                    map, on / off: the editor's audition
  *   83 FM_GET                  -> the FM voice (156: dn_fm.h's unpacked voice, OP6 first), LEVEL, VOICES, the macros
  *                                 BRIGHT TIME ATTACK RELEASE (+64 each), the voice PRESETS is on (2), how many (2) (0.25)
@@ -405,9 +406,10 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
     case ED_SMP_SET: {
         uint32_t kind, idx, n, k;
         uint8_t pad = dn.smp_pad, zone = dn.smp_zone;
-        if (na < 2u || a[0] > 3u || (a[0] == 0u && a[1] >= DN_SMP_PADS) || (a[0] == 1u && a[1] >= DN_SMP_ZONES))
+        if (na < 2u || a[0] > 7u || (a[0] % 4u == 0u && a[1] >= DN_SMP_PADS) || (a[0] % 4u == 1u && a[1] >= DN_SMP_ZONES))
             return 0;
-        kind = a[0];
+        dn_smc = a[0] >= 4u;                        /* (0.36: kinds 4-7 are SAMPLER 2's 0-3) */
+        kind = a[0] % 4u;
         idx = a[1];
         n = dn_ed_smp_n(kind);
         if (kind == 0u)
@@ -415,7 +417,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         else if (kind == 1u)
             dn.smp_zone = (uint8_t)idx;
         if (cmd == ED_SMP_GET) {
-            put(kind);
+            put(a[0]);
             put(idx);
             put(n);
             for (k = 0; k < n; k++)
@@ -429,11 +431,13 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         }
         dn.smp_pad = pad;
         dn.smp_zone = zone;
+        dn_smc_sync();
         return 1;
     }
     case ED_SMP_PLAY:
         if (na < 2u)
             return 0;
+        dn_smc = na >= 3u && a[2];                  /* (0.36: a third byte 1: SAMPLER 2) */
         dn_lock();
         if (dn_sm.p.mode == DN_SMP_ONESHOT) {
             if (a[1])
@@ -444,6 +448,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
             dn_smp_note_off(&dn_sm, a[0]);
         }
         dn_unlock();
+        dn_smc_sync();
         put(0);
         return 1;
     case ED_FM_GET:

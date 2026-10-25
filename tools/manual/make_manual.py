@@ -220,8 +220,8 @@ def body():
     o.append(qs(5, "CHOOSE THE INSTRUMENTS", 4, F[5], steps(
         f"Tap {k('HOME')}. Turn {k('SELECT')} to the track.",
         f"Tap {k('FX')}: the picker. (An empty track, OFF, opens it by itself when you press its key.)",
-        f"Turn {k('SELECT')} or {k('KNOB 1')}: OFF, REESE, BRK A, BRK B, MIDI, SUB, SAMPLER, FM or WAVE. One already on another track says which (T1).",
-        f"{k('FX')} puts it on the track and opens it; {k('SEQ')} calls it off. REESE, SUB, SAMPLER, FM, WAVE and each break are on one track at a time: given to another, the two tracks swap. The patterns stay with their track.",
+        f"Turn {k('SELECT')} or {k('KNOB 1')}: OFF, REESE, BRK A, BRK B, MIDI, SUB, SAMPLER, FM, WAVE, JUNO or SAMPLER 2. One already on another track shows that track's number.",
+        f"{k('FX')} puts it on the track and opens it; {k('SEQ')} calls it off. Each instrument but MIDI is on one track at a time: given to another, the two tracks swap. The patterns stay with their track.",
         f"{k('SAVE')} keeps the layout."),
         "project-05-chosen.png", "HOME's picker: track 4, REESE (now on track 1)."))
     o.append(qs(6, "PLAY A BREAK", 5, F[6], steps(
@@ -278,6 +278,8 @@ def body():
         (f'<span class="sw" style="background:#C3A2FF"></span><b>SAMPLER</b>', "16 one-shot pads, or a key map of 8 zones (a multisample).", ""),
         (f'<span class="sw" style="background:#5B9BFF"></span><b>FM</b>', "A six-operator DX7-style synth (Dexed's engine): plays DX7 voices. 6 voices.", ""),
         (f'<span class="sw" style="background:#FF5CA8"></span><b>WAVE</b>', "A wavetable synth: 8 tables, your own Serum tables, unison, warps. 6 voices.", ""),
+        (f'<span class="sw" style="background:#40D6E6"></span><b>JUNO</b>', "A Juno-60 / 106-style polysynth with its chorus. 6 voices.", ""),
+        (f'<span class="sw" style="background:#E2C8FF"></span><b>SAMPLER 2</b>', "A second sampler: its own pads or key map.", ""),
         (f'<span class="sw" style="background:#D6D4CC"></span><b>MIDI</b>', "Plays other gear on its channel over USB. Any number of tracks.", ""),
         (f'<span class="sw" style="background:#3A3D45"></span><b>OFF</b>', "Plays nothing.", ""),
     ], head=["INSTRUMENT", "WHAT IT IS", ""]))
@@ -443,6 +445,30 @@ def body():
                  "DIST, LP24, SAT and stereo (SPREAD, PAN) each cost some. Plain: 6 voices. UNISON 2: 3, UNISON 4: 2. OSC B on: 3, and "
                  "unison 2 at most. B on with a drive: 2. VOICES is the most it will use; watch CPU on PROJECT.", 4, "VOICES"))
 
+    o.append(chapter("JUNO", 0, "A Juno-60 / 106-style polysynth (0.36): one DCO a voice with saw, pulse, sub and noise, "
+                     "the HPF, a resonant 4-pole filter, one envelope, one LFO with delay, and the chorus. Six voices."))
+    o.append("<p>" + k("SEL") + ", " + k("EDIT") + " and " + k("ENV") + " pressed again show the page's second view; the tab "
+             "names it.</p>")
+    o.append(knobs([
+        ("DCO", k("SEL"), "RANGE: 16' 8' 4'", "SAW: OFF / ON", "PULSE: OFF / ON", "SUB: an octave down"),
+        ("DCO 2", k("SEL") + " ×2", "PWM: how far", "PWM SRC: LFO MAN ENV", "NOISE", "LFO: on the pitch"),
+        ("VCF", k("EDIT"), "CUT", "RES (rings on its own near the top)", "ENV", "KEY: follows the keys"),
+        ("VCF 2", k("EDIT") + " ×2", "HPF: BOOST FLAT 2 3", "ENV POL: NORM / INV", "LFO: on the cutoff", "VEL: on the cutoff"),
+        ("ENV", k("ENV"), "ATK", "DEC", "SUS", "REL"),
+        ("VCA", k("ENV") + " ×2", "VCA: ENV / GATE", "VEL: on the level", "", ""),
+        ("LFO", k("LFO"), "RATE", "DELAY: fades in after the first key", "SYNC: OFF or a length", "MODE: FREE / KEY"),
+        ("OUT", k("GLO"), "CHORUS: OFF I II I+II", "LEVEL", "VOICES 1-6 (1: mono)", "TRANS"),
+    ], "PRESETS: INIT, JUNO PAD, BRASS, STRINGS, 106 BASS, ORGAN, RAVE STAB, PLUCK, PIANO, SUB BASS, ACID POLY, GLASS, "
+       "DARK PAD, NOISE SWEEP, WHISTLE, HOOVERISH, JUNGLE STAB."))
+    o.append(shots(("juno-01-dco.png", "DCO."), ("juno-03-vcf.png", "VCF."), ("juno-08-out.png", "OUT: the chorus.")))
+    o.append(tip("The Juno's sound is the chorus: I is slow and wide, II faster, I+II a quick shimmer. Stereo only with it on. "
+                 "For the 106 bass: PULSE with PWM by hand (MAN), SUB up, RANGE 16', VOICES 1.", 0, "CHORUS"))
+
+    o.append(chapter("SAMPLER 2", 4, "A second sampler (0.36), on a track of its own: its own 16 pads or key map, its own "
+                     "settings. Put it on a track from HOME's picker. Its pages are SAMPLER's (see SAMPLER); the top line "
+                     "says SMPL 2.", brk=False))
+    o.append(shots(("smp2-01-zone.png", "SAMPLER 2 in KEYS, beside SAMPLER's pads."), ("smp2-02-home.png", "HOME: SAMPLER on 6, SAMPLER 2 on 7.")))
+
     o.append(chapter("MIDI TRACKS", 5, "Tracks set to MIDI play your other gear over USB, each on its channel.", brk=False))
     o.append(knobs([("MIDI", k("GLO") + " ×4", "MIDI: which (1-5…)", "CHANNEL 1-16", "OVERLAP: SLIDE / CUT", "")],
                    f"{k('SELECT')} on MIDI: the next MIDI instrument. With a MIDI track selected the keys play out on its channel. "
@@ -550,9 +576,10 @@ def body():
     o.append(table([
         ("Pattern", "Every track in a mouse-driven piano roll or slice grid; velocity, conditions, retrigs, chords, the 8 patterns."),
         ("REESE, SUB, LFOs", "Every value; LFO shapes drawn with the mouse."),
-        ("SAMPLER", "The 16 pads or the key map."),
+        ("SAMPLER", "The 16 pads or the key map; SAMPLER 2 picked at the top when it's on a track."),
         ("FM", "Every value of the voice. DX7 banks: load a .syx, hear each voice here or on the FM-1, keep some, send them."),
         ("WAVE", "Every value. Wavetables: load a Serum wavetable or single-cycle WAV, see its frames, hear it, send it: it comes up on TABLE."),
+        ("JUNO", "Every value, its factory sounds, keys to hear it on the FM-1."),
         ("Breaks", "The breaks' settings and slices."),
         ("Project", "Each track's instrument and sends, the FX, memory and CPU; samples (WAV, MP3, AIFF … converted and sent); save and load whole projects."),
     ], head=["TAB", "WHAT'S THERE"]))

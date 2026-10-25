@@ -6,7 +6,7 @@ import {
   lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
   PF, FX_NAMES, fxParams, E, SUB, subIndex, NPARAM_13, nLfos, FENV, NPARAM_19, feIndex,
   ST_CHORD, chordOf, chordNotes, CHORD_NAMES,
-  SMP_PAD, SMP_ZONE, SMP_KEYS, SMP_NPADS, SMP_NZONES, readSampler, smpNote, FM_MACROS,
+  SMP_PAD, SMP_ZONE, SMP_KEYS, SMP_NPADS, SMP_NZONES, readSampler, smpNote, FM_MACROS, smpIdx,
 } from "./protocol.js";
 import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
@@ -27,8 +27,11 @@ const S = {
   writing: 0, lastRev: -1, poll: null, dirtyPat: false, drag: null, selNote: -1, zoom: 0, x0: 0,
   lfo: null, lfoNow: null, lfoDraw: null, pats: null,
   proj: null, media: [], dev: null, mediaRead: false, dir: null,
-  smp: null, pad: 0, zone: 0, fm: null, fmNames: [], wave: null, wvTables: [], wvPresets: [], juno: null, juPresets: [],
+  smps: [null, null], smpSel: 0, pad: 0, zone: 0, fm: null, fmNames: [], wave: null, wvTables: [], wvPresets: [], juno: null, juPresets: [],
 };
+// (0.36) the SAMPLER tab's sampler (S.smpSel: 0 SAMPLER, 1 SAMPLER 2); a track's own: smpT(t)
+Object.defineProperty(S, "smp", { get: () => S.smps[S.smpSel], set: (v) => { S.smps[S.smpSel] = v; } });
+const smpT = (t) => S.smps[smpIdx(t)];
 const ROWS = 36, ROW_H = 14, GUT = 46;
 
 function say(t, cls = "") { $("status").textContent = t; $("status").className = cls; }
@@ -59,7 +62,8 @@ async function start(link, label) {
   buildBreaks();
   buildLfos();
   buildSub();
-  S.smp = null;
+  S.smps = [null, null];
+  S.smpSel = 0;
   buildSampler();
   buildProject();
   ["play", "bpm", "save"].forEach((id) => { $(id).disabled = false; });
@@ -70,9 +74,10 @@ async function start(link, label) {
   PANEL.start();
   readSampler(link).then((m) => {                    // (0.23: SAMPLER, once the page is up; null before. The
     if (S.link !== link) return;                     //  link queues its frames: the polls wait their turn)
-    S.smp = m;
+    S.smps[0] = m;
     buildSampler();
     if (m) render();
+    if (m) readSampler(link, 1).then((m2) => { if (S.link === link) { S.smps[1] = m2; buildSampler(); render(); } }).catch(() => {});   // (0.36)
     return link.fmGet().then(async (f) => {        // (0.25: FM; none before)
       if (S.link !== link) return;
       S.fm = f;
@@ -193,8 +198,8 @@ async function poll() {
     }
     if (S.smp && $("smptab").classList.contains("on") && !S.smpBusy &&
         !(document.activeElement && document.activeElement.closest && document.activeElement.closest("#smptab"))) {
-      const seq = S.smpSeq, m = await readSampler(S.link);   // (changed on the FM-1: the tab follows, unless
-      if (m && seq === S.smpSeq && !S.smpBusy) { S.smp = m; buildSampler(); }   //  you changed it meanwhile)
+      const seq = S.smpSeq, w = S.smpSel, m = await readSampler(S.link, w);   // (changed on the FM-1: the tab follows, unless
+      if (m && seq === S.smpSeq && !S.smpBusy) { S.smps[w] = m; buildSampler(); }   //  you changed it meanwhile)
     }
   } else if (S.proj && $("files").classList.contains("on")) {
     S.proj = await S.link.proj().catch(() => S.proj);   // (the CPU and the memory, live)
@@ -253,7 +258,7 @@ document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
 function trackLabel(t) {
   const k = KIND(t);
   return k === "REESE" ? ["REESE", "bass"] : k === "SUB" ? ["SUB", "bass"]
-    : k === "SAMPLER" ? ["SAMPLER", S.smp && S.smp.mode === 1 ? "keys" : "pads"] : k === "BREAKS" ? [brkOf(t) ? "BREAKS B" : "BREAKS A", "slices"]
+    : k === "SAMPLER" ? [smpIdx(t) ? "SAMPLER 2" : "SAMPLER", smpT(t) && smpT(t).mode === 1 ? "keys" : "pads"] : k === "BREAKS" ? [brkOf(t) ? "BREAKS B" : "BREAKS A", "slices"]
     : k === "FM" ? ["FM", "6 voices"] : k === "WAVE" ? ["WAVE", "wavetables"] : k === "JUNO" ? ["JUNO", "6 voices"]
     : k === "MIDI" ? [`MIDI ${midiNo(t)}`, `channel ${S.pat.tracks[t].chan + 1}`] : ["OFF", "plays nothing"];
 }
@@ -280,7 +285,7 @@ $("right").onclick = () => { S.x0 += 16; render(); };
 $("up").onclick = () => { S.lo = Math.min(S.lo + 6, isBrk() ? 0 : 127 - ROWS + 1); render(); };
 $("down").onclick = () => { S.lo = Math.max(S.lo - 6, 0); render(); };
 
-const isBrk = () => KIND(S.sel) === "BREAKS" || (KIND(S.sel) === "SAMPLER" && !!S.smp && S.smp.mode === 0);   // (SAMPLER's pads: rows too)
+const isBrk = () => KIND(S.sel) === "BREAKS" || (KIND(S.sel) === "SAMPLER" && !!smpT(S.sel) && smpT(S.sel).mode === 0);   // (SAMPLER's pads: rows too)
 const slices = () => (KIND(S.sel) === "SAMPLER" ? SMP_NPADS : S.st ? S.st.slices[brkOf(S.sel)] || 32 : 32);
 const trans = () => (KIND(S.sel) === "REESE" ? S.params[17] || 0 : KIND(S.sel) === "SUB" ? S.params[subIndex(25)] || 0 : 0);   // (REESE's TRANS: the roll names the notes it plays)
 
@@ -426,7 +431,7 @@ function noteAt(step, val) {
 }
 function posOf(ev) { const r = $("roll").getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; }
 // (0.27) chords: the tracks that play them (an FM-1 that has them), a chord's note under (step, row)
-const chordable = () => !!S.chords && (KIND(S.sel) === "FM" || KIND(S.sel) === "WAVE" || KIND(S.sel) === "MIDI" || (KIND(S.sel) === "SAMPLER" && !!S.smp && S.smp.mode === 1));
+const chordable = () => !!S.chords && (KIND(S.sel) === "FM" || KIND(S.sel) === "WAVE" || KIND(S.sel) === "MIDI" || (KIND(S.sel) === "SAMPLER" && !!smpT(S.sel) && smpT(S.sel).mode === 1));
 function chordAt(step, val) {
   if (!chordable()) return -1;
   const tr = S.pat.tracks[S.sel];
@@ -1043,7 +1048,7 @@ function smpSet(kind, i, k, v) {
   o[k] = v;
   S.smpSeq = (S.smpSeq || 0) + 1;
   S.smpBusy = (S.smpBusy || 0) + 1;
-  return guard(async () => { await S.link.smpSet(kind, i, k, v); }).finally(() => { S.smpBusy--; });
+  return guard(async () => { await S.link.smpSet(kind, i, k, v, S.smpSel); }).finally(() => { S.smpBusy--; });
 }
 function smpSlider(box, kind, i, k, p) {
   const el = document.createElement("div"), vals = () => (kind === 0 ? S.smp.pads[i] : kind === 1 ? S.smp.zones[i] : S.smp.keys);
@@ -1088,11 +1093,14 @@ function smpGroups(box, kind, i, defs, title) {
   });
 }
 function buildSampler() {
-  $("smpTabBtn").hidden = !S.smp;
+  $("smpTabBtn").hidden = !S.smps[0];
+  $("smpwhichL").hidden = !S.smps[1];                // (0.36: SAMPLER 2 there too: which one the tab shows)
+  if (!S.smps[1]) S.smpSel = 0;
   if (!S.smp) return;
+  $("smpwhich").value = S.smpSel;
   $("smpmode").value = S.smp.mode;
-  const t = S.proj ? S.proj.eng.indexOf(E.SMP) : -1;
-  $("smpwhere").textContent = t >= 0 ? `On track ${t + 1}.` : "On no track yet: put it on one on the Project tab.";
+  const t = S.proj ? S.proj.eng.indexOf(S.smpSel ? E.SMP2 : E.SMP) : -1;
+  $("smpwhere").textContent = t >= 0 ? `On track ${t + 1}.` : "On no track yet: put it on one from HOME (FX) or the Project tab.";
   $("smpone").hidden = S.smp.mode !== 0;
   $("smpkeys").hidden = S.smp.mode !== 1;
   smpGroups($("padEd"), 0, S.pad, SMP_PAD, `PAD ${S.pad + 1}`);
@@ -1113,7 +1121,7 @@ function renderSampler() {
       S.pad = i;
       smpGroups($("padEd"), 0, S.pad, SMP_PAD, `PAD ${S.pad + 1}`);
       renderSampler();
-      guard(() => S.link.smpPlay(i, true));
+      guard(() => S.link.smpPlay(i, true, S.smpSel));
     };
     box.appendChild(b);
   }
@@ -1164,15 +1172,16 @@ $("zmap").onpointerdown = (ev) => {
     smpGroups($("zoneEd"), 1, S.zone, SMP_ZONE, `ZONE ${S.zone + 1}`);
     drawZoneMap();
   } else if (row >= SMP_NZONES && ev.clientX - r.left >= L) {   // the keyboard: a note while held
-    guard(() => S.link.smpPlay(n, true));
-    const up = () => { guard(() => S.link.smpPlay(n, false)); window.removeEventListener("pointerup", up); };
+    guard(() => S.link.smpPlay(n, true, S.smpSel));
+    const up = () => { guard(() => S.link.smpPlay(n, false, S.smpSel)); window.removeEventListener("pointerup", up); };
     window.addEventListener("pointerup", up);
   }
 };
+$("smpwhich").onchange = () => { S.smpSel = +$("smpwhich").value; S.pad = 0; S.zone = 0; buildSampler(); };
 $("smpmode").onchange = async () => {
   S.smp.mode = +$("smpmode").value;
   S.smpBusy = (S.smpBusy || 0) + 1;
-  await guard(() => S.link.smpSet(3, 0, 0, S.smp.mode));
+  await guard(() => S.link.smpSet(3, 0, 0, S.smp.mode, S.smpSel));
   S.smpBusy--;
   buildSampler();
   render();

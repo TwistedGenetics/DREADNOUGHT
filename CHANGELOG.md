@@ -847,3 +847,34 @@ Tested: host scenarios `project.txt` (track 4 to REESE and BREAKS A to track 8 t
 before), `sub.txt` / `patches.txt` (SUB put on track 5 from HOME), `home.txt` (a track set OFF, its key opens the
 picker, SEQ calls it off, FM put on it opens FM's pages). Not yet tried on the FM-1.
 
+## 0.36 — JUNO and SAMPLER 2 (2026-10-25)
+
+Jamie: "tests done and seem ok, please build the juno and sampler 2".
+
+- **JUNO**, a Juno-60 / 106-style polysynth, six voices (`src/dsp/dn_ju.c`). The DCO: saw and pulse on or off, the
+  pulse's width moved by the LFO, by hand or by the envelope (PWM), a square sub an octave down, noise, RANGE 16' 8' 4',
+  the LFO on the pitch. The HPF (BOOST, FLAT, 2, 3) on the voices together, as the 106's. A resonant 4-pole low-pass (a
+  zero-delay-feedback ladder, two voices' worth computed at once, that self-oscillates in tune) with the envelope (or
+  inverted), the LFO, the keys and the velocity on its cutoff. One ADSR for the filter and the amp, or the amp on the
+  gate. One triangle LFO with DELAY (still, then fading in after the first key), FREE or KEY, free or synced to the
+  tempo. The CHORUS: I, II and I+II at the Juno-60's rates, two delay lines swept in opposite directions for its
+  stereo. 17 factory sounds. Pages: SEL DCO / DCO 2, EDIT VCF / VCF 2, ENV ENV / VCA, LFO, GLO OUT. Plays chords;
+  SAVE keeps it. Its cost at its heaviest (everything on, six voices, chorus) is ~2.3 x FM's six voices on the host,
+  under WAVE's heaviest.
+- **SAMPLER 2**: a second sampler on a track of its own, with its own pads or key map and settings, the same pages as
+  SAMPLER (SMPL 2 on the top line). The two share the samples' decoder checkpoints, so a sample on both costs no more.
+- HOME's picker shows all eleven instruments; one on another track shows that track's number in a dark badge.
+- Memory: WAVE's state (8 KB) moved to the pool, which pays for SAMPLER 2 and JUNO in main RAM. JUNO and SAMPLER 2
+  are kept in the second settings object (slot 3's top), as WAVE is in the first.
+- **Web editor:** a JUNO tab (every value, the factory sounds, keys to hear it on the FM-1); the SAMPLER tab picks
+  SAMPLER or SAMPLER 2 when both exist; project files keep JUNO and SAMPLER 2.
+
+Tested: `ju_test` (in tune at each RANGE, the sub an octave down, PWM by hand 50 % to 4 %, the saw's aliasing at C7
+-40 dB, the filter closing, ringing on its own and tracking the keys an octave an octave, the HPF, the envelope and the
+gate silent after, six voices and stealing, VOICES 1, the LFO's delay, the chorus mono off / stereo on, every factory
+sound finite and unclipped with six notes, its cost); host scenarios `juno.txt` (picked on HOME, every page, PRESETS,
+chords, the sequencer, kept over a reboot) and `sampler2.txt` (SAMPLER and SAMPLER 2 side by side, each its own mode
+and samples, the sequencer playing both, the editor's kinds 4-7, both kept over a reboot); the editor's golden checks
+(JUNO's values, names, texts and factory sounds as the firmware's); the editor's end-to-end run (the JUNO tab, SAMPLER
+2 on the SAMPLER tab). Not yet tried on the FM-1.
+

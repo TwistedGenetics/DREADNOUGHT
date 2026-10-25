@@ -426,6 +426,20 @@ with sync_playwright() as pw:
     got = p.evaluate("() => window.__dn.mock.smp.zones[1].slice(0, 2)")
     check("SAMPLER: zone 2 -> loop 1, root C2", got == [0, 48], got)
     p.screenshot(path=str(shots / "editor-sampler-keys.png"), full_page=True)
+    # (0.36) SAMPLER 2: the tab's other sampler, its own pads: pad 1 given loop 2; SAMPLER's untouched; a pad heard on it
+    check("SAMPLER 2: the tab offers it", p.locator("#smpwhichL").is_visible())
+    p.select_option("#smpwhich", "1")
+    p.wait_for_timeout(200)
+    check("SAMPLER 2: its own mode (one-shot) though SAMPLER is on KEYS", p.locator("#smpmode").input_value() == "0", p.locator("#smpmode").input_value())
+    p.locator(".pad").nth(0).click()
+    p.wait_for_timeout(150)
+    p.locator("#padEd select").first.select_option("1")
+    p.wait_for_timeout(200)
+    got = p.evaluate("() => [window.__dn.mock.smp2.pads[0][0], window.__dn.mock.smp.pads[0][0], window.__dn.mock.smp2Played || 0]")
+    check("SAMPLER 2: pad 1 -> loop 2 on SAMPLER 2 only, heard on it", got[0] == 1 and got[1] == -1 and got[2] >= 1, got)
+    p.screenshot(path=str(shots / "editor-sampler2.png"), full_page=True)
+    p.select_option("#smpwhich", "0")
+    p.wait_for_timeout(100)
     # FM (0.25): its tab (the factory voices, the values), a voice picked, ALGO changed; a DX7 bank on the Project tab,
     # 5 of its voices picked and sent: they're FM's voices on the FM-1 too
     p.click("#fmTabBtn")

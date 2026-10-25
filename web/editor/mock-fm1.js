@@ -119,6 +119,7 @@ export class MockFM1 {
     this.smp = { mode: 0, pads: Array.from({ length: 16 }, () => [-1, 0, 1000, 0, 0, 0, 100, 0, 0, 127, 64, 0, 127, 0, 0, 0]),
       zones: Array.from({ length: 8 }, () => [-1, 60, 0, 127, 0, 100, 0, 0, 0, 1000]), keys: [0, 64, 127, 30, 127, 0, 0, 0, 4] };
     // FM (0.25): its voice, LEVEL, VOICES, the macros, where PRESETS is
+    this.smp2 = JSON.parse(JSON.stringify(this.smp));   // (0.36: SAMPLER 2, the same defaults)
     this.fm = { voice: fmInit("DUB FM BS"), level: 100, voices: 6, macros: [0, 0, 0, 0], preset: 0 };
     this.fmPlayed = 0;
     this.wave = { p: WT_PRESETS[1][1].slice(), preset: 1 };   // (0.32: SUPERSAW, as the FM-1 starts)
@@ -242,13 +243,14 @@ export class MockFM1 {
         return [0];
       }
       case CMD.SMP_GET: case CMD.SMP_SET: {
-        const kind = a[0], i = a[1], m = this.smp;
-        if (kind > 3 || (kind === 0 && i >= 16) || (kind === 1 && i >= 8)) return null;
+        if (a[0] > 7) return null;
+        const kind = a[0] & 3, i = a[1], m = a[0] >= 4 ? this.smp2 : this.smp;   // (0.36: kinds 4-7 SAMPLER 2's)
+        if ( (kind === 0 && i >= 16) || (kind === 1 && i >= 8)) return null;
         const vals = kind === 0 ? m.pads[i] : kind === 1 ? m.zones[i] : kind === 2 ? m.keys : null;
         const defs = kind === 0 ? SMP_PAD : kind === 1 ? SMP_ZONE : SMP_KEYS;
         if (cmd === CMD.SMP_GET) {
           const out = kind === 3 ? [m.mode] : vals;
-          return [kind, i, out.length, ...out.flatMap((v) => digits(v + 8192, 2))];
+          return [a[0], i, out.length, ...out.flatMap((v) => digits(v + 8192, 2))];
         }
         const v = (a[3] | a[4] << 7) - 8192;
         if (kind === 3) { m.mode = v ? 1 : 0; } else {
@@ -328,7 +330,10 @@ export class MockFM1 {
         return [0];
       }
       case CMD.JU_PLAY: this.juPlayed += a[1] ? 1 : 0; return [0];
-      case CMD.SMP_PLAY: this.smpPlayed = (this.smpPlayed || 0) + (a[1] ? 1 : 0); return [0];
+      case CMD.SMP_PLAY:
+        if (a[2]) this.smp2Played = (this.smp2Played || 0) + (a[1] ? 1 : 0);
+        else this.smpPlayed = (this.smpPlayed || 0) + (a[1] ? 1 : 0);
+        return [0];
       case CMD.SUB_PRESET: this.subPreset = a[0]; this.rev++; return [0];
       case CMD.PROJ: {
         const P = this.proj, nm = P.name.padEnd(12, "\0").slice(0, 12).split("").map((c) => c.charCodeAt(0) & 127);
@@ -342,7 +347,7 @@ export class MockFM1 {
         const f = a[0], v = a[1] | a[2] << 7, P = this.proj;
         this.rev++; this.dirty = 1;
         if (f < 8) {
-          if (v > 9) return [1];
+          if (v > 10) return [1];
           if (v !== 0 && v !== 4) { const u = P.eng.indexOf(v); if (u >= 0 && u !== f) P.eng[u] = P.eng[f]; }
           P.eng[f] = v;
           return [0];
@@ -411,7 +416,7 @@ export class MockFM1 {
         return [...a.slice(0, 5), 0];
       }
       case CMD.NAMES: {
-        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE", "JUNO"], FX_NAMES,
+        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE", "JUNO", "SAMPLER 2"], FX_NAMES,
           ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], [...SUB_PRESETS, ...USERS],
           [...FM_FACTORY, ...this.fmVoices().map((v) => v.name)], this.wtNames(), WT_PRESETS.map((x) => x[0]), JU_PRESETS.map((x) => x[0])][a[0]] || [];
         const out = [list.length, a[1]];

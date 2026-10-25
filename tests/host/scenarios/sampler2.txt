@@ -1,0 +1,75 @@
+# DREADNOUGHT host scenario (0.36): SAMPLER 2, a second sampler with its own pads / key map, beside SAMPLER. SAMPLER on
+# track 6 (ONE-SHOT), SAMPLER 2 on track 7 from HOME's picker (KEYS); each plays its own; the sequencer plays both;
+# both kept over a reboot; the editor reads SAMPLER 2's values (kinds 4-7).
+# White keys (tracks 1..8): 0 2 4 6 7 9 11 12. Values (set ID V): 164 MODE, 220 pad 1's SAMPLE, 236 zone 1's SAMPLE.
+sysex 76 5 6 0
+expect eng.6 6
+tap HOME
+turn SELECT 6
+expect trk 7
+tap FX
+turn K1 10
+expect picke 10
+shot smp2-00-pick.png
+tap FX
+expect eng.7 10
+expect page 0
+expect smc 2
+# SAMPLER 2: KEYS, zone 1 the first sample
+set 164 1
+expect smmode.2 1
+expect smmode.1 0
+set 236 0
+expect smzs.2 0
+shot smp2-01-zone.png
+key 14 down
+wait 50
+expect smv.2 1
+expect smv.1 0
+key 14 up
+wait 600
+# SAMPLER (track 6): still ONE-SHOT, its pad 1 the first sample; a key hits it, SAMPLER 2 quiet
+press SEQ
+tapkey 9 40
+release SEQ
+expect trk 6
+expect smc 1
+expect smmode 0
+set 220 0
+tapkey 0 30
+expect smv.1 1
+expect smv.2 0
+wait 600
+# the sequencer plays both: a step on each track
+tap SEQ
+expect page 8
+tapkey 0 40
+press SEQ
+tapkey 11 40
+release SEQ
+expect trk 7
+expect page 7
+tapkey 0 40
+press PLAY
+wait 40
+expect smv.1 1
+expect smv.2 1
+release PLAY
+tap PLAY
+tap HOME
+shot smp2-02-home.png
+# the editor: SAMPLER 2's mode (kind 7: 1, KEYS, +8192), SAMPLER's mode (kind 3: 0)
+sysex 80 7 0
+expect reply.0 7
+expect reply.3 1
+expect reply.4 64
+sysex 80 3 0
+expect reply.3 0
+# SAVE, reboot: both back
+tap SAVE
+reboot
+expect eng.6 6
+expect eng.7 10
+expect smmode.1 0
+expect smmode.2 1
+expect smzs.2 0

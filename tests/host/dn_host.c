@@ -957,7 +957,14 @@ int main(int argc, char **argv)
                 got = 0;
                 for (uint32_t k = 0; k < DN_SMP_VOICES; k++)
                     got += dn_sm.v[k].on && dn_sm.v[k].gate;
-            } else if (!strcmp(b, "smpad")) got = dn.smp_pad + 1;
+            } else if (!strncmp(b, "smv.", 4)) {   /* (0.36) smv.N: sampler N's voices sounding (1, 2) */
+                got = 0;
+                for (uint32_t k = 0; k < DN_SMP_VOICES; k++)
+                    got += dn_smx[(atoi(b + 4) - 1) & 1].v[k].on != 0;
+            } else if (!strncmp(b, "smmode.", 7)) got = dn_smx[(atoi(b + 7) - 1) & 1].p.mode;
+            else if (!strncmp(b, "smzs.", 5)) got = dn_smx[(atoi(b + 5) - 1) & 1].p.zone[0][ZN_SAMPLE];   /* zone 1's sample */
+            else if (!strcmp(b, "smc")) got = dn_smc + 1;
+            else if (!strcmp(b, "smpad")) got = dn.smp_pad + 1;
             else if (!strcmp(b, "smzone")) got = dn.smp_zone + 1;
             else if (!strcmp(b, "smmode")) got = dn_sm.p.mode;
             else if (!strncmp(b, "smp.", 4)) got = dn_sm.p.pad[(atoi(b + 4) - 1) & 15][atoi(strchr(b + 4, '.') + 1)];

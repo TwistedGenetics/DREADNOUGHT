@@ -86,11 +86,11 @@ static int32_t dn_in_enc(int role)
 #define DN_NBRK 2u                                  /* BREAKS A and B (tracks 2 and 3 unless the project moves them) */
 /* ---- the project's instruments: which one each track plays (0.12). REESE and BREAKS A / B are one each: put on a
  * track that another holds, they swap (dn_eng_set). MIDI on any number of tracks; OFF plays nothing. */
-enum { DN_E_OFF, DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_SUB, DN_E_SMP, DN_E_FM, DN_E_WAVE, DN_E_JUNO, DN_E_N };
+enum { DN_E_OFF, DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_SUB, DN_E_SMP, DN_E_FM, DN_E_WAVE, DN_E_JUNO, DN_E_SMP2, DN_E_N };
 enum { DN_SK_BLOCKS, DN_SK_LIGHT, DN_SK_DARK, DN_SK_N };   /* (0.31) the screen's skins */
 static const char *const DN_SK_NAME[DN_SK_N] = {"SKIN: BLOCKS", "SKIN: LIGHT", "SKIN: DARK"};
 static const char *const DN_E_NAME[DN_E_N] = {"OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE",
-                                              "JUNO"};
+                                              "JUNO", "SAMPLER 2"};
 static uint8_t dn_eng[8] = {DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI};
 #define DN_IS_BRK(t) (dn_eng[t] == DN_E_BRKA || dn_eng[t] == DN_E_BRKB)
 #define DN_BK(t) ((uint32_t)dn_eng[t] - DN_E_BRKA)  /* a break track's voice: 0 A, 1 B */
@@ -98,16 +98,18 @@ static uint8_t dn_eng[8] = {DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_MI
 #define DN_IS_MIDI(t) (dn_eng[t] == DN_E_MIDI)
 #define DN_IS_SUB(t) (dn_eng[t] == DN_E_SUB)
 #define DN_IS_SYN(t) (DN_IS_RS(t) || DN_IS_SUB(t))   /* a synth: REESE or SUB (their sound pages) */
-#define DN_IS_SMP(t) (dn_eng[t] == DN_E_SMP)        /* SAMPLER (0.23) */
-#define DN_IS_PADS(t) (DN_IS_BRK(t) || (DN_IS_SMP(t) && dn_sm.p.mode == DN_SMP_ONESHOT))   /* played as rows: DRUM */
+#define DN_IS_SMP(t) (dn_eng[t] == DN_E_SMP || dn_eng[t] == DN_E_SMP2)   /* SAMPLER (0.23), SAMPLER 2 (0.36) */
+#define DN_SMI(t) (dn_eng[t] == DN_E_SMP2 ? 1u : 0u)  /* (which: track t's) */
+#define DN_IS_PADS(t) (DN_IS_BRK(t) || (DN_IS_SMP(t) && dn_smx[DN_SMI(t)].p.mode == DN_SMP_ONESHOT))   /* played as rows:
+                                                     * DRUM */
 #define DN_IS_FM(t) (dn_eng[t] == DN_E_FM)          /* FM (0.25) */
 #define DN_IS_WAVE(t) (dn_eng[t] == DN_E_WAVE)      /* WAVE, the wavetable synth (0.32) */
 #define DN_IS_JUNO(t) (dn_eng[t] == DN_E_JUNO)      /* JUNO, the Juno-60 / 106-style polysynth (0.36) */
 #define DN_IS_OWNPG(t) (DN_IS_SMP(t) || DN_IS_FM(t) || DN_IS_WAVE(t) || DN_IS_JUNO(t))   /* its own five pages (no LFO page) */
-#define DN_IS_POLY(t) ((DN_IS_SMP(t) && dn_sm.p.mode == DN_SMP_KEYS) || DN_IS_FM(t) || DN_IS_WAVE(t) || DN_IS_JUNO(t))   /* a key a note
+#define DN_IS_POLY(t) ((DN_IS_SMP(t) && dn_smx[DN_SMI(t)].p.mode == DN_SMP_KEYS) || DN_IS_FM(t) || DN_IS_WAVE(t) || DN_IS_JUNO(t))   /* a key a note
                                                      * (no slides; WAVE's MONO glides by itself) */
 #define DN_ONE(e) ((e) == DN_E_REESE || (e) == DN_E_BRKA || (e) == DN_E_BRKB || (e) == DN_E_SUB || (e) == DN_E_SMP || \
-                   (e) == DN_E_FM || (e) == DN_E_WAVE || (e) == DN_E_JUNO)
+                   (e) == DN_E_FM || (e) == DN_E_WAVE || (e) == DN_E_JUNO || (e) == DN_E_SMP2)
 #define DN_KEY0 53                                  /* key 0 is F3 */
 /* FM's values (0.25): the voice's own, the macros, the operator shown (DN_PX_FOP) and its values (DN_PX_FO0 + DN_FMO_*) */
 #define DN_PX_FM0 60
@@ -383,7 +385,10 @@ static dn_save_t dn_sv;                             /* (the one copy of the save
                                                      * 0.16: the pool keeps its headroom for the FX) */
 typedef char dn_save_fits[sizeof(dn_save_t) <= PLAT_STORE_MAX ? 1 : -1];
 static dn_sub_t dn_sb;                              /* SUB (0.13) */
-static dn_smp_t dn_sm;                              /* SAMPLER (0.23) */
+static dn_smp_t dn_smx[2];                          /* SAMPLER (0.23), SAMPLER 2 (0.36) */
+static uint8_t dn_smc;                              /* (0.36) the one the pages show: the selected track's (dn_smc_sync) */
+#define dn_sm (dn_smx[dn_smc])
+static void dn_smc_sync(void);
 static dn_fm_t dn_fmx;                              /* FM (0.25) */
 static dn_wt_t dn_wv X0X_POOL;                      /* WAVE (0.32; 0.36: in the pool, 8 KB off .bss) */
 static dn_ju_t dn_ju;                               /* JUNO (0.36) */
@@ -399,7 +404,8 @@ static uint8_t dn_fm_base[DN_FM_PATCH];             /* FM's voice as loaded and 
 static dn_fm_macro_t dn_fm_mac;
 #define DN_SMCK 1536u                               /* its samples' decoder checkpoints (one per 256 samples) */
 static uint32_t dn_sm_ck[DN_SMCK];
-static uint32_t dn_sm_key[DN_SMP_NSRC];             /* each pad's / zone's sample by its identity (dn_brk_key) */
+static uint32_t dn_smx_key[2][DN_SMP_NSRC];         /* each pad's / zone's sample by its identity (dn_brk_key) */
+#define dn_sm_key (dn_smx_key[dn_smc])
 static dn_seq_t dn_sq;
 static uint32_t dn_rev;                             /* moves on whenever the sound or the pattern changes (the editor) */
 static dn_brk_t dn_bk[DN_NBRK] X0X_POOL;
@@ -766,10 +772,11 @@ static void dn_sq_on1(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t 
     else if (DN_IS_BRK(t))
         dn_brk_hit(DN_BK(t), note, vel, (flags & DN_ST_SLIDE) != 0);
     else if (DN_IS_SMP(t)) {                        /* SAMPLER: a pad (DRUM's row), or a key of the map */
-        if (dn_sm.p.mode == DN_SMP_ONESHOT)
-            dn_smp_pad(&dn_sm, note, vel);
+        dn_smp_t *sm = &dn_smx[DN_SMI(t)];
+        if (sm->p.mode == DN_SMP_ONESHOT)
+            dn_smp_pad(sm, note, vel);
         else
-            dn_smp_note_on(&dn_sm, note, vel);
+            dn_smp_note_on(sm, note, vel);
     } else if (DN_IS_FM(t)) {
         dn_fm_note_on(&dn_fmx, note, (flags & DN_ST_ACC) && vel < 127u ? 127u : vel);
     } else if (DN_IS_WAVE(t)) {
@@ -784,8 +791,8 @@ static void dn_sq_off1(uint32_t t, uint8_t note)
     if (DN_IS_BRK(t))
         dn_brk_release(&dn_bk[DN_BK(t)]);
     else if (DN_IS_SMP(t)) {
-        if (dn_sm.p.mode == DN_SMP_KEYS)
-            dn_smp_note_off(&dn_sm, note);
+        if (dn_smx[DN_SMI(t)].p.mode == DN_SMP_KEYS)
+            dn_smp_note_off(&dn_smx[DN_SMI(t)], note);
     } else if (DN_IS_FM(t))
         dn_fm_note_off(&dn_fmx, note);
     else if (DN_IS_WAVE(t))
@@ -964,8 +971,8 @@ static void dn_mix_render(int32_t *lr, uint32_t k)
             reese_render(&dn_rs, ib, k);
         else if (e == DN_E_SUB)
             dn_sub_render(&dn_sb, ib, k);
-        else if (e == DN_E_SMP)
-            dn_smp_render(&dn_sm, ib, k);
+        else if (e == DN_E_SMP || e == DN_E_SMP2)
+            dn_smp_render(&dn_smx[e == DN_E_SMP2], ib, k);
         else if (e == DN_E_FM)
             dn_fm_render(&dn_fmx, ib, k);
         else if (e == DN_E_WAVE) {
@@ -1418,45 +1425,50 @@ static void dn_brk_select(uint32_t k, uint32_t src)
  * runs (a short lock each side). */
 static void dn_sm_resolve(int remap)
 {
-    static dn_smp_src_t ns[DN_SMP_NSRC];
-    uint32_t i, j, used = 0, nsrc = dn_src_count();
-    for (i = 0; i < DN_SMP_NSRC; i++) {
-        int16_t *sp = i < DN_SMP_PADS ? &dn_sm.p.pad[i][PD_SAMPLE] : &dn_sm.p.zone[i - DN_SMP_PADS][ZN_SAMPLE];
-        dn_loop_t L;
-        uint8_t *z = (uint8_t *)&ns[i];
-        for (j = 0; j < sizeof ns[i]; j++)
-            z[j] = 0;
-        if (remap && dn_sm_key[i] && *sp >= 0) {
-            if ((uint32_t)*sp >= nsrc || !dn_src_get((uint32_t)*sp, &L) || dn_brk_key(&L) != dn_sm_key[i])
-                for (j = 0; j < nsrc; j++)
-                    if (dn_src_get(j, &L) && dn_brk_key(&L) == dn_sm_key[i]) {
-                        *sp = (int16_t)j;
+    static dn_smp_src_t ns[2][DN_SMP_NSRC];
+    uint32_t i, j, c, d, used = 0, nsrc = dn_src_count();
+    for (c = 0; c < 2u; c++) {                      /* (0.36: both samplers; a sample in both shares its checkpoints) */
+        dn_smp_t *sm = &dn_smx[c];
+        uint32_t *key = dn_smx_key[c];
+        for (i = 0; i < DN_SMP_NSRC; i++) {
+            int16_t *sp = i < DN_SMP_PADS ? &sm->p.pad[i][PD_SAMPLE] : &sm->p.zone[i - DN_SMP_PADS][ZN_SAMPLE];
+            dn_loop_t L;
+            uint8_t *z = (uint8_t *)&ns[c][i];
+            for (j = 0; j < sizeof ns[c][i]; j++)
+                z[j] = 0;
+            if (remap && key[i] && *sp >= 0) {
+                if ((uint32_t)*sp >= nsrc || !dn_src_get((uint32_t)*sp, &L) || dn_brk_key(&L) != key[i])
+                    for (j = 0; j < nsrc; j++)
+                        if (dn_src_get(j, &L) && dn_brk_key(&L) == key[i]) {
+                            *sp = (int16_t)j;
+                            break;
+                        }
+            }
+            if (*sp < 0 || (uint32_t)*sp >= nsrc || !dn_src_get((uint32_t)*sp, &L) || !L.adpcm)
+                continue;
+            key[i] = dn_brk_key(&L);
+            for (d = 0; d <= c && !ns[c][i].adpcm; d++)   /* (the same sample as an earlier pad / zone: its checkpoints) */
+                for (j = 0; j < (d < c ? DN_SMP_NSRC : i); j++)
+                    if (ns[d][j].adpcm == L.adpcm) {
+                        ns[c][i] = ns[d][j];
                         break;
                     }
-        }
-        if (*sp < 0 || (uint32_t)*sp >= nsrc || !dn_src_get((uint32_t)*sp, &L) || !L.adpcm)
-            continue;
-        dn_sm_key[i] = dn_brk_key(&L);
-        for (j = 0; j < i; j++) {                   /* (the same sample as an earlier pad / zone: its checkpoints) */
-            const int16_t *o = j < DN_SMP_PADS ? &dn_sm.p.pad[j][PD_SAMPLE] : &dn_sm.p.zone[j - DN_SMP_PADS][ZN_SAMPLE];
-            if (*o == *sp && ns[j].adpcm) {
-                ns[i] = ns[j];
-                break;
+            if (!ns[c][i].adpcm) {
+                ns[c][i].adpcm = L.adpcm, ns[c][i].n = L.n, ns[c][i].rate = L.rate;
+                ns[c][i].ck = dn_sm_ck + used;
+                ns[c][i].nck = dn_smp_checkpoints(L.adpcm, L.n, dn_sm_ck + used, DN_SMCK - used);
+                used += ns[c][i].nck;
             }
-        }
-        if (!ns[i].adpcm) {
-            ns[i].adpcm = L.adpcm, ns[i].n = L.n, ns[i].rate = L.rate;
-            ns[i].ck = dn_sm_ck + used;
-            ns[i].nck = dn_smp_checkpoints(L.adpcm, L.n, dn_sm_ck + used, DN_SMCK - used);
-            used += ns[i].nck;
         }
     }
     dn_lock();
-    dn_smp_cut(&dn_sm);
-    for (i = 0; i < DN_SMP_NSRC; i++)
-        dn_sm.src[i] = ns[i];
-    for (i = 0; i < DN_SMP_ZONES; i++)
-        dn_smp_zone_prepare(&dn_sm, i);
+    for (c = 0; c < 2u; c++) {
+        dn_smp_cut(&dn_smx[c]);
+        for (i = 0; i < DN_SMP_NSRC; i++)
+            dn_smx[c].src[i] = ns[c][i];
+        for (i = 0; i < DN_SMP_ZONES; i++)
+            dn_smp_zone_prepare(&dn_smx[c], i);
+    }
     dn_unlock();
 }
 
@@ -1464,7 +1476,7 @@ static void dn_wv_find(void);
 void dn_app_slots_changed(int done)
 {
     dn_flash_t = plat_ms();                         /* (the editor writing samples to flash) */
-    uint32_t k;
+    uint32_t k, j;
     if (done) {
         dn_sm_resolve(1);
         dn_wv_find();                               /* (0.32) WAVE's table again, by its name */
@@ -1476,9 +1488,11 @@ void dn_app_slots_changed(int done)
             dn_wt_set_table(&dn_wv, 0);
             dn_wt_set_table_b(&dn_wv, 0);
         }
-        dn_smp_cut(&dn_sm);
-        for (k = 0; k < DN_SMP_NSRC; k++)
-            dn_sm.src[k].adpcm = 0, dn_sm.src[k].nck = 0;
+        for (j = 0; j < 2u; j++) {
+            dn_smp_cut(&dn_smx[j]);
+            for (k = 0; k < DN_SMP_NSRC; k++)
+                dn_smx[j].src[k].adpcm = 0, dn_smx[j].src[k].nck = 0;
+        }
         dn_unlock();
     }
     for (k = 0; k < DN_NBRK; k++)
@@ -2302,40 +2316,54 @@ static void dn_ju_load(uint32_t i)
     dn.ju_preset = (uint8_t)(i % dn_ju_preset_count());
     dn_mark();
 }
-#define DN_X1_MAGIC 0x31584E44u                     /* "DNX1" (0.36): JUNO's sound */
+static void dn_smp_pack(uint32_t c, dn_smp_keep_t *o);
+static void dn_smp_unpack(uint32_t c, const dn_smp_keep_t *o);
+#define DN_X1_MAGIC 0x31584E44u                     /* "DNX1" (0.36): JUNO's sound, SAMPLER 2's settings */
 typedef struct {
     uint32_t magic;
     uint8_t ju_preset, ju_np, pad[2];
     int16_t ju[JP_N];
+    dn_smp_keep_t smp2;                             /* SAMPLER 2's settings */
 } dn_x1_save_t;
+typedef char dn_x1_fits[sizeof(dn_x1_save_t) <= PLAT_STORE_MAX ? 1 : -1];
+static dn_x1_save_t dn_x1_buf[2];                   /* (what SAVE writes, what's there: RAM shared by keep / restore) */
 static int dn_x1_keep(void)                         /* 0 kept (or unchanged), else the refusal */
 {
-    static dn_x1_save_t w, old;
+    dn_x1_save_t *wp = &dn_x1_buf[0], *op = &dn_x1_buf[1];
     uint32_t k;
     int rc;
+#define w (*wp)
+#define old (*op)
     w.magic = DN_X1_MAGIC;
     w.ju_preset = dn.ju_preset, w.ju_np = JP_N;
     for (k = 0; k < JP_N; k++)
         w.ju[k] = dn_ju.p[k];
+    dn_smp_pack(1, &w.smp2);
     if (dn_ext_load(1, &old, sizeof old) == (int)sizeof old && !mem_cmp_dn(&old, &w, sizeof w))
         return 0;
     dn_flash_t = plat_ms();
     rc = dn_ext_save(1, &w, sizeof w);
     dn_flash_t = plat_ms();
     return rc;
+#undef w
+#undef old
 }
-static void dn_x1_restore(void)                     /* (start-up) JUNO's kept sound, else JUNO PAD */
+static void dn_x1_restore(void)                     /* (start-up) JUNO's kept sound, else JUNO PAD; SAMPLER 2's */
 {
-    static dn_x1_save_t u;
+    dn_x1_save_t *up = &dn_x1_buf[0];
     uint32_t k;
+#define u (*up)
     dn_ju_init(&dn_ju);
     if (dn_ext_load(1, &u, sizeof u) == (int)sizeof u && u.magic == DN_X1_MAGIC && u.ju_np == JP_N) {
         for (k = 0; k < JP_N; k++)
             dn_ju.p[k] = (int16_t)dn_clamp(u.ju[k], dn_ju_vmin(k), dn_ju_vmax(k));
         dn.ju_preset = (uint8_t)(u.ju_preset % dn_ju_preset_count());
+        dn_smp_unpack(1, &u.smp2);
+        dn_sm_resolve(1);
     } else {
         dn_ju_load(1);
     }
+#undef u
 }
 
 /* the filter envelopes' values (0.19): REESE's or SUB's fe[] */
@@ -3112,7 +3140,7 @@ static void dn_proj_restore(const dn_save_t *sp)
     for (k = 0; k < DN_SEQ_TRACKS; k++)
         n[sp->proj.eng[k] < DN_E_N ? sp->proj.eng[k] : 0u]++;
     if (n[DN_E_REESE] <= 1u && n[DN_E_BRKA] <= 1u && n[DN_E_BRKB] <= 1u && n[DN_E_SUB] <= 1u && n[DN_E_SMP] <= 1u &&
-        n[DN_E_FM] <= 1u && n[DN_E_WAVE] <= 1u && n[DN_E_JUNO] <= 1u)
+        n[DN_E_FM] <= 1u && n[DN_E_WAVE] <= 1u && n[DN_E_JUNO] <= 1u && n[DN_E_SMP2] <= 1u)
         for (k = 0; k < DN_SEQ_TRACKS; k++)
             dn_eng[k] = sp->proj.eng[k] < DN_E_N ? sp->proj.eng[k] : (uint8_t)DN_E_OFF;
     for (k = 0; k < DN_SEQ_TRACKS; k++) {
@@ -3140,21 +3168,42 @@ static void dn_proj_restore(const dn_save_t *sp)
         dn_pname[0] = 'P', dn_pname[1] = '1', dn_pname[2] = 0;
 }
 
-static void dn_sm_keep(void)                        /* (0.23) SAMPLER's settings into what SAVE writes */
+/* a sampler's settings as kept (0.23; 0.36: either of the two) */
+static void dn_smp_pack(uint32_t c, dn_smp_keep_t *o)
 {
+    const dn_smp_t *sm = &dn_smx[c & 1u];
     uint32_t k, j;
-    dn_man.smp.mode = dn_sm.p.mode;
+    o->mode = sm->p.mode;
     for (k = 0; k < DN_SMP_PADS; k++)
         for (j = 0; j < PD_N; j++)
-            dn_man.smp.pad[k][j] = dn_sm.p.pad[k][j];
+            o->pad[k][j] = sm->p.pad[k][j];
     for (k = 0; k < DN_SMP_ZONES; k++)
         for (j = 0; j < ZN_N; j++)
-            dn_man.smp.zone[k][j] = dn_sm.p.zone[k][j];
+            o->zone[k][j] = sm->p.zone[k][j];
     for (j = 0; j < KY_N; j++)
-        dn_man.smp.key[j] = dn_sm.p.key[j];
+        o->key[j] = sm->p.key[j];
     for (k = 0; k < DN_SMP_NSRC; k++)
-        dn_man.smp.src_key[k] = dn_sm_key[k];
+        o->src_key[k] = dn_smx_key[c & 1u][k];
 }
+static void dn_smp_unpack(uint32_t c, const dn_smp_keep_t *o)   /* (its samples: dn_sm_resolve after) */
+{
+    dn_smp_t *sm = &dn_smx[c & 1u];
+    uint32_t k, j;
+    if (o->mode > 1u)
+        return;
+    sm->p.mode = o->mode;
+    for (k = 0; k < DN_SMP_PADS; k++)
+        for (j = 0; j < PD_N; j++)
+            sm->p.pad[k][j] = (int16_t)dn_clamp(o->pad[k][j], dn_smp_pd_min(j), dn_smp_pd_max(j));
+    for (k = 0; k < DN_SMP_ZONES; k++)
+        for (j = 0; j < ZN_N; j++)
+            sm->p.zone[k][j] = (int16_t)dn_clamp(o->zone[k][j], dn_smp_zn_min(j), dn_smp_zn_max(j));
+    for (j = 0; j < KY_N; j++)
+        sm->p.key[j] = (int16_t)dn_clamp(o->key[j], dn_smp_ky_min(j), dn_smp_ky_max(j));
+    for (k = 0; k < DN_SMP_NSRC; k++)
+        dn_smx_key[c & 1u][k] = o->src_key[k];
+}
+static void dn_sm_keep(void) { dn_smp_pack(0, &dn_man.smp); }   /* (0.23) SAMPLER's settings into what SAVE writes */
 static void dn_save(void)
 {
     dn_sm_keep();
@@ -3254,21 +3303,10 @@ void dn_app_init(void)
         dn_man.magic = DN_MAN_MAGIC;
         dn_man.smp.mode = 0xFFu;
     }
-    dn_smp_init(&dn_sm);                            /* SAMPLER's settings, kept or new */
-    if (dn_man.smp.mode <= 1u) {
-        uint32_t j;
-        dn_sm.p.mode = dn_man.smp.mode;
-        for (k = 0; k < DN_SMP_PADS; k++)
-            for (j = 0; j < PD_N; j++)
-                dn_sm.p.pad[k][j] = (int16_t)dn_clamp(dn_man.smp.pad[k][j], dn_smp_pd_min(j), dn_smp_pd_max(j));
-        for (k = 0; k < DN_SMP_ZONES; k++)
-            for (j = 0; j < ZN_N; j++)
-                dn_sm.p.zone[k][j] = (int16_t)dn_clamp(dn_man.smp.zone[k][j], dn_smp_zn_min(j), dn_smp_zn_max(j));
-        for (j = 0; j < KY_N; j++)
-            dn_sm.p.key[j] = (int16_t)dn_clamp(dn_man.smp.key[j], dn_smp_ky_min(j), dn_smp_ky_max(j));
-        for (k = 0; k < DN_SMP_NSRC; k++)
-            dn_sm_key[k] = dn_man.smp.src_key[k];
-    }
+    dn_smc = 0;
+    dn_smp_init(&dn_smx[1]);                        /* (SAMPLER 2: dn_x1_restore) */
+    dn_smp_init(&dn_smx[0]);                        /* SAMPLER's settings, kept or new */
+    dn_smp_unpack(0, &dn_man.smp);
     dn_sm_resolve(1);
     dn_fm_init(&dn_fmx);                            /* FM's voice, kept or the first factory one */
     if (dn_man.fm.valid == 0xA5u) {
@@ -3498,7 +3536,7 @@ static void dn_trk_silence(uint32_t t)
     else if (DN_IS_BRK(t))
         dn_brk_cut(&dn_bk[DN_BK(t)]);
     else if (DN_IS_SMP(t))
-        dn_smp_cut(&dn_sm);
+        dn_smp_cut(&dn_smx[DN_SMI(t)]);
     else if (DN_IS_FM(t))
         dn_fm_all_off(&dn_fmx);
     else if (DN_IS_WAVE(t))
@@ -3996,6 +4034,7 @@ static void dn_trk_go2(uint32_t t, int seq)
 {
     t %= DN_SEQ_TRACKS;
     dn.trk = (uint8_t)t;
+    dn_smc_sync();
     dn.peng = 0xFF;
     if (DN_IS_MIDI(t))
         dn.midi_sel = (uint8_t)dn_midi_idx(t);
@@ -4845,11 +4884,17 @@ static void dn_name_input(uint32_t press)
     dn.redraw |= DN_RD_BOTTOM;
 }
 
+static void dn_smc_sync(void)                       /* (0.36) the sampler the pages show: the selected track's */
+{
+    if (DN_IS_SMP(dn.trk))
+        dn_smc = (uint8_t)DN_SMI(dn.trk);
+}
 void dn_app_input(void)
 {
     uint32_t btn = dn_in_buttons(), keys = dn_in_keys(), press = btn & ~dn.btn_prev, rel = dn.btn_prev & ~btn, k;
     int32_t d;
     dn.btn_prev = btn;
+    dn_smc_sync();
     if (keys != dn.keys_raw)
         dn_keys(keys);
     dn_chops_flush();
@@ -5803,7 +5848,7 @@ static const char *dn_top_names(const char **pn)
         int one = dn_sm.p.mode == DN_SMP_ONESHOT;
         int32_t smp = one ? dn_sm.p.pad[dn.smp_pad % DN_SMP_PADS][PD_SAMPLE]
                           : dn_sm.p.zone[dn.smp_zone % DN_SMP_ZONES][ZN_SAMPLE];
-        tag = "SMPL";
+        tag = dn_smc ? "SMPL 2" : "SMPL";
         sp[0] = 0;
         dn_cat(sp, one ? "PAD " : "ZONE ");
         dn_num(v, (one ? dn.smp_pad : dn.smp_zone) + 1);
@@ -6466,7 +6511,7 @@ static void dn_draw_drum(void)
         cv_rect(30 + 13 * (int32_t)(dn_sq.cur[dn.trk] - v0) + 5, 18, 1, 102, DN_C_FG);
     cv_rect(0, 121, 240, 23, DN_C_BAR);
     line[0] = 0;
-    dn_cat(line, DN_IS_SMP(dn.trk) ? "SAMPLER  PAD " : DN_BK(dn.trk) ? "BRK B  SL " : "BRK A  SL ");
+    dn_cat(line, DN_IS_SMP(dn.trk) ? (dn_smc ? "SAMPLER 2  PAD " : "SAMPLER  PAD ") : DN_BK(dn.trk) ? "BRK B  SL " : "BRK A  SL ");
     if (dn.step_held >= 0) {
         dn_step_status(tr, 1, 0);
         return;
@@ -6544,7 +6589,7 @@ static const char *dn_trk_sound(uint32_t t)
     if (DN_IS_JUNO(t))
         return dn_ju_preset_name(dn.ju_preset);
     if (DN_IS_SMP(t))
-        return dn_sm.p.mode == DN_SMP_ONESHOT ? "PADS" : "KEYS";
+        return dn_smx[DN_SMI(t)].p.mode == DN_SMP_ONESHOT ? "PADS" : "KEYS";
     if (DN_IS_MIDI(t)) {
         uint32_t c = dn_sq.pat.tr[t].chan + 1u;
         m[0] = 0;
@@ -6563,7 +6608,7 @@ static const char *dn_trk_sound(uint32_t t)
 /* each instrument's colour (BLOCKS' HOME tiles, the picker) */
 static const uint16_t DN_E_COL[DN_E_N] = {RGB(58, 61, 69), RGB(255, 106, 43), RGB(255, 194, 26), RGB(255, 194, 26),
                                           RGB(214, 212, 204), RGB(61, 220, 151), RGB(195, 162, 255), RGB(91, 155, 255),
-                                          RGB(255, 92, 168), RGB(64, 214, 230)};
+                                          RGB(255, 92, 168), RGB(64, 214, 230), RGB(226, 200, 255)};
 /* (0.35) HOME's instrument picker, over the tracks: the nine (OFF too) as tiles, the one on outlined; an instrument
  * there is one of on another track says which (choosing it swaps the two) */
 static void dn_draw_pick(void)
@@ -6572,7 +6617,7 @@ static void dn_draw_pick(void)
     char h[28];
     cv_rect(0, 17, 240, 104, DN_C_BG);
     h[0] = 'T', h[1] = (char)('1' + t), h[2] = 0;
-    dn_cat(h, ": WHICH INSTRUMENT?");
+    dn_cat(h, ": WHICH INSTRUMENT?");   /* (a number: the track it's on) */
     cv_text(6, 18, &FONT_S, h, DN_C_FG);
     for (e = 0; e < DN_E_N; e++) {
         int32_t x = 2 + (int32_t)(e % 3u) * 79, y = 38 + (int32_t)(e / 3u) * 21;
@@ -6585,10 +6630,12 @@ static void dn_draw_pick(void)
         } else {
             cv_rect(x, y, 76, 20, c);
         }
-        cv_text(x + 6, y + 1, &FONT_S, DN_E_NAME[e], e == DN_E_OFF ? DN_C_LABEL : DN_C_ONACC);
-        if (u < 8u && u != t) {                     /* (on another track: it moves here, swapping) */
-            char w[4] = {'T', (char)('1' + u), 0, 0};
-            cv_text(x + 72 - text_w(&FONT_T, w), y + 4, &FONT_T, w, e == DN_E_OFF ? DN_C_LABEL : DN_C_ONACC);
+        cv_text(x + 4, y + 1, &FONT_S, DN_E_NAME[e], e == DN_E_OFF ? DN_C_LABEL : DN_C_ONACC);
+        if (u < 8u && u != t) {                     /* (on another track: its number in a dark badge; choosing it
+                                                     * swaps the two) */
+            char w[2] = {(char)('1' + u), 0};
+            cv_rect(x + 65, y + 3, 9, 14, DN_C_BG);
+            cv_text(x + 70 - text_w(&FONT_T, w) / 2, y + 4, &FONT_T, w, DN_C_FG);
         }
     }
     cv_rect(0, 121, 240, 23, DN_C_BAR);
@@ -6916,6 +6963,7 @@ void dn_app_draw(int force)
         dn.redraw = DN_RD_ALL;
     uint32_t keys = dn.keys_prev, dim = 0, k;
     static uint32_t shown_pos;
+    dn_smc_sync();
     if ((DN_IS_SEQPG(dn.page) || dn.page == DN_PG_HOME) && dn_sq.playing && dn_sq.pos != shown_pos)
         dn.redraw |= DN_RD_BOTTOM;                  /* the playhead moved */
     shown_pos = dn_sq.pos;
