@@ -643,3 +643,17 @@ Tested: editor unit tests (stray copies of earlier answers passed over and the s
 byte in a slot refused by its CRC; a lost answer asked again; a note never sent twice; a closed link lets go of the
 port), the editor end to end, the flasher's.
 
+## 0.31 — BLOCKS, the colour-block skin (2026-10-25)
+
+- **A new skin, and the default: BLOCKS** (Idea D from the mock-ups; Jamie found LIGHT hard to see). The ground is
+  near-black and the text cream. Each knob's value is a big tile in that knob's colour, wherever it is: K1 orange, K2
+  yellow, K3 green, K4 blue. The tile fills from the bottom as far as the value, with the rest pale. A value either
+  side of zero fills from ticks at zero, and an LFO's reach is a dark line down the tile's right edge.
+- **HOME** in BLOCKS: each track a tile in its instrument's colour (REESE orange, the breaks yellow, SUB green, FM
+  blue, SAMPLER lilac, MIDI grey). The picked track is outlined; a muted one is dark with MUTED.
+- **SETUP, FX** goes round BLOCKS → LIGHT → DARK, kept with SAVE. 0.30 saves on LIGHT, its default then, come up
+  BLOCKS.
+
+Tested: host `skin.txt` (BLOCKS from the start; round the three; each kept over a reboot; an older save BLOCKS); every
+page's screenshot looked at in BLOCKS.
+

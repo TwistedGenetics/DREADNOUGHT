@@ -83,6 +83,8 @@ static int32_t dn_in_enc(int role)
 /* ---- the project's instruments: which one each track plays (0.12). REESE and BREAKS A / B are one each: put on a
  * track that another holds, they swap (dn_eng_set). MIDI on any number of tracks; OFF plays nothing. */
 enum { DN_E_OFF, DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_SUB, DN_E_SMP, DN_E_FM, DN_E_N };
+enum { DN_SK_BLOCKS, DN_SK_LIGHT, DN_SK_DARK, DN_SK_N };   /* (0.31) the screen's skins */
+static const char *const DN_SK_NAME[DN_SK_N] = {"SKIN: BLOCKS", "SKIN: LIGHT", "SKIN: DARK"};
 static const char *const DN_E_NAME[DN_E_N] = {"OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM"};
 static uint8_t dn_eng[8] = {DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI};
 #define DN_IS_BRK(t) (dn_eng[t] == DN_E_BRKA || dn_eng[t] == DN_E_BRKB)
@@ -393,7 +395,8 @@ static struct {
     uint8_t home_chord;                             /* HOME held and SELECT turned: an instrument picked */
     uint32_t home_dn;                               /* (0.29) when HOME went down: a tap opens HOME, a hold is FILL */
     uint8_t home_back;                              /* (0.29) the page HOME was opened from */
-    uint8_t dark;                                   /* (0.30) the DARK skin (LIGHT the default) */
+    uint8_t dark;                                   /* (0.30) the DARK skin */
+    uint8_t skin;                                   /* (0.31) DN_SK_*: BLOCKS (the default), LIGHT, DARK */
     uint8_t last_len[DN_SEQ_TRACKS], last_chord[DN_SEQ_TRACKS];   /* (0.29) the roll: the last note's length, chord */
     uint8_t fx_exact;                               /* (the editor sets an effect: no skipping past ones that don't fit) */                              /* the editor: the LFO values read set 1 (REESE) / 2 (SUB), 0: by page */
     uint8_t midi_sel;                               /* the MIDI page: MIDI 1..n (the tracks that play MIDI, in order) */
@@ -2427,7 +2430,8 @@ static void dn_save_fill(dn_save_t *sp)
     }
     s.set.click = dn.click;
     s.set.clk_lvl = dn.clk_lvl;
-    s.set.cin = (uint8_t)(dn.cin | (dn.dark ? 0x40u : 0u));   /* (0.30: bit 6, the DARK skin) */
+    s.set.cin = (uint8_t)(dn.cin | (uint32_t)(dn.skin == DN_SK_DARK ? 1u : dn.skin == DN_SK_LIGHT ? 2u : 0u) << 6);
+    /* (bits 6-7, the skin: 0 BLOCKS (0.30's LIGHT saves come up BLOCKS), 1 DARK, 2 LIGHT) */
     s.set.pad = dn_rs.vsens;                        /* (0.11: VEL SENS) */
     for (k = 0; k < DN_NLFO; k++)
         s.lfo[k] = dn_lp[k];
@@ -2754,7 +2758,7 @@ void dn_app_init(void)
     uint32_t k;
 #define s (*ps)
     int got;
-    dn_skin(0);                                     /* (0.30: LIGHT, unless the save says DARK) */
+    dn_skin(DN_SK_BLOCKS);                          /* (0.31: BLOCKS, unless the save says otherwise) */
     reese_init(&dn_rs);
     dn_sub_init(&dn_sb);
     dn.syn_last = DN_E_REESE;
@@ -2913,7 +2917,7 @@ void dn_app_init(void)
             dn.click = (uint8_t)dn_clamp(s.set.click, 0, 2);
             dn.clk_lvl = (uint8_t)dn_clamp(s.set.clk_lvl, 0, 127);
             dn.cin = (uint8_t)dn_clamp(s.set.cin & 0x3Fu, 0, 2);
-            dn_skin(s.set.cin & 0x40u);
+            dn_skin((s.set.cin >> 6) == 1u ? DN_SK_DARK : (s.set.cin >> 6) == 2u ? DN_SK_LIGHT : DN_SK_BLOCKS);
             dn_rs.vsens = (uint8_t)dn_clamp(s.set.pad, 0, 127);
         }
         for (k = 0; got >= (int)DN_SAVE_V08 && k < DN_NBRK; k++) {
@@ -4526,8 +4530,8 @@ void dn_app_input(void)
         dn.redraw |= DN_RD_ALL;
     }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_SET) {   /* (0.30) SETUP: FX, the other skin */
-        dn_skin(!dn.dark);
-        dn_say(dn.dark ? "SKIN: DARK" : "SKIN: LIGHT");
+        dn_skin((dn.skin + 1) % DN_SK_N);           /* (BLOCKS, LIGHT, DARK, round) */
+        dn_say(DN_SK_NAME[dn.skin]);
         dn_mark();
     }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_PROJ) {   /* PROJECT: the instrument chosen goes on the track */
@@ -4771,8 +4775,17 @@ static uint16_t dn_pal[DN_P_N];
 #define DN_C_ONACC dn_pal[DN_P_ONACC]               /* text on the accent */
 #define DN_C_KEYB dn_pal[DN_P_KEYB]                 /* the roll's keyboard: black keys, white keys */
 #define DN_C_KEYW dn_pal[DN_P_KEYW]
-static void dn_skin(int dark)
+/* (0.31) BLOCKS: a near-black ground, cream text, and each knob's value a tile of its own colour (K1 orange, K2 yellow,
+ * K3 green, K4 blue: the knob's colour wherever it is); HOME's tracks tiles of their instrument's colour */
+static const uint16_t DN_KCOL[4] = {RGB(255, 106, 43), RGB(255, 194, 26), RGB(61, 220, 151), RGB(91, 155, 255)};
+static const uint16_t DN_KTINT[4] = {RGB(255, 195, 170), RGB(255, 229, 158), RGB(172, 239, 210), RGB(184, 211, 255)};
+static void dn_skin(int skin)
 {
+    static const uint16_t B[DN_P_N] = {
+        RGB(16, 17, 20), RGB(28, 30, 35), RGB(28, 30, 35), RGB(58, 61, 69), RGB(22, 24, 28),
+        RGB(42, 46, 53), RGB(194, 197, 204), RGB(138, 142, 150), RGB(244, 243, 238), RGB(255, 106, 43),
+        RGB(28, 30, 35), RGB(58, 61, 69), RGB(85, 88, 95), RGB(255, 90, 74), RGB(244, 243, 238),
+        RGB(255, 106, 43), RGB(16, 17, 20), RGB(16, 17, 20), RGB(214, 212, 204)};
     static const uint16_t L[DN_P_N] = {
         RGB(244, 243, 238), RGB(255, 255, 255), RGB(255, 255, 255), RGB(16, 17, 20), RGB(239, 238, 232),
         RGB(228, 226, 218), RGB(74, 76, 85), RGB(107, 110, 118), RGB(16, 17, 20), RGB(255, 90, 31),
@@ -4784,9 +4797,11 @@ static void dn_skin(int dark)
         RGB(30, 31, 34), RGB(92, 96, 102), RGB(130, 134, 140), RGB(232, 58, 46), C_WHITE,
         RGB(98, 200, 255), RGB(24, 25, 28), RGB(24, 25, 28), RGB(92, 96, 102)};
     uint32_t i;
+    skin = skin >= 0 && skin < DN_SK_N ? skin : DN_SK_BLOCKS;
     for (i = 0; i < DN_P_N; i++)
-        dn_pal[i] = dark ? D[i] : L[i];
-    dn.dark = (uint8_t)(dark != 0);
+        dn_pal[i] = skin == DN_SK_DARK ? D[i] : skin == DN_SK_LIGHT ? L[i] : B[i];
+    dn.skin = (uint8_t)skin;
+    dn.dark = (uint8_t)(skin == DN_SK_DARK);
     dn.redraw |= DN_RD_ALL;
 }
 
@@ -4834,7 +4849,51 @@ static void dn_knob(int32_t cx, int32_t cy, uint32_t id, int focus)
                 pos = (int32_t)i;
         lo = 0, span = n > 1u ? (int32_t)n - 1 : 1;
     }
-    if (!dn.dark) {                                 /* (0.30) LIGHT: the name, the value big, a bar under it */
+    if (dn.skin == DN_SK_BLOCKS) {                  /* (0.31) BLOCKS: a tile of the knob's colour, filled from the
+                                                     * bottom as far as the value, the name and the value on it */
+        int32_t k = (cx - 30) / 60, x0 = cx - 28, w = 56, y0 = cy - 47, h = 86, f, r = 0;
+        const felucca_font_t *fn = &FONT_L;
+        uint32_t i;
+        k = k < 0 ? 0 : k > 3 ? 3 : k;
+        cv_rect(x0, y0, w, h, DN_KTINT[k]);
+        if (lo < 0 && -2 * lo >= hi) {              /* (either way of 0: from a line at 0) */
+            int32_t m = y0 + h - (int32_t)(-lo * h / span), e = y0 + h - (int32_t)((pos - lo) * h / span);
+            cv_rect(x0, e < m ? e : m, w, e < m ? m - e : e - m, DN_KCOL[k]);
+            cv_rect(x0, m - 1, 8, 2, DN_C_ONACC);     /* (the 0 line: ticks at the edges, clear of the value) */
+            cv_rect(x0 + w - 8, m - 1, 8, 2, DN_C_ONACC);
+        } else {
+            f = (int32_t)((pos - lo) * h / span);
+            cv_rect(x0, y0 + h - f, w, f, DN_KCOL[k]);
+        }
+        cv_text(x0 + 4, y0 + 3, &FONT_T, dn_name(id), DN_C_ONACC);
+        dn_text(id, v, t);
+        for (i = 0; t[i]; i++)
+            if ((uint8_t)t[i] > 57u)
+                fn = &FONT_M;
+        if (text_w(fn, t) > w - 6)
+            fn = text_w(&FONT_M, t) <= w - 6 ? &FONT_M : &FONT_S;
+        cv_text(x0 + 3, cy - (fn == &FONT_L ? 14 : fn == &FONT_M ? 10 : 6), fn, t, DN_C_ONACC);
+        if (id < RP_COUNT || DN_IS_SPX(id)) {       /* an LFO on it: its reach, a dark line down the right */
+            uint32_t j;
+            for (j = 0; j < DN_NLFO_ALL; j++) {
+                uint32_t d = dn_lp[j].dest;
+                int32_t dep = dn_lp[j].depth < 0 ? -dn_lp[j].depth : dn_lp[j].depth;
+                if (id < RP_COUNT && d && d < DN_LD_APITCH && d != DN_LD_PITCH && DN_LD_RP[d] == id)
+                    r += dep * (d == DN_LD_CUT ? 2 : 1);
+                if (DN_IS_SPX(id) && d >= DN_LD_SCUT && d < DN_LD_N && d != DN_LD_SPITCH &&
+                    DN_PX_SUB0 + DN_LD_SP[d - DN_LD_SCUT] == id)
+                    r += dep * (d == DN_LD_SCUT ? 2 : 1);
+            }
+            if (r) {
+                int32_t m0 = dn_clamp(v - r, lo, hi), m1 = dn_clamp(v + r, lo, hi);
+                int32_t ya = y0 + h - (int32_t)((m1 - lo) * h / span), yb = y0 + h - (int32_t)((m0 - lo) * h / span);
+                cv_rect(x0 + w - 4, ya, 3, yb - ya + 1, DN_C_ONACC);
+            }
+        }
+        (void)focus, (void)a0, (void)px, (void)py, (void)qx, (void)qy, (void)av;
+        return;
+    }
+    if (dn.skin == DN_SK_LIGHT) {                   /* (0.30) LIGHT: the name, the value big, a bar under it */
         int32_t x0 = cx - 26, w = 52, f, r = 0;
         const felucca_font_t *fn = &FONT_L;
         uint32_t i;
@@ -5414,8 +5473,10 @@ static void dn_draw_overview(void)
 static uint16_t dn_vel_col(const dn_step_t *st)
 {
     int32_t v = (st->flags & DN_ST_ACC) ? 127 : st->vel;
-    if (!dn.dark)                                   /* (LIGHT: pale orange .. the accent) */
+    if (dn.skin == DN_SK_LIGHT)                     /* (LIGHT: pale orange .. the accent) */
         return RGB(255, 200 - (200 - 90) * v / 127, 170 - (170 - 31) * v / 127);
+    if (dn.skin == DN_SK_BLOCKS)                    /* (BLOCKS: dark orange .. the accent) */
+        return RGB(110 + (255 - 110) * v / 127, 46 + (106 - 46) * v / 127, 20 + (43 - 20) * v / 127);
     return RGB(30 + (98 - 30) * v / 127, 60 + (200 - 60) * v / 127, 90 + (255 - 90) * v / 127);
 }
 /* a note's marks: a condition (a red corner), its retrigs (white ticks where they fall), from x0 over w pixels */
@@ -5521,7 +5582,7 @@ static void dn_draw_roll(void)
         cv_rect(2, y, 25, 7, black ? DN_C_KEYB : DN_C_KEYW);
         if (pc == 0u) {                             /* C: named, and a line under it */
             dn_note_name(v, (int32_t)p + trans);
-            cv_text(4, y - 3, &FONT_T, v, dn.dark ? DN_C_BAR : DN_C_FG);
+            cv_text(4, y - 3, &FONT_T, v, DN_C_ONACC);
             cv_rect(30, y + 7, 208, 1, DN_C_GRID);
         }
     }
@@ -5753,24 +5814,33 @@ static void dn_draw_home(void)
         int32_t x = 2 + (int32_t)(t % 4u) * 59, y = 21 + (int32_t)(t / 4u) * 50;
         int sel = t == dn.trk, off = dn_eng[t] == DN_E_OFF, mute = dn_sq.pat.tr[t].mute;
         const dn_track_t *tr = &dn_sq.pat.tr[t];
+        static const uint16_t EC[DN_E_N] = {RGB(58, 61, 69), RGB(255, 106, 43), RGB(255, 194, 26), RGB(255, 194, 26),
+                                            RGB(214, 212, 204), RGB(61, 220, 151), RGB(195, 162, 255), RGB(91, 155, 255)};
+        int blk = dn.skin == DN_SK_BLOCKS && !off && !mute;   /* (BLOCKS: each track its instrument's colour) */
         uint16_t hi = dn.dark ? DN_C_BLUE : DN_C_ACC, on = dn.dark ? DN_C_BAR : DN_C_ONACC;   /* (LIGHT: orange) */
-        uint16_t fg = sel ? on : off || mute ? DN_C_DIMTXT : DN_C_FG;
+        if (blk)
+            hi = EC[dn_eng[t] % DN_E_N], on = DN_C_ONACC;
+        uint16_t fg = sel || blk ? on : off || mute ? DN_C_DIMTXT : DN_C_FG;
         char n[4] = {0, 0, 0, 0}, nm[10];
         uint32_t i;
-        cv_rect(x, y, 57, 47, sel ? hi : DN_C_PANEL);
-        if (!sel && !dn.dark)
+        if (blk && sel) {                           /* (BLOCKS: the picked one outlined) */
+            cv_rect(x, y, 57, 47, DN_C_FG);
+            cv_rect(x + 3, y + 3, 51, 41, hi);
+        } else
+            cv_rect(x, y, 57, 47, sel || blk ? hi : DN_C_PANEL);
+        if (!sel && dn.skin == DN_SK_LIGHT)
             cv_rect(x, y, 57, 3, dn_eng[t] == DN_E_OFF ? DN_C_KNOB : DN_C_FG);   /* (LIGHT: a rule on top) */
         n[0] = (char)('1' + t);
-        cv_text(x + 4, y + 2, &FONT_S, n, sel ? on : off ? DN_C_DIMTXT : DN_C_BLUE);
+        cv_text(x + 4, y + 2, &FONT_S, n, sel || blk ? on : off ? DN_C_DIMTXT : DN_C_BLUE);
         if (dn_sq.playing && !mute && !off && dn_sq.cur[t] < tr->len && (tr->st[dn_sq.cur[t]].flags & DN_ST_ON))
-            dn_disc(x + 49, y + 8, 4, sel ? on : DN_C_RED);   /* (a note on this step) */
+            dn_disc(x + 49, y + 8, 4, sel || blk ? on : DN_C_RED);   /* (a note on this step) */
         cv_text(x + 4, y + 21, &FONT_T, dn_inst_name(t), fg);
         for (i = 0; i < 9u && dn_trk_sound(t)[i]; i++)             /* (the sound's name, as much as fits) */
             nm[i] = dn_trk_sound(t)[i];
         nm[i] = 0;
         while (i > 0u && text_w(&FONT_XS, nm) > 50)
             nm[--i] = 0;
-        cv_text(x + 4, y + 34, &FONT_XS, mute && !off ? "MUTED" : nm, sel ? on : mute ? DN_C_RED : DN_C_LABEL);
+        cv_text(x + 4, y + 34, &FONT_XS, mute && !off ? "MUTED" : nm, sel || blk ? on : mute ? DN_C_RED : DN_C_LABEL);
     }
     cv_rect(0, 121, 240, 23, DN_C_BAR);
     {
