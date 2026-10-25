@@ -470,9 +470,16 @@ def body():
     o.append(shots(("smp2-01-zone.png", "SAMPLER 2 in KEYS, beside SAMPLER's pads."), ("smp2-02-home.png", "HOME: SAMPLER on 6, SAMPLER 2 on 7.")))
 
     o.append(chapter("MIDI TRACKS", 5, "Tracks set to MIDI play your other gear over USB, each on its channel.", brk=False))
-    o.append(knobs([("MIDI", k("GLO") + " ×4", "MIDI: which (1-5…)", "CHANNEL 1-16", "OVERLAP: SLIDE / CUT", "")],
+    o.append(knobs([("MIDI", k("GLO") + " ×4", "MIDI: which (1-5…)", "CHANNEL 1-16", "OVERLAP: SLIDE / CUT", "USB OUT: STEREO / 10 CH")],
                    f"{k('SELECT')} on MIDI: the next MIDI instrument. With a MIDI track selected the keys play out on its channel. "
                    "SLIDE sends the new note before the old one's note-off: legato on the other synth."))
+    o.append(table([
+        ("USB OUT: STEREO", "The computer records the FM-1's stereo mix over the cable (as ever)."),
+        ("USB OUT: 10 CH", "Ten channels over the cable: 1-8 the tracks, each mono and dry (no FX); 9-10 the FX returns only, "
+                           "for mixing and effects in the DAW. The FM-1's own output still plays the whole mix. Turn it, "
+                           "SAVE, then power off and on: the USB starts with ten channels. The ring it needs comes out of the "
+                           "FX memory (131 KB left: DELAY and any echo or small reverb still fit; two big reverbs don't)."),
+    ], head=["SETTING", "WHAT IT DOES"]))
 
     # ---- sequencer
     o.append(chapter("THE SEQUENCER", 0, "Every instrument has its own sequencer page: ROLL (a piano roll) for the synths, "

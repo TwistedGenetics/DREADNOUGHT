@@ -97,6 +97,8 @@ int plat_store_save(uint32_t obj, const void *src, uint32_t len)
 }
 /* (0.40) the second core, simulated: a job handed over runs when it is waited for (after this core's own share: what
  * the FM-1 might do at the latest); `cores 1|2` in a scenario; a fake clock so the costs can be weighed */
+static uint32_t mo_peak[10], mo_blocks;
+static int expect_usb;            /* (0.42) USB's ten channels: peaks, blocks taken */
 static int sim_two = 1;                         /* (DN_CORES=1 in the environment: one core) */
 static void (*sim_c2_fn)(uint32_t);
 static uint32_t sim_c2_arg, sim_c2_jobs, sim_ticks;
@@ -332,6 +334,18 @@ static void run(uint32_t ms)
         while (acc >= 128000u) {
             acc -= 128000u;
             dn_app_render(lr, 128);
+            {
+                const int16_t *mb = dn_app_usb_block();   /* (0.42) the ten channels' blocks, as the FM-1 takes them */
+                if (mb) {
+                    for (uint32_t f = 0; f < 256u * 10u; f++) {
+                        uint32_t a = (uint32_t)(mb[f] < 0 ? -mb[f] : mb[f]);
+                        if (a > mo_peak[f % 10u])
+                            mo_peak[f % 10u] = a;
+                    }
+                    mo_blocks++;
+                    dn_app_usb_next();
+                }
+            }
             for (int i = 0; i < 256; i++) {
                 int32_t s = lr[i] > 32767 ? 32767 : lr[i] < -32768 ? -32768 : lr[i];
                 uint32_t a = (uint32_t)(s < 0 ? -s : s);
@@ -843,6 +857,10 @@ int main(int argc, char **argv)
         } else if (!strcmp(a, "set") && n >= 3) {   /* set ID V: a value as the knobs set it (0.23) */
             dn_set((uint32_t)atoi(b), atoi(c));
             run(5);
+        } else if (!strcmp(a, "usb10")) {           /* (0.42) a start: the USB set up from the saved choice */
+            expect_usb = dn_app_usb_multi() != 0;
+        } else if (!strcmp(a, "moreset")) {
+            memset(mo_peak, 0, sizeof mo_peak), mo_blocks = 0;
         } else if (!strcmp(a, "reboot")) {
             memset(&dn, 0, sizeof dn);
             held_btn = held_keys = 0;
@@ -911,6 +929,11 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "slsel")) got = dn.sl_sel;
             else if (!strcmp(b, "cursor")) got = (long)dn.sl_cur;
             else if (!strncmp(b, "bon.", 4)) got = dn_bk[atoi(b + 4) - 1].on;   /* BREAKS A (1) / B (2) sounding */
+            else if (!strcmp(b, "usb10")) got = expect_usb;
+            else if (!strcmp(b, "usbwant")) got = dn.usb_want;
+            else if (!strcmp(b, "moblocks")) got = (long)mo_blocks;
+            else if (!strncmp(b, "mo.", 3)) got = (long)mo_peak[(atoi(b + 3) - 1) % 10];   /* mo.C: channel C's peak */
+            else if (!strcmp(b, "fxarena")) got = (long)(dn_fx_arena / 1024u);
             else if (!strcmp(b, "c2jobs")) got = (long)sim_c2_jobs;   /* (0.40) jobs the second core ran */
             else if (!strcmp(b, "c2mask")) got = (long)dn_c2_mask;
             else if (!strncmp(b, "hfx.", 4)) got = dn_bk[atoi(b + 4) - 1].hfx.type;   /* (0.39) its hit's FX now */

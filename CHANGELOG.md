@@ -990,3 +990,19 @@ sweep; the PHASER's notch at CENTER against the dry; FLANGE's delay to the sampl
 difference with the input gone; DRIVE's RECT octave and LOW CUT; their names and texts the same in the editor as on
 the FM-1; host scenario `light_fx.txt` (from the panel, sounding, kept over a reboot). Not yet heard on the FM-1.
 
+## 0.42 — ten channels over USB (2026-10-25)
+
+- **USB OUT** (the MIDI page, KNOB 4): STEREO (as ever) or **10 CH**. With 10 CH, after SAVE and a restart, the
+  FM-1's USB audio has ten channels: 1-8 the tracks, each mono and dry, and 9-10 the FX A + B returns only (L, R), for
+  mixing and adding effects in a DAW. The FM-1's own output still plays the whole mix. Class compliant (USB audio 1,
+  16-bit, 44.1 kHz, the same resampling to the computer's clock as the stereo stream); the device reports a new
+  version with ten channels so a computer doesn't reuse the stereo description it cached.
+- The ten channels' ring (40 KB) and the block the mix fills for it (5 KB) come out of the FX memory, which then has
+  131 KB: DELAY with an echo, a small reverb or the light effects fits; two of the big reverbs don't (a saved pair too
+  big for it starts with FX B off). STEREO keeps all 176 KB.
+- RAM: the breaks' hit finder works in one array instead of two (5 KB back), which pays for the bigger USB packets.
+
+Tested on the host: the setting kept by SAVE and read at start; the arena 131 KB; playing, the blocks the USB takes
+carry REESE on channel 1, silence on an empty track's channel, FX A's return on 9 and 10. Not yet tried with a
+computer: it needs the FM-1 (and a DAW) to show the ten inputs.
+

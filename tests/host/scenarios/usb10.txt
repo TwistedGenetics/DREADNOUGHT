@@ -1,0 +1,34 @@
+# DREADNOUGHT host scenario (0.42): USB audio's ten channels. The MIDI page's KNOB 4 (USB OUT) to 10 CH, SAVE; at the
+# next start the USB is set up with ten channels and the effects lose the 45 KB the USB ring takes (DELAY still fits).
+# Playing: track 1's channel has REESE, mono and dry; track 2's (BREAKS A, no steps) is silent; channels 9-10 FX A's
+# return (REESE sent to it). Back to STEREO: the next start as before.
+tap GLO
+tap GLO
+tap GLO
+tap GLO
+expect usbwant 0
+turn K4 1
+expect usbwant 1
+shot usb-01-midi-page.png
+tap SAVE
+wait 100
+usb10
+expect usb10 1
+expect fxarena 131
+reboot
+expect usbwant 1
+expect fxa 1
+sysex 76 8 100 0
+expect reply.0 0
+moreset
+tap PLAY
+wait 2000
+tap PLAY
+expect moblocks >100
+expect mo.1 >2000
+expect mo.2 <2
+expect mo.9 >300
+expect mo.10 >300
+wav usb10-master.wav
+wait 10
+wavstop

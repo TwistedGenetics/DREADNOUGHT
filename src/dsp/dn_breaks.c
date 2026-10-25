@@ -56,7 +56,6 @@ uint8_t dn_brk_bars_of(uint32_t n, uint32_t rate)
 #define DN_ON_HOP 64u
 #define DN_ON_FRAMES (DN_BRK_CK * 256u / DN_ON_HOP)
 static uint16_t on_e[DN_ON_FRAMES];                 /* (main loop only: dn_brk_load) */
-static uint16_t on_d[DN_ON_FRAMES];
 
 uint32_t dn_brk_zero_near(const dn_brk_t *b, uint32_t at, uint32_t range)
 {
@@ -96,6 +95,7 @@ static uint32_t zero_before(const dn_brk_t *b, uint32_t at, uint32_t range)
 static void find_hits(dn_brk_t *b)
 {
     uint32_t nf = b->loop.n / DN_ON_HOP, f, i, n = 0, mx = 0;
+    uint16_t *const on_d = on_e;                    /* (0.42: the rises overwrite the levels they came from) */
     int32_t pred = 0, idx = 0;
     uint32_t pos[DN_BRK_MAXSL], str[DN_BRK_MAXSL];
     if (nf > DN_ON_FRAMES)
@@ -115,7 +115,8 @@ static void find_hits(dn_brk_t *b)
     }
     for (f = nf; f-- > 1u;)                         /* two frames together (~6 ms) */
         on_e[f] = (uint16_t)(on_e[f] + on_e[f - 1u] > 65535u ? 65535u : on_e[f] + on_e[f - 1u]);
-    for (f = 0; f < nf; f++) {                      /* the rise over the level just before (frames f-2, f-3) */
+    for (f = nf; f-- > 0u;) {                       /* the rise over the level just before (frames f-2, f-3); from
+                                                     * the end, in place (0.42: one array, not two) */
         uint32_t before = f > 1u ? on_e[f - 2u] : 0u;
         if (f > 2u && on_e[f - 3u] > before)
             before = on_e[f - 3u];

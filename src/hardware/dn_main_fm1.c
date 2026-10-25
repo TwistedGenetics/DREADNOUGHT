@@ -46,6 +46,7 @@ static void dn_unlock(void) { irq_restore(0); }
 #if FELUCCA_UAC
 #define DN_UAC_FRAMES 256u                          /* usb.c sizes its ring band for this */
 _Static_assert(DN_UAC_FRAMES == UA_HALF, "usb.c's USB audio band");
+_Static_assert(UA_MC == 10u && UA_N == 2048u, "dn_app.c's USB block and ring (DN_MO_*)");
 #endif
 static int32_t abuf[2u * HALF_WORDS] __attribute__((aligned(4)));
 
@@ -93,6 +94,15 @@ static void render_block(int32_t *o)
         midi_drain();
         dn_app_render(o + 2u * k, REND_FRAMES);
         out_level(o + 2u * k, REND_FRAMES);
+#if FELUCCA_UAC
+        {
+            const int16_t *mb = dn_app_usb_block();  /* (0.42) ten channels: each full block of 256 */
+            if (mb) {
+                uac_tap_mc(mb, DN_UAC_FRAMES);
+                dn_app_usb_next();
+            }
+        }
+#endif
     }
 #if FELUCCA_UAC
     for (k = 0; k < HALF_FRAMES; k += DN_UAC_FRAMES)
@@ -614,6 +624,9 @@ static void fm1_main(void)
                                                      * crashed (until power-off); if it does not answer: one core */
         plat_cpu2_set(1);
     audio_init();
+#if FELUCCA_UAC
+    uac_multi(dn_app_usb_multi());                  /* (0.42) USB audio: ten channels if SAVEd so (MIDI page, USB OUT) */
+#endif
     usb_start();
 #if X0X_TRS
     uart_midi_init();                               /* before TIMER5: it read-modify-writes port H too */

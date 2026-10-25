@@ -181,6 +181,7 @@ enum { DN_PX_FALG = DN_PX_FM0, DN_PX_FFB, DN_PX_FBRIGHT, DN_PX_FTIME, DN_PX_FATK
 #define DN_PX_BSMODE 115
 #define DN_PX_BSTRETCH 116
 #define DN_PX_BLEVEL 117
+#define DN_PX_USB 118                               /* (0.42) MIDI page, KNOB 4: USB audio STEREO / 10 CH (from a restart) */
 #define DN_PX_SLSEL 120                             /* SLICE (chop mode): the chop, the cursor (coarse, fine), zoom */
 #define DN_PX_SLMOVE 121
 #define DN_PX_SLFINE 122
@@ -282,7 +283,7 @@ static const char *const DN_WV_TAB[DN_NPAGES][DN_WV_NV] = {{"WAVE A", "OSC A", "
 static const uint8_t DN_SUB_OSC2[4] = {DN_S(SP_PW), DN_S(SP_PWM), DN_S(SP_PWMR), DN_S(SP_SUBM)};
 static const uint8_t DN_SUB_DIRT[4] = {DN_S(SP_DRIVE), DN_S(SP_DTYPE), DN_S(SP_CRUSH), DN_S(SP_TONE)};
 static const uint8_t DN_SET_PAGE[4] = {DN_PX_CLICK, DN_PX_CLKLVL, DN_PX_CIN, DN_PX_VSENS};
-static const uint8_t DN_MIDI_PAGE[4] = {DN_PX_MSEL, DN_PX_MCHAN, DN_PX_MOVL, DN_PX_NONE};
+static const uint8_t DN_MIDI_PAGE[4] = {DN_PX_MSEL, DN_PX_MCHAN, DN_PX_MOVL, DN_PX_USB};
 static const uint8_t DN_SONG_PAGE[4] = {DN_PX_SGROW, DN_PX_SGCOL, DN_PX_SGPAT, DN_PX_SGBARS};
 static const uint8_t DN_PROJ_PAGE[4] = {DN_PX_NONE, DN_PX_NONE, DN_PX_NONE, DN_PX_NONE};   /* (0.35: the tracks'
                                                      * instruments are picked on HOME) */
@@ -425,6 +426,16 @@ static dn_lfo_s_t dn_ls[DN_NLFO_ALL];               /* ... and where each one is
 /* ---- the project (0.12): its name, each track's sends, the FX rack (two send slots in one memory arena) ---- */
 #define DN_FX_ARENA (176u * 1024u)                  /* (0.16: DELAY's 96 KB and the biggest reverb's 77 KB) */
 static uint32_t dn_fx_mem[DN_FX_ARENA / 4u] X0X_POOL;
+/* (0.42) USB audio's ten channels (tracks 1-8, each mono and dry; then FX A + B's returns, L R) borrow the arena's top:
+ * the USB ring (2048 frames) and the block the mix fills for it (256 frames). The effects get what's left. */
+#define DN_MO_CH 10u
+#define DN_MO_N 256u
+#define DN_MO_RING (2048u * DN_MO_CH * 2u)
+#define DN_MO_BYTES (DN_MO_RING + DN_MO_N * DN_MO_CH * 2u)
+static uint32_t dn_fx_arena = DN_FX_ARENA;          /* what the effects may use */
+static int16_t *dn_mo;                              /* the block (0: stereo USB, nothing to fill) */
+static uint32_t dn_mo_n;                            /* frames of it filled so far */
+static uint8_t dn_usb_now;                          /* 1: started with ten */
 static dn_fx_p_t dn_fxp[2];                         /* FX A, B: their settings (the project's) ... */
 static dn_fx_s_t dn_fxs[2];                         /* ... and their state (audio) */
 static uint8_t dn_send[2][8];                       /* track t's send to FX A / B, 0..127 */
@@ -470,6 +481,7 @@ static struct {
     uint32_t chop_t;                                /* chops changed at (ms): written to flash a moment later */
     uint32_t home_t0;                               /* HOME down (SLICE: a tap deletes a chop, held 1 s clears) */
     uint8_t click, clk_lvl, cin;                    /* SETUP: click OFF / REC / ON, its level, count-in bars */
+    uint8_t usb_want;                               /* (0.42) USB audio: 1 ten channels (kept; from the next start) */
     volatile uint32_t cin_left, cin_next;           /* the count-in (audio): samples left, to the next beat */
     volatile uint32_t cin_beat;                     /* (its beats so far) */
     uint32_t clk_n, clk_ph, clk_last;               /* the click voice (audio): samples left, phase; the step seen */
@@ -1025,6 +1037,7 @@ static uint32_t dn_cost[DN_E_N + 2u];               /* what each took lately (TI
                                                      * then FX A, FX B */
 static uint32_t dn_cacc[DN_E_N + 2u];               /* ... this 128 frames' so far */
 static uint32_t dn_c2_k;                            /* (the job's stretch) */
+static uint32_t dn_mo_at;                           /* (0.42: where this stretch goes in the USB block) */
 static uint8_t dn_cores;                            /* 2: the second core took the last job */
 static void dn_eng_render(uint32_t e, dn_mixb_t *m, uint32_t k)
 {
@@ -1051,6 +1064,11 @@ static void dn_eng_render(uint32_t e, dn_mixb_t *m, uint32_t k)
     b = t < 8u ? dn_send[1][t] : 0u;
     for (i = 0; i < 2u * k; i++)
         m->lr[i] += ib[i];
+    if (dn_mo && t < 8u) {                          /* (0.42) USB: the track, mono, dry */
+        int16_t *o = dn_mo + dn_mo_at * DN_MO_CH + t;
+        for (i = 0; i < k; i++)
+            o[i * DN_MO_CH] = (int16_t)dn_clamp((ib[2u * i] + ib[2u * i + 1u]) >> 1, -32768, 32767);
+    }
     if (a)
         for (i = 0; i < 2u * k; i++)
             m->sa[i] += (ib[i] * (int32_t)a) >> 7;
@@ -1141,7 +1159,15 @@ static void dn_mix_render(int32_t *lr, uint32_t k)
     /* the effects (their tails ring out whatever is sent): FX B on the second core while this one runs FX A */
     two = plat_cpu2_on() && dn_fxs[1].type != DN_FX_OFF && plat_cpu2_run(dn_c2_job, 0x100u);
     t0 = plat_ticks24();
-    dn_fx_run(&dn_fxs[0], &dn_fxp[0], dn_mx0.sa, lr, k, dn_sq.bpm, dn_ret[0]);
+    if (dn_mo) {                                    /* (0.42) USB: FX A's return on its own (ib is free now) */
+        for (i = 0; i < 2u * k; i++)
+            dn_mx0.ib[i] = 0;
+        dn_fx_run(&dn_fxs[0], &dn_fxp[0], dn_mx0.sa, dn_mx0.ib, k, dn_sq.bpm, dn_ret[0]);
+        for (i = 0; i < 2u * k; i++)
+            lr[i] += dn_mx0.ib[i];
+    } else {
+        dn_fx_run(&dn_fxs[0], &dn_fxp[0], dn_mx0.sa, lr, k, dn_sq.bpm, dn_ret[0]);
+    }
     dn_cacc[DN_E_N] += plat_ticks24() - t0;
     if (two && plat_cpu2_wait() != 0)
         two = 0, dn_c2_fxb(k);
@@ -1149,6 +1175,13 @@ static void dn_mix_render(int32_t *lr, uint32_t k)
         dn_c2_fxb(k);
     for (i = 0; i < 2u * k; i++)
         lr[i] += dn_mx1.lr[i];
+    if (dn_mo) {                                    /* the returns, L R: channels 9, 10 */
+        int16_t *o = dn_mo + dn_mo_at * DN_MO_CH + 8u;
+        for (i = 0; i < k; i++) {
+            o[i * DN_MO_CH] = (int16_t)dn_clamp(dn_mx0.ib[2u * i] + dn_mx1.lr[2u * i], -32768, 32767);
+            o[i * DN_MO_CH + 1u] = (int16_t)dn_clamp(dn_mx0.ib[2u * i + 1u] + dn_mx1.lr[2u * i + 1u], -32768, 32767);
+        }
+    }
     dn_cores = (uint8_t)(plat_cpu2_on() ? 2u : 1u);
 }
 
@@ -1182,6 +1215,15 @@ static void dn_master_limit(int32_t *lr, uint32_t n)
     dn_lim_env = env;
 }
 
+/* (0.42) the USB block: full (DN_MO_N frames) or not; dn_app_usb_next() starts the next, cleared */
+const int16_t *dn_app_usb_block(void) { return dn_mo && dn_mo_n == 0u ? dn_mo : 0; }
+void dn_app_usb_next(void)
+{
+    uint32_t i;
+    for (i = 0; dn_mo && i < DN_MO_N * DN_MO_CH; i++)
+        dn_mo[i] = 0;
+}
+
 void dn_app_render(int32_t *lr, uint32_t n)
 {
     uint32_t i, w = dn_scope_w, off = 0;
@@ -1207,6 +1249,7 @@ void dn_app_render(int32_t *lr, uint32_t n)
             k = dn.lfo_left;
         if (k > n - off)
             k = n - off;
+        dn_mo_at = dn_mo_n + off < DN_MO_N ? dn_mo_n + off : 0u;   /* (0.42) */
         dn_mix_render(lr + 2u * off, k);
         dn_click_render(lr + 2u * off, k);
         if (dn.cin_left) {
@@ -1231,6 +1274,8 @@ void dn_app_render(int32_t *lr, uint32_t n)
         off += k;
     }
     dn_cores_weigh();                               /* (0.40) the instruments shared out between the cores again */
+    if (dn_mo)
+        dn_mo_n = dn_mo_n + n <= DN_MO_N ? dn_mo_n + n : 0u;
     dn_master_limit(lr, n);                         /* (0.16.1: peaks turned down, not clipped) */
     for (i = 0; i < 2u * n; i++) {                  /* the master: a soft knee at the top, nothing ever wraps */
         if (lr[i] > 24576 || lr[i] < -24576) {
@@ -1822,7 +1867,7 @@ static void dn_lfo_text(uint32_t id, int32_t v, char out[8])
 }
 
 /* ---- the project's values: PROJECT (the track, its instrument) and FX (the sends, returns, the two slots) ---- */
-static int dn_fx_fits(uint32_t a, uint32_t b) { return dn_fx_ram(a) + dn_fx_ram(b) <= DN_FX_ARENA; }
+static int dn_fx_fits(uint32_t a, uint32_t b) { return dn_fx_ram(a) + dn_fx_ram(b) <= dn_fx_arena; }
 static void dn_fx_layout(void)                      /* (inside the lock) the arena: FX A's memory, then FX B's; MASSIVE
                                                      * takes what the other leaves (two: half each) */
 {
@@ -1830,11 +1875,13 @@ static void dn_fx_layout(void)                      /* (inside the lock) the are
     uint32_t ta = dn_fxp[0].type, tb = dn_fxp[1].type;
     uint32_t a = (dn_fx_ram(ta) + 3u) & ~3u, b = (dn_fx_ram(tb) + 3u) & ~3u;
     if (dn_fx_flex(ta) && dn_fx_flex(tb))
-        a = b = (DN_FX_ARENA / 2u) & ~3u;
+        a = b = (dn_fx_arena / 2u) & ~3u;
     else if (dn_fx_flex(ta))
-        a = DN_FX_ARENA - b;
+        a = dn_fx_arena - b;
     else if (dn_fx_flex(tb))
-        b = DN_FX_ARENA - a;
+        b = dn_fx_arena - a;
+    if (a + b > dn_fx_arena)                        /* (0.42: a pair kept from a bigger arena: B off) */
+        dn_fx_default(&dn_fxp[1], DN_FX_OFF), tb = DN_FX_OFF, b = 0;
     dn_fx_init(&dn_fxs[0], ta, a ? m : 0, a);
     dn_fx_init(&dn_fxs[1], tb, b ? m + a : 0, b);
 }
@@ -2486,8 +2533,12 @@ typedef struct {
     /* (DNX1 ends here) */
     uint8_t song_n, song_on, song_np, pad2;         /* (0.38) the song: its rows (np: tracks a row, 8) */
     dn_song_row_t song[DN_SONG_N];
+    /* (DNX2 ends here) */
+    uint8_t usb, pad3[3];                           /* (0.42) USB audio: 0 stereo, 1 ten channels (from the next start) */
 } dn_x1_save_t;
 #define DN_X1_V1 ((uint32_t)offsetof(dn_x1_save_t, song_n))   /* (0.36's size) */
+#define DN_X1_V2 ((uint32_t)offsetof(dn_x1_save_t, usb))      /* (0.38's) */
+#define DN_X3_MAGIC 0x33584E44u                     /* "DNX3" (0.42): then the USB audio's channels */
 typedef char dn_x1_fits[sizeof(dn_x1_save_t) <= PLAT_STORE_MAX && 2u * sizeof(dn_x1_save_t) <= sizeof(dn_save_t) ? 1 : -1];
 static int dn_x1_keep(void)                         /* 0 kept (or unchanged), else the refusal */
 {
@@ -2501,10 +2552,11 @@ static int dn_x1_keep(void)                         /* 0 kept (or unchanged), el
     for (k = 0; k < JP_N; k++)
         w.ju[k] = dn_ju.p[k];
     dn_smp_pack(1, &w.smp2);
-    w.magic = DN_X2_MAGIC;
+    w.magic = DN_X3_MAGIC;
     w.song_n = dn_song.n, w.song_on = dn.song_on, w.song_np = DN_SEQ_TRACKS, w.pad2 = 0;
     for (k = 0; k < DN_SONG_N; k++)
         w.song[k] = dn_song.r[k];
+    w.usb = dn.usb_want, w.pad3[0] = w.pad3[1] = w.pad3[2] = 0;
     if (dn_ext_load(1, &old, sizeof old) == (int)sizeof old && !mem_cmp_dn(&old, &w, sizeof w))
         return 0;
     dn_flash_t = plat_ms();
@@ -2522,14 +2574,16 @@ static void dn_x1_restore(void)                     /* (start-up) JUNO's kept so
     int got;
     dn_ju_init(&dn_ju);
     got = dn_ext_load(1, &u, sizeof u);
-    if (((got == (int)DN_X1_V1 && u.magic == DN_X1_MAGIC) || (got == (int)sizeof u && u.magic == DN_X2_MAGIC)) &&
-        u.ju_np == JP_N) {
+    if (((got == (int)DN_X1_V1 && u.magic == DN_X1_MAGIC) || (got == (int)DN_X1_V2 && u.magic == DN_X2_MAGIC) ||
+         (got == (int)sizeof u && u.magic == DN_X3_MAGIC)) && u.ju_np == JP_N) {
         for (k = 0; k < JP_N; k++)
             dn_ju.p[k] = (int16_t)dn_clamp(u.ju[k], dn_ju_vmin(k), dn_ju_vmax(k));
         dn.ju_preset = (uint8_t)(u.ju_preset % dn_ju_preset_count());
         dn_smp_unpack(1, &u.smp2);
         dn_sm_resolve(1);
-        if (u.magic == DN_X2_MAGIC && u.song_np == DN_SEQ_TRACKS && u.song_n >= 1u && u.song_n <= DN_SONG_N) {
+        if (u.magic == DN_X3_MAGIC)
+            dn.usb_want = u.usb ? 1u : 0u;          /* (0.42) */
+        if (u.magic != DN_X1_MAGIC && u.song_np == DN_SEQ_TRACKS && u.song_n >= 1u && u.song_n <= DN_SONG_N) {
             uint32_t t;                             /* (0.38) the song */
             dn_song.n = u.song_n;
             dn.song_on = u.song_on ? 1u : 0u;
@@ -2547,6 +2601,19 @@ static void dn_x1_restore(void)                     /* (start-up) JUNO's kept so
 #undef u
 }
 
+/* (0.42) USB audio's ten channels. At start, before the USB: the saved choice (settings object 1); if ten, the arena's
+ * top for the USB ring (returned), the effects get the rest. 0: stereo, as ever. */
+int16_t *dn_app_usb_multi(void)
+{
+    const dn_x1_save_t *u = (const dn_x1_save_t *)(const void *)&dn_sv;   /* (dn_sv: free at start) */
+    if (dn_ext_load(1, &dn_sv, sizeof(dn_x1_save_t)) != (int)sizeof(dn_x1_save_t) || u->magic != DN_X3_MAGIC || !u->usb)
+        return 0;
+    dn_fx_arena = DN_FX_ARENA - DN_MO_BYTES;
+    dn_mo = (int16_t *)(void *)((uint8_t *)dn_fx_mem + DN_FX_ARENA - DN_MO_N * DN_MO_CH * 2u);
+    dn_mo_n = 0;
+    dn_usb_now = 1;
+    return (int16_t *)(void *)((uint8_t *)dn_fx_mem + dn_fx_arena);
+}
 /* the filter envelopes' values (0.19): REESE's or SUB's fe[] */
 static int16_t *dn_fe(uint32_t id) { return id >= DN_PX_SFE ? &dn_sb.fe[id - DN_PX_SFE] : &dn_rs.fe[id - DN_PX_RFE]; }
 /* (0.38) SONG's values: the row, the track, that cell's pattern (-1: carries on), the row's bars */
@@ -2559,6 +2626,8 @@ static int32_t dn_sg_get(uint32_t id)
 }
 static int32_t dn_get(uint32_t id)
 {
+    if (id == DN_PX_USB)
+        return dn.usb_want;
     if (DN_IS_SGX(id))
         return dn_sg_get(id);
     if (DN_IS_MPX(id))
@@ -2625,6 +2694,8 @@ static int32_t dn_get(uint32_t id)
 }
 static int32_t dn_min(uint32_t id)
 {
+    if (id == DN_PX_USB)
+        return 0;
     if (DN_IS_SGX(id))
         return id == DN_PX_SGPAT ? -1 : id == DN_PX_SGBARS ? 1 : 0;
     if (DN_IS_MPX(id))
@@ -2652,6 +2723,8 @@ static int32_t dn_min(uint32_t id)
 }
 static int32_t dn_max(uint32_t id)
 {
+    if (id == DN_PX_USB)
+        return 1;
     if (DN_IS_SGX(id))
         return id == DN_PX_SGROW ? (dn_song.n ? dn_song.n - 1 : 0) : id == DN_PX_SGCOL ? DN_SEQ_TRACKS - 1
              : id == DN_PX_SGPAT ? DN_NPAT - 1 : 16;
@@ -2683,6 +2756,8 @@ static int32_t dn_max(uint32_t id)
 }
 static const char *dn_name(uint32_t id)
 {
+    if (id == DN_PX_USB)
+        return "USB OUT";
     if (DN_IS_SGX(id))
         return id == DN_PX_SGROW ? "ROW" : id == DN_PX_SGCOL ? "TRACK" : id == DN_PX_SGPAT ? "PATTERN" : "BARS";
     static const char *const FN[4] = {"F.ATK", "F.DEC", "F.SUS", "F.REL"};
@@ -2718,6 +2793,14 @@ static const char *dn_name(uint32_t id)
 }
 static void dn_text(uint32_t id, int32_t v, char out[8])
 {
+    if (id == DN_PX_USB) {                          /* (0.42) */
+        const char *w = v ? "10 CH" : "STEREO";
+        uint32_t i;
+        for (i = 0; w[i]; i++)
+            out[i] = w[i];
+        out[i] = 0;
+        return;
+    }
     if (DN_IS_SGX(id)) {
         if (id == DN_PX_SGPAT && v < 0) {
             out[0] = '-', out[1] = 0;               /* (carries on) */
@@ -2871,6 +2954,12 @@ static void dn_text(uint32_t id, int32_t v, char out[8])
 static void dn_set(uint32_t id, int32_t v)
 {
     uint32_t k = dn_bsel();
+    if (id == DN_PX_USB) {                          /* (0.42) kept on SAVE; the USB is set up at the start */
+        dn.usb_want = v ? 1u : 0u;
+        dn_say(dn.usb_want == dn_usb_now ? "AS NOW" : "SAVE, RESTART");
+        dn_mark();
+        return;
+    }
     if (DN_IS_SGX(id)) {                            /* (0.38) SONG */
         dn_song_row_t *r = &dn_song.r[dn.song_sel % DN_SONG_N];
         v = dn_clamp(v, dn_min(id), dn_max(id));
@@ -7445,7 +7534,7 @@ static void dn_draw_bottom(void)
         dn_num(v[2], (int32_t)cpu), dn_cat(v[2], "%");
         dn_num(v[3], (int32_t)pk), dn_cat(v[3], "%");
         q[0] = cap ? (int32_t)(used / 64u * 256u / (cap / 64u ? cap / 64u : 1u)) : 0;
-        q[1] = (int32_t)(fxb / 64u * 256u / (DN_FX_ARENA / 64u));
+        q[1] = (int32_t)(fxb / 64u * 256u / (dn_fx_arena / 64u));
         q[2] = (int32_t)(cpu > 100u ? 256u : cpu * 256u / 100u);
         q[3] = (int32_t)(pk > 100u ? 256u : pk * 256u / 100u);
         cv_rect(0, 36, 240, 85, DN_C_BG);

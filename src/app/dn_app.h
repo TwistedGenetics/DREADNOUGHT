@@ -21,6 +21,11 @@ void dn_app_midi(uint8_t st, uint8_t d1, uint8_t d2);
 void dn_app_input(void);
 void dn_app_draw(int force);
 void dn_app_slots_changed(int done);
+/* (0.42) USB audio's ten channels: at start, before the USB (the ring, or 0: stereo); then after each render, a full
+ * block of 256 frames x 10 (tracks 1-8 mono, FX returns L R) or 0, and dn_app_usb_next once it has gone */
+int16_t *dn_app_usb_multi(void);
+const int16_t *dn_app_usb_block(void);
+void dn_app_usb_next(void);
 /* (0.29) two more settings objects, 3840 bytes each, in sample slot 3's top 16 KB (for what doesn't fit the others):
  * as plat_store_load / save; a save is refused (-10) while slot 3 holds samples sent before 0.29 that reach there */
 #define DN_NEXT 2u
