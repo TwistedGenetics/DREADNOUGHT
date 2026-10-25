@@ -17,7 +17,7 @@ static int fails;
 static void on(uint32_t t, uint8_t n, uint8_t v, int s, uint8_t f) { (void)f; ev[nev++] = (ev_t){now, 'N', t, n, v, s}; }
 static void off(uint32_t t, uint8_t n) { ev[nev++] = (ev_t){now, 'O', t, n, 0, 0}; }
 static void clk(uint8_t st) { ev[nev++] = (ev_t){now, st == 0xF8 ? 'C' : st == 0xFA ? 'S' : 'P', 0, 0, 0, 0}; }
-static const dn_seq_cb_t CB = {on, off, clk, 0};
+static const dn_seq_cb_t CB = {on, off, clk, 0, 0};
 
 /* 0.11: for the conditions, a lighter log: which pass of its track each note-on came in */
 static dn_seq_t *seen_seq;
@@ -32,7 +32,7 @@ static void on2(uint32_t t, uint8_t n, uint8_t v, int sl, uint8_t f)
 }
 static void off2(uint32_t t, uint8_t n) { (void)t, (void)n; }
 static void clk2(uint8_t st) { (void)st; }
-static const dn_seq_cb_t CB2 = {on2, off2, clk2, 0};
+static const dn_seq_cb_t CB2 = {on2, off2, clk2, 0, 0};
 static void run2(dn_seq_t *s, uint64_t frames)
 {
     while (frames) {

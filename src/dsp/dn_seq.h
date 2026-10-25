@@ -78,6 +78,8 @@ typedef struct {
     void (*clock)(uint8_t status);                  /* 0xF8 a pulse, 0xFA start, 0xFC stop */
     void (*wrap)(uint32_t track);                   /* a track's pattern comes round again (before its step 1 plays):
                                                      * the app may switch its pattern here (dn_seq_track_new). May be 0 */
+    void (*bar)(uint32_t step);                     /* (0.38) a bar begins (every 16th step, before its notes): the
+                                                     * app's song may switch patterns (dn_seq_track_restart). May be 0 */
 } dn_seq_cb_t;
 
 typedef struct {
@@ -100,6 +102,7 @@ typedef struct {
     uint8_t had[DN_SEQ_TRACKS];                     /* ... and whether there was one */
     uint8_t fill;                                   /* FILL held (the app) */
     uint8_t lst;                                    /* the tracks on their last pass: a pattern change is queued */
+    uint8_t fresh;                                  /* (0.38) tracks restarted this step: no pass counted, no wrap */
     uint32_t rnd;                                   /* the chances' dice */
     /* retrigs, per track: Q8 samples to the next, its index and count, the note and its velocity curve */
     int32_t rt_left[DN_SEQ_TRACKS], rt_int[DN_SEQ_TRACKS];
@@ -120,6 +123,8 @@ int dn_pattern_from_old(dn_pattern_t *p, const uint8_t *b, uint32_t n);
 void dn_step_clear(dn_step_t *st);                  /* an off step with the defaults (note 53, 3/4 step, vel 100) */
 /* a track starts its pattern again from step 1 (a new pattern switched in): its passes from 0 (1ST), no retrigs */
 void dn_seq_track_new(dn_seq_t *s, uint32_t t);
+/* (0.38) the same, from the step now as if the sequencer had just started (a song's row): 1ST true again */
+void dn_seq_track_restart(dn_seq_t *s, uint32_t t);
 /* the velocity of retrig k of n (k = 0: the step itself) along the curve */
 uint8_t dn_rt_vel(uint32_t vel, int32_t curve, uint32_t k, uint32_t n);
 /* which steps of track t sound, for the screen: for each step, 0 nothing, 1 a note starts, 2 a note started earlier

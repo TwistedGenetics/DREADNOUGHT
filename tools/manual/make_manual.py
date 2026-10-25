@@ -531,6 +531,21 @@ def body():
                    ("perform-04-drumplay.png", "DRUM in PLAY mode: the key played selects its row.")))
 
     # ---- FX
+    o.append("<h2>Song</h2><p>" + k("GLO") + " six times: SONG. A song is rows: each row the pattern every track plays "
+             "(– : that track carries on with its own) for so many bars. " + k("FX") + " turns the song on; then " +
+             k("PLAY") + " plays it from the row picked, each row's patterns coming in at its first bar and starting from the "
+             "top, round to the first row after the last. Up to 64 rows.</p>")
+    o.append(table([
+        (k("KNOB 1") + " – " + k("KNOB 4"), "The row, the track, its pattern (1-8 or –), the row's bars (1-16)."),
+        ("White keys 1-8", "The track the knobs edit."),
+        ("Black keys 1-8", "Mute tracks 1-8, as on the sequencer pages."),
+        ("Black key 9", "A new row after this one: the patterns playing now, for as many bars as the longest track."),
+        ("Black key 10 / 11", "A copy of this row after it / this row deleted."),
+        (k("FX"), "The song on / off (lit: on). Turned on while playing: the row picked starts at the next bar."),
+    ], head=["ON SONG", "DOES"]))
+    o.append(shots(("song-01-rows.png", "Two rows: track 1 on pattern 2 in the second, track 2 carrying on."),
+                   ("song-02-playing.png", "Playing: the row marked.")))
+
     o.append(chapter("EFFECTS", 2, "Two effect slots, FX A and FX B, fed by each track's sends. A master limiter keeps "
                      "the mix from clipping."))
     o.append(knobs([
@@ -622,7 +637,7 @@ def body():
         (k("SEQ") + " + black 1-8", "that track's sound pages"),
         (k("HOME") + " + " + k("SELECT"), "next / previous instrument"),
         (k("SEL") + " … " + k("GLO") + " again", "the page's second view"),
-        (k("GLO") + " ×2 / ×3 / ×4 / ×5", "FX · SETUP · MIDI · PROJECT"),
+        (k("GLO") + " ×2 / ×3 / ×4 / ×5 / ×6", "FX · SETUP · MIDI · PROJECT · SONG"),
         (k("ARP") + " ×1 / ×2 / ×3", "BRK · BRK2 · SLICE"),
         (k("LFO") + " again (REESE, SUB)", "LFO 1 … 4"),
         (k("FX") + " held ½ s", "the FX page; again: back"),

@@ -8,7 +8,7 @@ import { renderNote } from "../../web/editor/fmsynth.js";
 import { WT, wtMin, wtMax, wtText } from "../../web/editor/wavetable.js";
 import { WT_TABLES, WT_PRESETS, JU_PRESETS } from "../../web/editor/mock-fm1.js";
 import { JU, juMin, juMax, juText } from "../../web/editor/juno.js";
-import { parseWt, parseJu, ENG_NAMES } from "../../web/editor/protocol.js";
+import { parseWt, parseJu, ENG_NAMES, parseSong } from "../../web/editor/protocol.js";
 import { parseSmp, SMP_PAD, SMP_ZONE, SMP_KEYS, parseState, parseParams, parsePattern, parseNames, serializePattern, REESE, NPARAM_15, parseLfoPts, parseLfoNow, COND_NAMES,
   parseProj, fxParams, FX_DEFAULTS, FX_NAMES } from "../../web/editor/protocol.js";
 
@@ -127,6 +127,13 @@ check("chords: the editor's 15 (MIN .. 6) are the FM-1's", JSON.stringify(parseC
     pres.slice(0, 3).join(","), JU_PRESETS.slice(0, 3).map((x) => x[0]).join(","));
   const en = parseNames(g.names2 || []).names;
   if (en.length) check("the instruments' names as the FM-1's", JSON.stringify(en) === JSON.stringify(ENG_NAMES), en.join(","), ENG_NAMES.join(","));
+}
+// 0.38: SONG_GET read as sent: one row, every track on pattern 1, 4 bars, 16 rows a frame
+{
+  const sg = parseSong(g.songget);
+  check("SONG_GET: 1 row of 64, off, every track pattern 1 for 4 bars, 16 rows in the frame",
+    sg.n === 1 && !sg.on && sg.rows.length === 16 && sg.rows[0].pat.every((p) => p === 0) && sg.rows[0].bars === 4 && sg.rows[1].pat[0] === -1,
+    `${sg.n} ${sg.on} ${sg.rows.length} ${sg.rows[0].pat.join("")} ${sg.rows[0].bars} ${sg.rows[1].pat[0]}`, "1 false 16 00000000 4 -1");
 }
 console.log(fails ? `EDITOR (page): ${fails} FAILED` : "EDITOR (page): the page reads the firmware's replies");
 process.exit(fails ? 1 : 0);

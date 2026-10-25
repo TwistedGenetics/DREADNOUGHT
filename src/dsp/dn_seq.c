@@ -226,6 +226,12 @@ void dn_seq_track_new(dn_seq_t *s, uint32_t t)
     s->rt_n[t] = 0;
 }
 
+void dn_seq_track_restart(dn_seq_t *s, uint32_t t)
+{
+    dn_seq_track_new(s, t);
+    s->fresh |= (uint8_t)(1u << t);
+}
+
 static void release(dn_seq_t *s, uint32_t t, const dn_seq_cb_t *cb)
 {
     if (s->sounding[t] != 0xFF)
@@ -242,6 +248,7 @@ void dn_seq_start(dn_seq_t *s, const dn_seq_cb_t *cb)
     for (t = 0; t < DN_SEQ_TRACKS; t++)
         release(s, t, cb);
     s->pos = 0;
+    s->fresh = 0;
     for (t = 0; t < DN_SEQ_TRACKS; t++)
         dn_seq_track_new(s, t);
     s->until_step = 0;                              /* the first step on the next sample */
@@ -324,6 +331,8 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
 {
     uint32_t k = s->pos, t;
     int32_t q = dn_seq_step_q8(s, k);
+    if (cb->bar && k % 16u == 0u)
+        cb->bar(k);                                 /* (0.38) a bar begins: the song's turn */
     for (t = 0; t < DN_SEQ_TRACKS; t++) {
         const dn_track_t *tr = &s->pat.tr[t];
         uint32_t L, i;
@@ -331,7 +340,9 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
         int slide;
         if (s->tpos[t] >= (tr->len ? tr->len : 1u))
             s->tpos[t] = 0;                         /* (the track was made shorter) */
-        if (s->tpos[t] == 0u && k > 0u) {           /* round again: a pass more; the app may switch the pattern */
+        if (s->fresh >> t & 1u) {                   /* (0.38) restarted by the song: from the top, as at PLAY */
+            s->fresh &= (uint8_t)~(1u << t);
+        } else if (s->tpos[t] == 0u && k > 0u) {    /* round again: a pass more; the app may switch the pattern */
             if (s->pass[t] < 0xFFFFu)
                 s->pass[t]++;
             if (cb->wrap)

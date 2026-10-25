@@ -248,6 +248,15 @@
         <div><span class="small">CPU</span><div class="meter"><i id="m-cpu"></i></div><span class="small" id="m-cpuv"></span></div>
       </div>
     </div>
+    <div class="card wide" id="songCard" hidden>
+      <h2>Song</h2>
+      <p class="small">Rows of every track's pattern, each for so many bars (– : the track carries on with its own). With
+        the song on, PLAY plays it from the row picked on the FM-1's SONG page (GLO six times), round to the first row
+        after the last. On the FM-1: black key 9 adds a row of the patterns playing now.</p>
+      <div class="row"><label><input type="checkbox" id="songon"> Song on</label>
+        <button class="quiet small" id="songadd">Add a row</button><span class="small" id="songinfo"></span></div>
+      <table class="ptab songtab"><thead><tr><th>Row</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th><th>Bars</th><th></th></tr></thead><tbody id="songrows"></tbody></table>
+    </div>
     <div class="card wide">
       <h2>Save and load</h2>
       <p class="small">A project is everything on the FM-1 for one piece: the sounds, the tempo, every track's instrument,

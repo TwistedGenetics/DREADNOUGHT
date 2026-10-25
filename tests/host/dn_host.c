@@ -612,6 +612,12 @@ int main(int argc, char **argv)
                         fprintf(g, "]");
                     }
                 }
+                fprintf(g, "],\"songget\":[");   /* 0.38: SONG_GET from row 1 */
+                {
+                    uint8_t q[1] = {0};
+                    ed(98, q, 1);
+                }
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
                 fprintf(g, "],\"juget\":[");     /* 0.36: JUNO: JU_GET, every value's name, range, texts, its factory
                                                  * sounds' names and values */
                 ed(94, 0, 0);
@@ -841,6 +847,13 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "reclen")) got = dn_sq.pat.tr[dn.trk].st[dn.rec_last].len;
             else if (!strcmp(b, "rollkeys")) got = dn.roll_keys;
             else if (!strcmp(b, "drumplay")) got = dn.drum_play;   /* (0.34) DRUM's PLAY mode */
+            else if (!strcmp(b, "songn")) got = dn_song.n;            /* (0.38) the song's rows */
+            else if (!strcmp(b, "songon")) got = dn.song_on;
+            else if (!strcmp(b, "songrow")) got = dn.song_row + 1;   /* the row playing */
+            else if (!strncmp(b, "song.", 5)) {     /* song.R.T: row R's pattern for track T (1-based; 0 carries on); T 9: bars */
+                uint32_t r = (uint32_t)(atoi(b + 5) - 1) % DN_SONG_N, t = (uint32_t)atoi(strchr(b + 5, '.') + 1);
+                got = t == 9u ? dn_song.r[r].bars : dn_song.r[r].pat[(t - 1u) & 7u] >= DN_NPAT ? 0 : dn_song.r[r].pat[(t - 1u) & 7u] + 1;
+            }
             else if (!strcmp(b, "pick")) got = dn.pick;              /* (0.35) HOME's instrument picker open */
             else if (!strcmp(b, "picke")) got = dn.pick_e;           /* ... the instrument on in it */
             else if (!strcmp(b, "recq")) got = dn.rec_q;            /* (0.34) REC's grid: 0 1/16 .. 4 a bar */

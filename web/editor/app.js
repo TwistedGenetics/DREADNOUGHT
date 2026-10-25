@@ -6,7 +6,7 @@ import {
   lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
   PF, FX_NAMES, fxParams, E, SUB, subIndex, NPARAM_13, nLfos, FENV, NPARAM_19, feIndex,
   ST_CHORD, chordOf, chordNotes, CHORD_NAMES,
-  SMP_PAD, SMP_ZONE, SMP_KEYS, SMP_NPADS, SMP_NZONES, readSampler, smpNote, FM_MACROS, smpIdx,
+  SMP_PAD, SMP_ZONE, SMP_KEYS, SMP_NPADS, SMP_NZONES, readSampler, smpNote, FM_MACROS, smpIdx, readSong, writeSong, SONG_N,
 } from "./protocol.js";
 import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
@@ -93,6 +93,8 @@ async function start(link, label) {
           S.juno = j;
           S.juPresets = (await link.names(9).catch(() => [])) || [];
           buildJuno();
+          const sseq = S.songSeq, g = await readSong(link);   // (0.38: SONG; none before)
+          if (sseq === S.songSeq) { S.song = g; buildSong(); }
         });
       });
     });
@@ -250,7 +252,9 @@ $("save").onclick = () => guard(async () => { await S.link.save(); say("Kept on 
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", x === b));
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.id === b.dataset.tab));
-  if ((b.dataset.tab === "files" || b.dataset.tab === "fmtab" || b.dataset.tab === "wavetab") && S.link && S.proj && !S.mediaRead) guard(readMedia);   // (0.31.2: FM too; 0.32 WAVE)
+  if ((b.dataset.tab === "files" || b.dataset.tab === "fmtab" || b.dataset.tab === "wavetab") && S.link && S.proj && !S.mediaRead) guard(readMedia);
+  if (b.dataset.tab === "files" && S.link && S.song && !S.songBusy)   // (0.38: the song as the FM-1 has it now)
+    (() => { const seq = S.songSeq; readSong(S.link).then((g) => { if (g && seq === S.songSeq) { S.song = g; buildSong(); } }).catch(() => {}); })();
   render();
 });
 
@@ -995,6 +999,57 @@ document.querySelectorAll(".wvkey").forEach((b) => {
   b.onpointerdown = () => { if (S.link) guard(() => S.link.wtPlay(n, true)); };
   b.onpointerup = b.onpointerleave = () => { if (S.link) guard(() => S.link.wtPlay(n, false)); };
 });
+
+// ---- SONG (0.38): rows of every track's pattern for so many bars -----------------------------------------------------
+let songT = 0;
+function songSend() {                                // (the whole song after a change, at most every 200 ms)
+  S.songSeq = (S.songSeq || 0) + 1;
+  clearTimeout(songT);
+  songT = setTimeout(() => guard(() => writeSong(S.link, S.song)), 200);
+}
+function buildSong() {
+  $("songCard").hidden = !S.song;
+  if (!S.song) return;
+  const g = S.song, box = $("songrows");
+  $("songon").checked = g.on;
+  $("songinfo").textContent = `${g.rows.length} of ${SONG_N} rows, ${g.rows.reduce((a, r) => a + r.bars, 0)} bars`;
+  box.textContent = "";
+  g.rows.forEach((r, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${i + 1}</td>`;
+    for (let t = 0; t < 8; t++) {
+      const td = document.createElement("td"), sel = document.createElement("select");
+      [["-1", "–"], ...Array.from({ length: 8 }, (_, p) => [`${p}`, `${p + 1}`])].forEach(([v, n]) => {
+        const o = document.createElement("option"); o.value = v; o.textContent = n; sel.appendChild(o);
+      });
+      sel.value = r.pat[t];
+      sel.onchange = () => { r.pat[t] = +sel.value; songSend(); };
+      td.appendChild(sel); tr.appendChild(td);
+    }
+    const bt = document.createElement("td"), bs = document.createElement("select");
+    for (let b = 1; b <= 16; b++) { const o = document.createElement("option"); o.value = b; o.textContent = b; bs.appendChild(o); }
+    bs.value = r.bars;
+    bs.onchange = () => { r.bars = +bs.value; songSend(); buildSong(); };
+    bt.appendChild(bs); tr.appendChild(bt);
+    const xt = document.createElement("td"), up = document.createElement("button"), cp = document.createElement("button"), rm = document.createElement("button");
+    up.className = cp.className = rm.className = "quiet small";
+    up.textContent = "↑"; up.title = "Move up"; cp.textContent = "Copy"; rm.textContent = "✕"; rm.title = "Delete";
+    up.disabled = i === 0; rm.disabled = g.rows.length < 2; cp.disabled = g.rows.length >= SONG_N;
+    up.onclick = () => { [g.rows[i - 1], g.rows[i]] = [g.rows[i], g.rows[i - 1]]; songSend(); buildSong(); };
+    cp.onclick = () => { g.rows.splice(i + 1, 0, { pat: r.pat.slice(), bars: r.bars }); songSend(); buildSong(); };
+    rm.onclick = () => { g.rows.splice(i, 1); songSend(); buildSong(); };
+    xt.append(up, cp, rm); tr.appendChild(xt);
+    box.appendChild(tr);
+  });
+}
+$("songon").onchange = () => { if (S.song) { S.song.on = $("songon").checked; songSend(); } };
+$("songadd").onclick = () => {
+  S.songSeq = (S.songSeq || 0) + 1;
+  if (!S.song || S.song.rows.length >= SONG_N) return;
+  const last = S.song.rows[S.song.rows.length - 1];
+  S.song.rows.push({ pat: last ? last.pat.slice() : Array(8).fill(0), bars: last ? last.bars : 4 });
+  songSend(); buildSong();
+};
 
 // ---- JUNO (0.36): the Juno-60 / 106-style polysynth's values ------------------------------------------------------
 const juTimers = {};

@@ -65,6 +65,9 @@
  *   96 JU_LOAD i(2)            -> rc                                 factory sound i
  *   97 JU_PLAY note on         -> rc                                 JUNO plays a note (on / off): the audition
  * NAMES kind 9 (0.36): JUNO's factory sounds.
+ *   98 SONG_GET from           -> SONG (0.38): rows n, on, from, count (16 at most), each row: 8 patterns (0-7, 127
+ *                                 carries on), bars (1-16)
+ *   99 SONG_SET n on from count rows... -> rc (0 set)               the song's length and on / off, rows from..
  *   87 UI_STATE                -> what the screen shows (0.26, the editor's panel): page, track, its instrument, flags
  *                                 (1 playing, 2 rec, 4 changed, 8 naming, 16 HOLD, 32 a sequencer page, 64 a step held),
  *                                 OCT + 8, BPM (2), position (2), the tag and the sound's name (strings), the tabs (count,
@@ -84,7 +87,7 @@ enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT
        ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL, ED_PROJ, ED_PROJ_SET,
        ED_PROJ_NAME, ED_SUB_PRESET, ED_PARAMS_HI, ED_SMP_GET, ED_SMP_SET, ED_SMP_PLAY, ED_FM_GET, ED_FM_SET,
        ED_FM_LOAD, ED_FM_PLAY, ED_UI_STATE, ED_UI_INPUT, ED_CHORDS, ED_WT_GET, ED_WT_SET, ED_WT_LOAD, ED_WT_PLAY,
-       ED_JU_GET, ED_JU_SET, ED_JU_LOAD, ED_JU_PLAY };
+       ED_JU_GET, ED_JU_SET, ED_JU_LOAD, ED_JU_PLAY, ED_SONG_GET, ED_SONG_SET };
 #define DN_ED_NHI 8u
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
@@ -96,7 +99,7 @@ static const uint8_t DN_ED_LFO[8] = {DN_PX_LSHAPE, DN_PX_LSYNC, DN_PX_LRATE, DN_
 #define DN_ED_NPARAM_13 (DN_ED_NPARAM_09 + SP_COUNT) /* (0.13: SUB's after the LFOs) */
 #define DN_ED_NPARAM (DN_ED_NPARAM_13 + DN_NLFO * 8u) /* (0.15: SUB's own LFOs; those before are REESE's) */
 /* the editor frames the device glue must take whole (not into its 64-byte copy) */
-static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 89u; }
+static int dn_ed_long(uint32_t cmd) { return (cmd >= 60u && cmd <= 89u) || cmd == 99u; }
 static void dn_ed_str(void (*put)(uint32_t), const char *t, uint32_t max)
 {
     uint32_t i;
@@ -700,6 +703,50 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         dn_unlock();
         put(0);
         return 1;
+    case ED_SONG_GET: {                             /* (0.38) the song, 16 rows a frame */
+        uint32_t from = na ? a[0] : 0u, cnt, r, t;
+        if (from > DN_SONG_N)
+            return 0;
+        cnt = DN_SONG_N - from > 16u ? 16u : DN_SONG_N - from;
+        put(dn_song.n);
+        put(dn.song_on);
+        put(from);
+        put(cnt);
+        for (r = from; r < from + cnt; r++) {
+            for (t = 0; t < DN_SEQ_TRACKS; t++)
+                put(dn_song.r[r].pat[t] >= DN_NPAT ? 127u : dn_song.r[r].pat[t]);
+            put(dn_song.r[r].bars);
+        }
+        return 1;
+    }
+    case ED_SONG_SET: {
+        uint32_t r, t, from, cnt;
+        if (na < 4u)
+            return 0;
+        from = a[2], cnt = a[3];
+        if (a[0] < 1u || a[0] > DN_SONG_N || from + cnt > DN_SONG_N || na < 4u + 9u * cnt) {
+            put(1);
+            return 1;
+        }
+        dn_lock();
+        dn_song.n = a[0];
+        dn.song_on = a[1] ? 1u : 0u;
+        for (r = 0; r < cnt; r++) {
+            const uint8_t *q = a + 4u + 9u * r;
+            for (t = 0; t < DN_SEQ_TRACKS; t++)
+                dn_song.r[from + r].pat[t] = q[t] < DN_NPAT ? q[t] : (uint8_t)DN_SONG_KEEP;
+            dn_song.r[from + r].bars = (uint8_t)dn_clamp(q[8], 1, 16);
+        }
+        if (dn.song_sel >= dn_song.n)
+            dn.song_sel = (uint8_t)(dn_song.n - 1u);
+        if (dn.song_row >= dn_song.n)
+            dn.song_row = 0;
+        dn_unlock();
+        dn_mark();
+        dn_rev++;
+        put(0);
+        return 1;
+    }
     case ED_CHORDS:                                 /* (0.28) the 15 chords, fixed: each its notes over the root */
         for (i = 0; i < DN_CHORDS; i++)
             for (j = 0; j < DN_CHORD_N; j++)

@@ -78,9 +78,12 @@ static int32_t dn_in_enc(int role)
 #define DN_PG_DIRT (DN_NPAGES + 12u)                /* SUB: FILTER's second page (EDIT again): the dirt */
 #define DN_PG_FENV (DN_NPAGES + 13u)                /* AMP's second page (ENV again): the filter envelope (0.19) */
 #define DN_PG_HOME (DN_NPAGES + 14u)                /* (0.29) HOME: the eight tracks' instruments, one to open */
+#define DN_PG_SONG (DN_NPAGES + 15u)                /* (0.38) SONG: rows of patterns (GLO: OUT, FX, SETUP, MIDI, PROJECT,
+                                                     * SONG) */
 #define DN_HOME_TAP_MS 150                          /* (0.29) HOME up sooner on a sequencer page: a tap, not FILL */
 #define DN_FX_HOLD_MS 500                           /* (0.34) FX held this long: the FX page */
-#define DN_IS_GLOPG(p) ((p) == 4u || (p) == DN_PG_FX || (p) == DN_PG_SET || (p) == DN_PG_MIDI || (p) == DN_PG_PROJ)
+#define DN_IS_GLOPG(p) ((p) == 4u || (p) == DN_PG_FX || (p) == DN_PG_SET || (p) == DN_PG_MIDI || (p) == DN_PG_PROJ || \
+                        (p) == DN_PG_SONG)
 #define DN_ROLL_ROWS 12                             /* the piano roll's pitches in view (an octave) */
 #define DN_DRUM_ROWS 8                              /* the drum grid's slices in view */
 #define DN_NBRK 2u                                  /* BREAKS A and B (tracks 2 and 3 unless the project moves them) */
@@ -182,6 +185,11 @@ enum { DN_PX_FALG = DN_PX_FM0, DN_PX_FFB, DN_PX_FBRIGHT, DN_PX_FTIME, DN_PX_FATK
 #define DN_PX_SLMOVE 121
 #define DN_PX_SLFINE 122
 #define DN_PX_SLADD 123
+#define DN_PX_SGROW 124                             /* (0.38) SONG: the row, the track (column), its pattern, the bars */
+#define DN_PX_SGCOL 125
+#define DN_PX_SGPAT 126
+#define DN_PX_SGBARS 127
+#define DN_IS_SGX(id) ((id) >= DN_PX_SGROW && (id) <= DN_PX_SGBARS)
 
 static const char *const DN_PAGE_NAME[DN_NTABS] = {"OSC", "FILTER", "AMP", "MOD", "OUT", "SEQ", "BRK"};
 static const uint8_t DN_BRK_PAGE[4] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH};
@@ -275,6 +283,7 @@ static const uint8_t DN_SUB_OSC2[4] = {DN_S(SP_PW), DN_S(SP_PWM), DN_S(SP_PWMR),
 static const uint8_t DN_SUB_DIRT[4] = {DN_S(SP_DRIVE), DN_S(SP_DTYPE), DN_S(SP_CRUSH), DN_S(SP_TONE)};
 static const uint8_t DN_SET_PAGE[4] = {DN_PX_CLICK, DN_PX_CLKLVL, DN_PX_CIN, DN_PX_VSENS};
 static const uint8_t DN_MIDI_PAGE[4] = {DN_PX_MSEL, DN_PX_MCHAN, DN_PX_MOVL, DN_PX_NONE};
+static const uint8_t DN_SONG_PAGE[4] = {DN_PX_SGROW, DN_PX_SGCOL, DN_PX_SGPAT, DN_PX_SGBARS};
 static const uint8_t DN_PROJ_PAGE[4] = {DN_PX_NONE, DN_PX_NONE, DN_PX_NONE, DN_PX_NONE};   /* (0.35: the tracks'
                                                      * instruments are picked on HOME) */
 /* the FX page's views (FX: the next): MIX, FX A, its next values (when it has more than 3), FX B, its next */
@@ -446,6 +455,10 @@ static struct {
     int8_t bar_key;                                 /* (0.34) black key 10 / 11 held (9, 10; -1 none): + white 1-4 */
     uint8_t bar_chord;                              /* ... a length set with it (no bar change when it comes up) */
     uint8_t pick, pick_t, pick_e;                   /* (0.35) HOME's instrument picker: open; for track; the one on */
+    uint8_t song_on;                                /* (0.38) SONG: PLAY plays the song (FX on SONG) */
+    uint8_t song_sel, song_col;                     /* SONG: the row and the track the knobs edit */
+    volatile uint8_t song_row, song_bar, song_start;   /* (audio) the row playing, its bars so far; where PLAY starts */
+    volatile uint8_t song_jump;                     /* (audio) SONG turned on while playing: row + 1 to start next bar */
     int8_t pat_src;                                 /* (0.37) SAVE + white key held: the pattern (-1 none) ... */
     uint8_t pat_copied;                             /* ... copied into another while held (no switch to it) */
     uint8_t roll_cur;                               /* ROLL KEYS: the cursor (a step) */
@@ -927,7 +940,42 @@ static void dn_sq_wrap(uint32_t t)                  /* (audio) a track's pattern
     else
         dn_pq[t] = 0xFF, dn_sq.lst &= (uint8_t)~(1u << t);
 }
-static const dn_seq_cb_t DN_SQ_CB = {dn_sq_on, dn_sq_off, dn_sq_clock, dn_sq_wrap};
+/* (0.38) the song: rows, each the pattern every track plays (0xFF: carries on with its own) for so many bars. With
+ * SONG on, PLAY plays it from the row picked: at each row each track named switches to its pattern and starts it from
+ * the top; after the last row, the first again */
+#define DN_SONG_N 64u
+#define DN_SONG_KEEP 0xFFu
+typedef struct { uint8_t pat[DN_SEQ_TRACKS], bars; } dn_song_row_t;
+static struct { uint8_t n, pad[3]; dn_song_row_t r[DN_SONG_N]; } dn_song;
+static void dn_song_row(uint32_t r)                 /* (audio, or the lock held) row r begins */
+{
+    uint32_t t;
+    r = dn_song.n ? r % dn_song.n : 0u;
+    dn.song_row = (uint8_t)r, dn.song_bar = 0;
+    for (t = 0; t < DN_SEQ_TRACKS; t++) {
+        uint8_t p = dn_song.r[r].pat[t];
+        if (p >= DN_NPAT)
+            continue;                               /* (carries on) */
+        if (p != dn_pcur[t])
+            dn_pat_switch(t, p);
+        dn_pq[t] = 0xFF;
+        dn_sq.lst &= (uint8_t)~(1u << t);
+        dn_seq_track_restart(&dn_sq, t);
+    }
+}
+static void dn_sq_bar(uint32_t k)                   /* (audio) a bar begins */
+{
+    if (!dn.song_on || !dn_song.n)
+        return;
+    if (dn.song_jump) {                             /* (turned on while playing: from the row picked, now) */
+        dn_song_row(dn.song_jump - 1u);
+        dn.song_jump = 0;
+    } else if (k == 0u)
+        dn_song_row(dn.song_start);
+    else if (++dn.song_bar >= (dn_song.r[dn.song_row % DN_SONG_N].bars ? dn_song.r[dn.song_row % DN_SONG_N].bars : 1u))
+        dn_song_row(dn.song_row + 1u);
+}
+static const dn_seq_cb_t DN_SQ_CB = {dn_sq_on, dn_sq_off, dn_sq_clock, dn_sq_wrap, dn_sq_bar};
 
 /* the click: a short square burst, higher on the bar, fading in ~25 ms */
 #define DN_CLK_LEN 1100u
@@ -1550,6 +1598,7 @@ static uint32_t dn_dial(uint32_t k)
          : dn.page < DN_NPAGES && DN_IS_WAVE(dn.trk) ? dn_wv_dial(k)
          : dn.page < DN_NPAGES && DN_IS_JUNO(dn.trk) ? DN_JU_PG[dn.page][dn.ju_view[dn.page] % DN_JU_NVIEW[dn.page]][k]
          : dn.page == DN_PG_PROJ ? DN_PROJ_PAGE[k]
+         : dn.page == DN_PG_SONG ? DN_SONG_PAGE[k]
          : dn.page == DN_PG_FX ? dn_fx_dial(k)
          : DN_PAGE[dn.page % DN_NPAGES][k];
 }
@@ -2326,12 +2375,17 @@ static void dn_ju_load(uint32_t i)
 static void dn_smp_pack(uint32_t c, dn_smp_keep_t *o);
 static void dn_smp_unpack(uint32_t c, const dn_smp_keep_t *o);
 #define DN_X1_MAGIC 0x31584E44u                     /* "DNX1" (0.36): JUNO's sound, SAMPLER 2's settings */
+#define DN_X2_MAGIC 0x32584E44u                     /* "DNX2" (0.38): the same, then the song */
 typedef struct {
     uint32_t magic;
     uint8_t ju_preset, ju_np, pad[2];
     int16_t ju[JP_N];
     dn_smp_keep_t smp2;                             /* SAMPLER 2's settings */
+    /* (DNX1 ends here) */
+    uint8_t song_n, song_on, song_np, pad2;         /* (0.38) the song: its rows (np: tracks a row, 8) */
+    dn_song_row_t song[DN_SONG_N];
 } dn_x1_save_t;
+#define DN_X1_V1 ((uint32_t)offsetof(dn_x1_save_t, song_n))   /* (0.36's size) */
 typedef char dn_x1_fits[sizeof(dn_x1_save_t) <= PLAT_STORE_MAX && 2u * sizeof(dn_x1_save_t) <= sizeof(dn_save_t) ? 1 : -1];
 static int dn_x1_keep(void)                         /* 0 kept (or unchanged), else the refusal */
 {
@@ -2345,6 +2399,10 @@ static int dn_x1_keep(void)                         /* 0 kept (or unchanged), el
     for (k = 0; k < JP_N; k++)
         w.ju[k] = dn_ju.p[k];
     dn_smp_pack(1, &w.smp2);
+    w.magic = DN_X2_MAGIC;
+    w.song_n = dn_song.n, w.song_on = dn.song_on, w.song_np = DN_SEQ_TRACKS, w.pad2 = 0;
+    for (k = 0; k < DN_SONG_N; k++)
+        w.song[k] = dn_song.r[k];
     if (dn_ext_load(1, &old, sizeof old) == (int)sizeof old && !mem_cmp_dn(&old, &w, sizeof w))
         return 0;
     dn_flash_t = plat_ms();
@@ -2359,13 +2417,28 @@ static void dn_x1_restore(void)                     /* (start-up) JUNO's kept so
     dn_x1_save_t ub, *up = &ub;                     /* (on the stack: the main loop's, at start-up) */
     uint32_t k;
 #define u (*up)
+    int got;
     dn_ju_init(&dn_ju);
-    if (dn_ext_load(1, &u, sizeof u) == (int)sizeof u && u.magic == DN_X1_MAGIC && u.ju_np == JP_N) {
+    got = dn_ext_load(1, &u, sizeof u);
+    if (((got == (int)DN_X1_V1 && u.magic == DN_X1_MAGIC) || (got == (int)sizeof u && u.magic == DN_X2_MAGIC)) &&
+        u.ju_np == JP_N) {
         for (k = 0; k < JP_N; k++)
             dn_ju.p[k] = (int16_t)dn_clamp(u.ju[k], dn_ju_vmin(k), dn_ju_vmax(k));
         dn.ju_preset = (uint8_t)(u.ju_preset % dn_ju_preset_count());
         dn_smp_unpack(1, &u.smp2);
         dn_sm_resolve(1);
+        if (u.magic == DN_X2_MAGIC && u.song_np == DN_SEQ_TRACKS && u.song_n >= 1u && u.song_n <= DN_SONG_N) {
+            uint32_t t;                             /* (0.38) the song */
+            dn_song.n = u.song_n;
+            dn.song_on = u.song_on ? 1u : 0u;
+            for (k = 0; k < DN_SONG_N; k++) {
+                dn_song.r[k] = u.song[k];
+                dn_song.r[k].bars = (uint8_t)dn_clamp(dn_song.r[k].bars, 1, 16);
+                for (t = 0; t < DN_SEQ_TRACKS; t++)
+                    if (dn_song.r[k].pat[t] >= DN_NPAT)
+                        dn_song.r[k].pat[t] = DN_SONG_KEEP;
+            }
+        }
     } else {
         dn_ju_load(1);
     }
@@ -2374,8 +2447,18 @@ static void dn_x1_restore(void)                     /* (start-up) JUNO's kept so
 
 /* the filter envelopes' values (0.19): REESE's or SUB's fe[] */
 static int16_t *dn_fe(uint32_t id) { return id >= DN_PX_SFE ? &dn_sb.fe[id - DN_PX_SFE] : &dn_rs.fe[id - DN_PX_RFE]; }
+/* (0.38) SONG's values: the row, the track, that cell's pattern (-1: carries on), the row's bars */
+static int32_t dn_sg_get(uint32_t id)
+{
+    const dn_song_row_t *r = &dn_song.r[dn.song_sel % DN_SONG_N];
+    uint8_t p = r->pat[dn.song_col % DN_SEQ_TRACKS];
+    return id == DN_PX_SGROW ? dn.song_sel : id == DN_PX_SGCOL ? dn.song_col : id == DN_PX_SGPAT ? (p >= DN_NPAT ? -1 : p)
+         : r->bars;
+}
 static int32_t dn_get(uint32_t id)
 {
+    if (DN_IS_SGX(id))
+        return dn_sg_get(id);
     if (DN_IS_MPX(id))
         return dn_sm_get(id);
     if (DN_IS_FPX(id))
@@ -2440,6 +2523,8 @@ static int32_t dn_get(uint32_t id)
 }
 static int32_t dn_min(uint32_t id)
 {
+    if (DN_IS_SGX(id))
+        return id == DN_PX_SGPAT ? -1 : id == DN_PX_SGBARS ? 1 : 0;
     if (DN_IS_MPX(id))
         return dn_sm_lim(id, 0);
     if (DN_IS_FPX(id))
@@ -2465,6 +2550,9 @@ static int32_t dn_min(uint32_t id)
 }
 static int32_t dn_max(uint32_t id)
 {
+    if (DN_IS_SGX(id))
+        return id == DN_PX_SGROW ? (dn_song.n ? dn_song.n - 1 : 0) : id == DN_PX_SGCOL ? DN_SEQ_TRACKS - 1
+             : id == DN_PX_SGPAT ? DN_NPAT - 1 : 16;
     if (DN_IS_MPX(id))
         return dn_sm_lim(id, 1);
     if (DN_IS_FPX(id))
@@ -2493,6 +2581,8 @@ static int32_t dn_max(uint32_t id)
 }
 static const char *dn_name(uint32_t id)
 {
+    if (DN_IS_SGX(id))
+        return id == DN_PX_SGROW ? "ROW" : id == DN_PX_SGCOL ? "TRACK" : id == DN_PX_SGPAT ? "PATTERN" : "BARS";
     static const char *const FN[4] = {"F.ATK", "F.DEC", "F.SUS", "F.REL"};
     if (DN_IS_MPX(id))
         return dn_sm_name(id);
@@ -2526,6 +2616,16 @@ static const char *dn_name(uint32_t id)
 }
 static void dn_text(uint32_t id, int32_t v, char out[8])
 {
+    if (DN_IS_SGX(id)) {
+        if (id == DN_PX_SGPAT && v < 0) {
+            out[0] = '-', out[1] = 0;               /* (carries on) */
+        } else if (id == DN_PX_SGCOL) {
+            out[0] = 'T', out[1] = (char)('1' + v), out[2] = 0;
+        } else {
+            dn_num(out, id == DN_PX_SGBARS ? v : v + 1);
+        }
+        return;
+    }
     static const char *const ES[DN_ESYNC_N] = {"1/64", "1/32T", "1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4",
                                                "1/2T", "1/2", "1 BAR", "2 BARS", "4 BARS", "8 BARS"};
     if (((id == RP_ATK || id == RP_DEC || id == RP_REL) && dn_rs.esync) ||
@@ -2669,6 +2769,25 @@ static void dn_text(uint32_t id, int32_t v, char out[8])
 static void dn_set(uint32_t id, int32_t v)
 {
     uint32_t k = dn_bsel();
+    if (DN_IS_SGX(id)) {                            /* (0.38) SONG */
+        dn_song_row_t *r = &dn_song.r[dn.song_sel % DN_SONG_N];
+        v = dn_clamp(v, dn_min(id), dn_max(id));
+        if (id == DN_PX_SGROW)
+            dn.song_sel = (uint8_t)v;
+        else if (id == DN_PX_SGCOL)
+            dn.song_col = (uint8_t)v;
+        else {
+            dn_lock();
+            if (id == DN_PX_SGPAT)
+                r->pat[dn.song_col % DN_SEQ_TRACKS] = v < 0 ? (uint8_t)DN_SONG_KEEP : (uint8_t)v;
+            else
+                r->bars = (uint8_t)v;
+            dn_unlock();
+            dn_mark();
+        }
+        dn.redraw |= DN_RD_ALL;
+        return;
+    }
     v = dn_clamp(v, dn_min(id), dn_max(id));
     if (v == dn_get(id))
         return;
@@ -3334,6 +3453,15 @@ void dn_app_init(void)
     dn.cin = 1;
     dn.bar_key = -1;
     dn.pat_src = -1;
+    {   /* (0.38) the song, until one is kept: a row of every track's pattern 1, 4 bars */
+        uint32_t r, t;
+        dn_song.n = 1;
+        for (r = 0; r < DN_SONG_N; r++) {
+            for (t = 0; t < DN_SEQ_TRACKS; t++)
+                dn_song.r[r].pat[t] = r ? (uint8_t)DN_SONG_KEEP : 0u;
+            dn_song.r[r].bars = 4;
+        }
+    }
     for (k = 0; k < NKEYS; k++)
         dn.rec_step[k] = 0xFF;
     dn.rec_grp = 0xFF;
@@ -4143,6 +4271,60 @@ static void dn_trk_go2(uint32_t t, int seq)
     dn.redraw |= DN_RD_ALL;
 }
 
+/* (0.38) SONG's keys: white 1-8 the track the knobs edit; black 1-8 mutes; black 9 a row of the patterns playing
+ * now, after this one; black 10 a copy of this row after it; black 11 this row deleted */
+static uint32_t dn_pat_len(void);
+static void dn_keys_song(uint32_t keys)
+{
+    uint32_t down = keys & ~dn.keys_prev, k, r, t;
+    for (k = 0; k < NKEYS; k++) {
+        int32_t o = dn_key_ord(k);
+        if (!(down >> k & 1u))
+            continue;
+        if (dn_is_white(k)) {
+            if (o < (int32_t)DN_SEQ_TRACKS)
+                dn.song_col = (uint8_t)o;
+        } else if (o < 8) {
+            dn_lock();
+            dn_sq.pat.tr[o].mute = (uint8_t)!dn_sq.pat.tr[o].mute;
+            if (dn_sq.pat.tr[o].mute)
+                dn_trk_silence((uint32_t)o);
+            dn_unlock();
+            dn_mark();
+        } else if ((o == 8 || o == 9) && dn_song.n < DN_SONG_N) {
+            uint32_t at = dn.song_sel % dn_song.n;
+            dn_lock();
+            for (r = dn_song.n; r > at + 1u; r--)   /* (the rows after it move down one) */
+                dn_song.r[r] = dn_song.r[r - 1u];
+            dn_song.r[at + 1u] = dn_song.r[at];
+            if (o == 8) {                           /* the patterns playing now, the longest track's bars */
+                for (t = 0; t < DN_SEQ_TRACKS; t++)
+                    dn_song.r[at + 1u].pat[t] = dn_pcur[t];
+                dn_song.r[at + 1u].bars = (uint8_t)dn_clamp((int32_t)(dn_pat_len() + 15u) / 16, 1, 16);
+            }
+            dn_song.n++;
+            dn_unlock();
+            dn.song_sel = (uint8_t)(at + 1u);
+            dn_say(o == 8 ? "ROW: AS NOW" : "ROW COPIED");
+            dn_mark();
+        } else if (o == 10 && dn_song.n > 1u) {
+            uint32_t at = dn.song_sel % dn_song.n;
+            dn_lock();
+            for (r = at; r + 1u < dn_song.n; r++)
+                dn_song.r[r] = dn_song.r[r + 1u];
+            dn_song.n--;
+            if (dn.song_row >= dn_song.n)
+                dn.song_row = 0;
+            dn_unlock();
+            dn.song_sel = (uint8_t)(at < dn_song.n ? at : dn_song.n - 1u);
+            dn_say("ROW DELETED");
+            dn_mark();
+        } else if (o == 8 || o == 9) {
+            dn_say("SONG FULL: 64 ROWS");
+        }
+        dn.redraw |= DN_RD_ALL;
+    }
+}
 static void dn_keys(uint32_t raw)
 {
     uint32_t down = raw & ~dn.keys_raw, k, keys;
@@ -4170,6 +4352,11 @@ static void dn_keys(uint32_t raw)
                     : dn.roll_keys == 1u ? 1u : dn.roll_keys == 2u || (dn.rec && dn.step_held < 0) ? 2u : 0u;
     }
     if (dn.pick) {                                  /* (0.35) the picker open: the keys wait */
+        dn.keys_prev = keys;
+        return;
+    }
+    if (dn.key_page == DN_PG_SONG) {                /* (0.38) SONG: the row's keys */
+        dn_keys_song(keys);
         dn.keys_prev = keys;
         return;
     }
@@ -5234,7 +5421,8 @@ void dn_app_input(void)
                 }
             } else
                 dn_goto(k != 4u ? k : dn.page == 4u ? DN_PG_FX : dn.page == DN_PG_FX ? DN_PG_SET
-                        : dn.page == DN_PG_SET ? DN_PG_MIDI : dn.page == DN_PG_MIDI ? DN_PG_PROJ : 4u);   /* GLO again:
+                        : dn.page == DN_PG_SET ? DN_PG_MIDI : dn.page == DN_PG_MIDI ? DN_PG_PROJ
+                        : dn.page == DN_PG_PROJ ? DN_PG_SONG : 4u);   /* GLO again:
                                                      * FX, SETUP, the MIDI instruments, PROJECT, then OUT */
         break;
     }
@@ -5288,6 +5476,15 @@ void dn_app_input(void)
     }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_HOME)   /* (0.35) HOME: FX, another instrument on the track */
         dn_pick_open(dn.trk);
+    if ((press & (1u << B_FX)) && dn.page == DN_PG_SONG) {   /* (0.38) SONG: FX, the song on / off */
+        dn_lock();
+        dn.song_on = (uint8_t)!dn.song_on;
+        dn.song_jump = dn.song_on && dn_sq.playing ? (uint8_t)(dn.song_sel + 1u) : 0u;
+        dn_unlock();
+        dn_say(dn.song_on ? "SONG ON" : "SONG OFF");
+        dn_mark();
+        dn.redraw |= DN_RD_ALL;
+    }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_LFO) {   /* LFO: the main knobs, MORE, DRAW (a DRAW shape) */
         dn.lfo_view = (uint8_t)((dn.lfo_view + 1u) % (dn_lp[DN_LSEL].shape == DN_LS_DRAW ? 3u : 2u));
         dn.pt_held = -1;
@@ -5349,6 +5546,8 @@ void dn_app_input(void)
             dn.clk_last = 0;
             dn_seq_start(&dn_sq, &DN_SQ_CB);
         }
+        dn.song_start = dn.song_sel;                /* (0.38: SONG on: from the row picked) */
+        dn.song_jump = 0;
         dn_unlock();
         dn.redraw |= DN_RD_ALL;
     }
@@ -5924,6 +6123,10 @@ static const char *dn_top_names(const char **pn)
     if (dn.page == DN_PG_HOME) {                    /* (0.29) HOME: the project */
         *pn = dn_pname;
         return "HOME";
+    }
+    if (dn.page == DN_PG_SONG) {                    /* (0.38) SONG: the project */
+        *pn = dn_pname;
+        return "SONG";
     }
     if (brk) {                                      /* BRK: which BREAKS, and its loop */
         tag = dn_bsel() ? "BRK B" : "BRK A";
@@ -6779,6 +6982,63 @@ static void dn_draw_pick(void)
     cv_rect(0, 121, 240, 23, DN_C_BAR);
     cv_text(8, 127, &FONT_T, "SELECT: PICK  FX: PUT IN  SEQ: CANCEL", DN_C_FG);
 }
+/* (0.38) SONG: the rows, five in view: each its number, the 8 tracks' patterns (in their instrument's colour; - carries
+ * on), its bars; the row picked lit, the track picked boxed, the row playing marked */
+static void dn_draw_song(void)
+{
+    uint32_t n = dn_song.n ? dn_song.n : 1u, sel = dn.song_sel % n, top, r, t;
+    char v[8];
+    cv_rect(0, 0, 31, 17, dn.song_on ? DN_C_ACC : DN_C_PANEL);   /* the song on (lit) or off */
+    cv_text(16 - text_w(&FONT_T, dn.song_on ? "ON" : "OFF") / 2, 3, &FONT_T, dn.song_on ? "ON" : "OFF",
+            dn.song_on ? DN_C_ONACC : DN_C_LABEL);
+    for (t = 0; t < DN_SEQ_TRACKS; t++) {           /* the tracks over their columns */
+        v[0] = (char)('1' + t), v[1] = 0;
+        cv_text(36 + (int32_t)t * 21 + 9 - text_w(&FONT_T, v) / 2, 3, &FONT_T, v, t == dn.song_col ? DN_C_FG : DN_C_DIMTXT);
+    }
+    cv_text(236 - text_w(&FONT_T, "BARS"), 3, &FONT_T, "BARS", DN_C_DIMTXT);
+    top = sel < 2u ? 0u : sel - 2u;
+    if (n > 5u && top > n - 5u)
+        top = n - 5u;
+    for (r = top; r < n && r < top + 5u; r++) {
+        int32_t y = 20 + (int32_t)(r - top) * 20, on = r == sel;
+        int playing = dn.song_on && dn_sq.playing && r == dn.song_row % n;
+        cv_rect(0, y, 240, 19, on ? DN_C_PANEL : DN_C_BG);
+        if (playing)
+            for (t = 0; t < 6u; t++)                /* (playing: a triangle) */
+                cv_rect(1 + (int32_t)t, y + 3 + (int32_t)t, 1, 13 - 2 * (int32_t)t, DN_C_RED);
+        dn_num(v, (int32_t)r + 1);
+        cv_text(32 - text_w(&FONT_S, v), y + 1, &FONT_S, v, on ? DN_C_FG : DN_C_LABEL);
+        for (t = 0; t < DN_SEQ_TRACKS; t++) {
+            uint8_t p = dn_song.r[r].pat[t];
+            int32_t x = 36 + (int32_t)t * 21;
+            int keep = p >= DN_NPAT;
+            uint16_t c = keep || dn_eng[t] == DN_E_OFF ? DN_C_WELL
+                       : dn.skin == DN_SK_BLOCKS ? dn_inst_col(t, 256) : DN_C_ACC;
+            if (on && t == dn.song_col)
+                cv_rect(x - 2, y - 1, 22, 21, DN_C_FG);
+            cv_rect(x, y + 1, 18, 17, c);
+            v[0] = keep ? '-' : (char)('1' + p), v[1] = 0;
+            cv_text(x + 9 - text_w(&FONT_S, v) / 2, y + 1, &FONT_S, v, keep || dn_eng[t] == DN_E_OFF ? DN_C_DIMTXT : DN_C_ONACC);
+        }
+        dn_num(v, dn_song.r[r].bars);
+        cv_text(236 - text_w(&FONT_S, v), y + 1, &FONT_S, v, on ? DN_C_FG : DN_C_LABEL);
+    }
+    cv_rect(0, 121, 240, 23, DN_C_BAR);
+    if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0)
+        cv_text(232 - text_w(&FONT_T, dn.msg), 127, &FONT_T, dn.msg, DN_C_RED);
+    else {
+        static char l[40];
+        l[0] = 0;
+        dn_cat(l, "ROW ");
+        dn_num(v, (int32_t)sel + 1);
+        dn_cat(l, v);
+        dn_cat(l, "/");
+        dn_num(v, (int32_t)n);
+        dn_cat(l, v);
+        dn_cat(l, "   FX: SONG ON/OFF   BLK 9 10 11: NOW COPY DEL");
+        cv_text(8, 127, &FONT_T, l, DN_C_FG);
+    }
+}
 static void dn_draw_home(void)
 {
     if (dn.pick) {
@@ -6861,11 +7121,13 @@ static uint32_t dn_tabs(uint8_t *ids, const char **nms)
         }
     } else if (dn.page == DN_PG_PROJ) {
         ids[n] = DN_PG_PROJ, nms[n++] = "PROJECT";
+    } else if (dn.page == DN_PG_SONG) {
+        ids[n] = DN_PG_SONG, nms[n++] = dn.song_on ? "SONG: ON" : "SONG: OFF";
     }
     else if (DN_IS_BRKPG(dn.page))
         for (k = 0; k < 3u; k++)
             ids[n] = BRK_T[k], nms[n++] = BRK_N[k];
-    else if (dn.page != DN_PG_PROJ && dn.page != DN_PG_FX)
+    else if (dn.page != DN_PG_PROJ && dn.page != DN_PG_FX && dn.page != DN_PG_SONG)
         for (k = 0; k < DN_NSND; k++) {
             static const char *const LN[DN_NLFO] = {"LFO1", "LFO2", "LFO3", "LFO4"};
             if (DN_IS_OWNPG(dn.trk)) {              /* SAMPLER, FM: their five (by mode / view), SETUP; no LFO */
@@ -6929,6 +7191,11 @@ static void dn_draw_bottom(void)
     }
     if (dn.page == DN_PG_HOME) {                    /* (0.29) */
         dn_draw_home();
+        cv_blit(0, 96);
+        return;
+    }
+    if (dn.page == DN_PG_SONG) {                    /* (0.38) */
+        dn_draw_song();
         cv_blit(0, 96);
         return;
     }
@@ -7136,7 +7403,8 @@ void dn_app_draw(int force)
         lit |= 1u << B_FX;
     if ((dn.page == 2u || dn.page == DN_PG_FENV) && DN_IS_SYN(dn.trk) && (DN_IS_SUB(dn.trk) ? dn_sb.esync : dn_rs.esync))
         lit |= 1u << B_FX;                          /* (AMP: the envelope synced) */
-    if ((dn.page == DN_PG_ROLL && dn.roll_keys) || (dn.page == DN_PG_DRUM && dn.drum_play))
+    if ((dn.page == DN_PG_ROLL && dn.roll_keys) || (dn.page == DN_PG_DRUM && dn.drum_play) ||
+        (dn.page == DN_PG_SONG && dn.song_on))
         lit |= 1u << B_FX;
     if (dn.dirty)
         lit |= 1u << B_SAVE;

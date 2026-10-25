@@ -914,3 +914,22 @@ Tested: host scenario `quick037.txt` (BREAKS A playing, muted: silent at once; R
 track and a bar back; pattern 1 copied into 5 without leaving 1; a range's condition on its notes only); every earlier
 scenario. Not yet tried on the FM-1.
 
+## 0.38 — SONG (2026-10-25)
+
+- **SONG** (GLO six times): rows, each the pattern every track plays (– : it carries on with its own) for 1-16 bars, up
+  to 64 rows. KNOB 1 the row, KNOB 2 the track (or white keys 1-8), KNOB 3 its pattern, KNOB 4 the row's bars. Black
+  key 9: a row of the patterns playing now, after this one; 10: a copy of this row; 11: this row deleted; black 1-8
+  mute as on the sequencer pages. **FX** turns the song on: PLAY plays it from the row picked, each row's patterns
+  switched in at its first bar and started from the top (so 1ST and A:B count from there), round to the first row
+  after the last. Turned on while playing, the row picked comes in at the next bar. Kept with SAVE (the second settings
+  object; 0.36 / 0.37's JUNO and SAMPLER 2 settings are read as before).
+- The sequencer calls the app at every bar (before its notes) and can start a track again from the top as if just
+  started: the song's two hooks.
+- **Web editor:** a Song card on the Project tab (every row's patterns and bars, add, copy, move up, delete, the song
+  on / off); project files keep the song.
+
+Tested: host scenario `song.txt` (a row copied, a track on pattern 2 in it, another carrying on; the song on, PLAY: the
+patterns switching at each bar and back round; a row of what's playing now; delete; kept over a reboot); the editor's
+golden check (SONG_GET as the firmware sends it) and end-to-end run (a row added and changed: the FM-1 has it). Not
+yet tried on the FM-1.
+

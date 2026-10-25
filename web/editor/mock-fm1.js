@@ -126,6 +126,7 @@ export class MockFM1 {
     this.wtPlayed = 0;
     this.juno = { p: JU_PRESETS[1][1].slice(), preset: 1 };   // (0.36: JUNO PAD, as the FM-1 starts)
     this.juPlayed = 0;
+    this.song = { n: 1, on: 0, rows: Array.from({ length: 64 }, (_, i) => ({ pat: Array(8).fill(i ? 127 : 0), bars: 4 })) };   // (0.38)
     // the panel (0.26): a small FM-1 behind it: REESE's five sound pages and a sequencer page
     this.ui = { page: 0, back: 0, keys: 0, btn: 0, msg: "" };
     this.slots = [0x14000, 0x14000, 0x10000].map((n) => ({ buf: new Uint8Array(n).fill(0xFF), ok: false }));   // (0.29: slot 3 64 KB)
@@ -330,6 +331,22 @@ export class MockFM1 {
         return [0];
       }
       case CMD.JU_PLAY: this.juPlayed += a[1] ? 1 : 0; return [0];
+      case CMD.SONG_GET: {
+        const from = a[0] || 0, cnt = Math.min(16, 64 - from), out = [this.song.n, this.song.on, from, cnt];
+        for (let r = from; r < from + cnt; r++) out.push(...this.song.rows[r].pat, this.song.rows[r].bars);
+        return out;
+      }
+      case CMD.SONG_SET: {
+        const [n, on, from, cnt] = a;
+        if (n < 1 || n > 64 || from + cnt > 64 || a.length < 4 + 9 * cnt) return [1];
+        this.song.n = n; this.song.on = on ? 1 : 0;
+        for (let r = 0; r < cnt; r++) {
+          const q = a.slice(4 + 9 * r, 13 + 9 * r);
+          this.song.rows[from + r] = { pat: q.slice(0, 8).map((p) => (p < 8 ? p : 127)), bars: Math.max(1, Math.min(16, q[8])) };
+        }
+        this.rev++; this.dirty = 1;
+        return [0];
+      }
       case CMD.SMP_PLAY:
         if (a[2]) this.smp2Played = (this.smp2Played || 0) + (a[1] ? 1 : 0);
         else this.smpPlayed = (this.smpPlayed || 0) + (a[1] ? 1 : 0);

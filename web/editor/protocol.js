@@ -11,7 +11,7 @@ export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, PAT
   TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77, SUB_PRESET: 78, PARAMS_HI: 79,
   SMP_GET: 80, SMP_SET: 81, SMP_PLAY: 82, FM_GET: 83, FM_SET: 84, FM_LOAD: 85, FM_PLAY: 86,
   UI_STATE: 87, UI_INPUT: 88, CHORDS: 89, WT_GET: 90, WT_SET: 91, WT_LOAD: 92, WT_PLAY: 93,
-  JU_GET: 94, JU_SET: 95, JU_LOAD: 96, JU_PLAY: 97 };
+  JU_GET: 94, JU_SET: 95, JU_LOAD: 96, JU_PLAY: 97, SONG_GET: 98, SONG_SET: 99 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
 export const digits = (v, n) => { const o = []; for (let i = 0; i < n; i++) { o.push(v & 127); v = Math.floor(v / 128); } return o; };
@@ -435,6 +435,10 @@ export class Link {
   async juSet(k, v) { return (await this.req(CMD.JU_SET, [k & 127, ...digits(v + 8192, 2)]))[0]; }
   async juLoad(i) { return (await this.req(CMD.JU_LOAD, digits(i, 2)))[0]; }
   async juPlay(note, on) { return (await this.req(CMD.JU_PLAY, [note & 127, on ? 1 : 0]))[0]; }
+  async songGet(from) { return parseSong(await this.req(CMD.SONG_GET, [from & 127])); }
+  async songSet(n, on, from, rows) {
+    return (await this.req(CMD.SONG_SET, [n, on ? 1 : 0, from, rows.length, ...rows.flatMap((r) => [...r.pat.map((p) => (p < 0 ? 127 : p)), r.bars])]))[0];
+  }
   async subPreset(i) { return (await this.req(CMD.SUB_PRESET, [i]))[0]; }
   async preset(i) { return (await this.req(CMD.PRESET, [i]))[0]; }
   async proj() { return parseProj(await this.req(CMD.PROJ)); }
@@ -585,6 +589,30 @@ export async function writeJuno(link, o) {
   if (!o || !o.p) return;
   await link.juLoad(o.preset || 0);
   for (let k = 0; k < o.p.length; k++) await link.juSet(k, o.p[k]);
+}
+
+// ---- SONG (0.38): rows of every track's pattern (-1: carries on) for so many bars -----------------------------------
+export const SONG_N = 64;
+export function parseSong(r) {
+  const rows = [];
+  for (let j = 0; j < r[3]; j++) {
+    const o = 4 + 9 * j;
+    rows.push({ pat: r.slice(o, o + 8).map((p) => (p > 7 ? -1 : p)), bars: r[o + 8] });
+  }
+  return { n: r[0], on: !!r[1], from: r[2], rows };
+}
+// the whole song (null before 0.38): { n, on, rows: [n rows] }
+export async function readSong(link) {
+  let first;
+  try { first = await link.songGet(0); } catch (_) { return null; }
+  const rows = first.rows.slice();
+  for (let f = 16; f < first.n; f += 16) rows.push(...(await link.songGet(f)).rows);
+  return { n: first.n, on: first.on, rows: rows.slice(0, first.n) };
+}
+export async function writeSong(link, o) {
+  if (!o || !o.rows || !o.rows.length) return;
+  const n = Math.min(SONG_N, o.rows.length);
+  for (let f = 0; f < n; f += 16) await link.songSet(n, o.on, f, o.rows.slice(f, Math.min(n, f + 16)));
 }
 
 // ---- the panel (0.26): what the FM-1's screen shows, and its controls pressed from the page ------------------------

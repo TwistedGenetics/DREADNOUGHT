@@ -25,7 +25,7 @@ static uint32_t nq;
 static void on(uint32_t t, uint8_t n, uint8_t v, int s, uint8_t f) { (void)t, (void)n, (void)v, (void)s, (void)f; if (nq < 4096) quarters[nq++] = now; }
 static void off(uint32_t t, uint8_t n) { (void)t, (void)n; }
 static void clk(uint8_t st) { (void)st; }
-static const dn_seq_cb_t CB = {on, off, clk, 0};
+static const dn_seq_cb_t CB = {on, off, clk, 0, 0};
 
 #define FS 44100u
 static int32_t lr[2u * FS * 2u], lr2[2u * FS * 2u];

@@ -600,6 +600,17 @@ with sync_playwright() as pw:
           p.evaluate("() => window.__dn.mock.wave.p.slice(59, 62).join() + ' ' + window.__dn.mock.wave.p[29]") == "2,9,30 3",
           p.evaluate("() => window.__dn.mock.wave.p.slice(59, 62).join() + ' ' + window.__dn.mock.wave.p[29]"))
     p.screenshot(path=str(shots / "editor-wave-sent.png"), full_page=True)
+    # (0.38) SONG on the Project tab: a row added, its track 1 on pattern 2, the song on: the FM-1 has it
+    p.click("[data-tab=files]")
+    p.wait_for_timeout(300)
+    check("SONG: the card, one row", p.locator("#songCard").is_visible() and p.locator("#songrows tr").count() == 1, p.locator("#songrows tr").count())
+    p.click("#songadd")
+    p.locator("#songrows tr").nth(1).locator("select").first.select_option(index=2)
+    p.check("#songon")
+    p.wait_for_timeout(600)
+    got = p.evaluate("() => [window.__dn.mock.song.n, window.__dn.mock.song.rows[1].pat[0], window.__dn.mock.song.on]")
+    check("SONG: 2 rows, row 2's track 1 on pattern 2, on", got == [2, 1, 1], got)
+    p.screenshot(path=str(shots / "editor-song.png"), full_page=True)
     # (0.36) JUNO: its tab, 17 factory sounds, BRASS picked, CHORUS to I+II
     p.click("#junoTabBtn")
     p.wait_for_timeout(300)
