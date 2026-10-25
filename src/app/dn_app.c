@@ -393,6 +393,7 @@ static struct {
     uint8_t home_chord;                             /* HOME held and SELECT turned: an instrument picked */
     uint32_t home_dn;                               /* (0.29) when HOME went down: a tap opens HOME, a hold is FILL */
     uint8_t home_back;                              /* (0.29) the page HOME was opened from */
+    uint8_t dark;                                   /* (0.30) the DARK skin (LIGHT the default) */
     uint8_t last_len[DN_SEQ_TRACKS], last_chord[DN_SEQ_TRACKS];   /* (0.29) the roll: the last note's length, chord */
     uint8_t fx_exact;                               /* (the editor sets an effect: no skipping past ones that don't fit) */                              /* the editor: the LFO values read set 1 (REESE) / 2 (SUB), 0: by page */
     uint8_t midi_sel;                               /* the MIDI page: MIDI 1..n (the tracks that play MIDI, in order) */
@@ -2426,7 +2427,7 @@ static void dn_save_fill(dn_save_t *sp)
     }
     s.set.click = dn.click;
     s.set.clk_lvl = dn.clk_lvl;
-    s.set.cin = dn.cin;
+    s.set.cin = (uint8_t)(dn.cin | (dn.dark ? 0x40u : 0u));   /* (0.30: bit 6, the DARK skin) */
     s.set.pad = dn_rs.vsens;                        /* (0.11: VEL SENS) */
     for (k = 0; k < DN_NLFO; k++)
         s.lfo[k] = dn_lp[k];
@@ -2746,12 +2747,14 @@ static void dn_save(void)
 #undef s
 }
 
+static void dn_skin(int dark);
 void dn_app_init(void)
 {
     dn_save_t *ps = &dn_sv;
     uint32_t k;
 #define s (*ps)
     int got;
+    dn_skin(0);                                     /* (0.30: LIGHT, unless the save says DARK) */
     reese_init(&dn_rs);
     dn_sub_init(&dn_sb);
     dn.syn_last = DN_E_REESE;
@@ -2909,7 +2912,8 @@ void dn_app_init(void)
             }
             dn.click = (uint8_t)dn_clamp(s.set.click, 0, 2);
             dn.clk_lvl = (uint8_t)dn_clamp(s.set.clk_lvl, 0, 127);
-            dn.cin = (uint8_t)dn_clamp(s.set.cin, 0, 2);
+            dn.cin = (uint8_t)dn_clamp(s.set.cin & 0x3Fu, 0, 2);
+            dn_skin(s.set.cin & 0x40u);
             dn_rs.vsens = (uint8_t)dn_clamp(s.set.pad, 0, 127);
         }
         for (k = 0; got >= (int)DN_SAVE_V08 && k < DN_NBRK; k++) {
@@ -4521,6 +4525,11 @@ void dn_app_input(void)
         while ((dn.fx_view == 2u || dn.fx_view == 4u) && dn_fx_np(dn_fxp[dn.fx_view == 4u].type) <= 3u);
         dn.redraw |= DN_RD_ALL;
     }
+    if ((press & (1u << B_FX)) && dn.page == DN_PG_SET) {   /* (0.30) SETUP: FX, the other skin */
+        dn_skin(!dn.dark);
+        dn_say(dn.dark ? "SKIN: DARK" : "SKIN: LIGHT");
+        dn_mark();
+    }
     if ((press & (1u << B_FX)) && dn.page == DN_PG_PROJ) {   /* PROJECT: the instrument chosen goes on the track */
         if (dn.peng != 0xFFu) {
             uint32_t e = dn.peng;
@@ -4737,21 +4746,49 @@ void dn_app_input(void)
 }
 
 /* ---------------------------------------------------------------------------------------------- the screen --- */
-/* Massive's look: graphite panels, light-blue values, one knob row; DREADNOUGHT's red only for its name */
-#define DN_C_BG RGB(44, 46, 50)
-#define DN_C_BAR RGB(24, 25, 28)
-#define DN_C_PANEL RGB(62, 65, 70)
-#define DN_C_EDGE RGB(88, 92, 98)
-#define DN_C_WELL RGB(18, 19, 21)
-#define DN_C_GRID RGB(36, 39, 44)
-#define DN_C_LABEL RGB(176, 180, 186)
-#define DN_C_DIMTXT RGB(120, 124, 130)
-#define DN_C_BLUE RGB(98, 200, 255)
-#define DN_C_BLUE_D RGB(40, 92, 124)
-#define DN_C_TRACK RGB(30, 31, 34)
-#define DN_C_KNOB RGB(92, 96, 102)
-#define DN_C_KNOB_HI RGB(130, 134, 140)
-#define DN_C_RED RGB(232, 58, 46)
+/* (0.30) two skins. LIGHT (the default): a warm white ground, ink text and rules, one orange accent for fills (the
+ * engine's tag, the values' bars, the notes); a highlight is ink with white on it. DARK: Massive's look, graphite
+ * panels and light-blue values (before 0.30). SETUP, FX: the other one. DREADNOUGHT's red only for its name. */
+enum { DN_P_BG, DN_P_BAR, DN_P_PANEL, DN_P_EDGE, DN_P_WELL, DN_P_GRID, DN_P_LABEL, DN_P_DIMTXT, DN_P_BLUE, DN_P_BLUE_D,
+       DN_P_TRACK, DN_P_KNOB, DN_P_KNOB_HI, DN_P_RED, DN_P_FG, DN_P_ACC, DN_P_ONACC, DN_P_KEYB, DN_P_KEYW, DN_P_N };
+static uint16_t dn_pal[DN_P_N];
+#define DN_C_BG dn_pal[DN_P_BG]                     /* the ground */
+#define DN_C_BAR dn_pal[DN_P_BAR]                   /* the title and status bars; text on a highlight */
+#define DN_C_PANEL dn_pal[DN_P_PANEL]
+#define DN_C_EDGE dn_pal[DN_P_EDGE]                 /* rules */
+#define DN_C_WELL dn_pal[DN_P_WELL]
+#define DN_C_GRID dn_pal[DN_P_GRID]
+#define DN_C_LABEL dn_pal[DN_P_LABEL]               /* names, labels */
+#define DN_C_DIMTXT dn_pal[DN_P_DIMTXT]
+#define DN_C_BLUE dn_pal[DN_P_BLUE]                 /* values, the highlight (LIGHT: ink) */
+#define DN_C_BLUE_D dn_pal[DN_P_BLUE_D]
+#define DN_C_TRACK dn_pal[DN_P_TRACK]
+#define DN_C_KNOB dn_pal[DN_P_KNOB]
+#define DN_C_KNOB_HI dn_pal[DN_P_KNOB_HI]
+#define DN_C_RED dn_pal[DN_P_RED]
+#define DN_C_FG dn_pal[DN_P_FG]                     /* the main text (DARK: white) */
+#define DN_C_ACC dn_pal[DN_P_ACC]                   /* the accent's fills */
+#define DN_C_ONACC dn_pal[DN_P_ONACC]               /* text on the accent */
+#define DN_C_KEYB dn_pal[DN_P_KEYB]                 /* the roll's keyboard: black keys, white keys */
+#define DN_C_KEYW dn_pal[DN_P_KEYW]
+static void dn_skin(int dark)
+{
+    static const uint16_t L[DN_P_N] = {
+        RGB(244, 243, 238), RGB(255, 255, 255), RGB(255, 255, 255), RGB(16, 17, 20), RGB(239, 238, 232),
+        RGB(228, 226, 218), RGB(74, 76, 85), RGB(107, 110, 118), RGB(16, 17, 20), RGB(255, 90, 31),
+        RGB(255, 255, 255), RGB(214, 212, 204), RGB(236, 235, 230), RGB(200, 38, 26), RGB(16, 17, 20),
+        RGB(255, 90, 31), RGB(16, 17, 20), RGB(42, 44, 51), RGB(255, 255, 255)};
+    static const uint16_t D[DN_P_N] = {
+        RGB(44, 46, 50), RGB(24, 25, 28), RGB(62, 65, 70), RGB(88, 92, 98), RGB(18, 19, 21),
+        RGB(36, 39, 44), RGB(176, 180, 186), RGB(120, 124, 130), RGB(98, 200, 255), RGB(40, 92, 124),
+        RGB(30, 31, 34), RGB(92, 96, 102), RGB(130, 134, 140), RGB(232, 58, 46), C_WHITE,
+        RGB(98, 200, 255), RGB(24, 25, 28), RGB(24, 25, 28), RGB(92, 96, 102)};
+    uint32_t i;
+    for (i = 0; i < DN_P_N; i++)
+        dn_pal[i] = dark ? D[i] : L[i];
+    dn.dark = (uint8_t)(dark != 0);
+    dn.redraw |= DN_RD_ALL;
+}
 
 /* a point on a circle: angle a in 1/1024 of a turn, 0 = up, clockwise */
 static void dn_polar(int32_t cx, int32_t cy, int32_t r, int32_t a, int32_t *x, int32_t *y)
@@ -4797,6 +4834,46 @@ static void dn_knob(int32_t cx, int32_t cy, uint32_t id, int focus)
                 pos = (int32_t)i;
         lo = 0, span = n > 1u ? (int32_t)n - 1 : 1;
     }
+    if (!dn.dark) {                                 /* (0.30) LIGHT: the name, the value big, a bar under it */
+        int32_t x0 = cx - 26, w = 52, f, r = 0;
+        const felucca_font_t *fn = &FONT_L;
+        uint32_t i;
+        cv_text(x0, cy - 44, &FONT_T, dn_name(id), DN_C_LABEL);
+        dn_text(id, v, t);
+        for (i = 0; t[i]; i++)                      /* (the big digits have no letters: those go a size down) */
+            if ((uint8_t)t[i] > 57u)
+                fn = &FONT_M;
+        if (text_w(fn, t) > w)
+            fn = text_w(&FONT_M, t) <= w ? &FONT_M : &FONT_S;
+        cv_text(x0, cy - (fn == &FONT_L ? 22 : fn == &FONT_M ? 16 : 10), fn, t, DN_C_FG);
+        cv_rect(x0, cy + 30, w, 5, DN_C_KNOB);
+        if (lo < 0 && -2 * lo >= hi) {             /* (either way of 0: from a tick at the middle) */
+            int32_t m = x0 + (int32_t)(-lo * w / span), e = x0 + (int32_t)((pos - lo) * w / span);
+            cv_rect(e < m ? e : m, cy + 30, e < m ? m - e : e - m, 5, DN_C_ACC);
+            cv_rect(m - 1, cy + 27, 2, 11, DN_C_FG);
+        } else {
+            f = (int32_t)((pos - lo) * w / span);
+            cv_rect(x0, cy + 30, f, 5, DN_C_ACC);
+        }
+        if (id < RP_COUNT || DN_IS_SPX(id)) {       /* an LFO on it: its reach, a red line under the bar */
+            uint32_t j;
+            for (j = 0; j < DN_NLFO_ALL; j++) {
+                uint32_t d = dn_lp[j].dest;
+                int32_t dep = dn_lp[j].depth < 0 ? -dn_lp[j].depth : dn_lp[j].depth;
+                if (id < RP_COUNT && d && d < DN_LD_APITCH && d != DN_LD_PITCH && DN_LD_RP[d] == id)
+                    r += dep * (d == DN_LD_CUT ? 2 : 1);
+                if (DN_IS_SPX(id) && d >= DN_LD_SCUT && d < DN_LD_N && d != DN_LD_SPITCH &&
+                    DN_PX_SUB0 + DN_LD_SP[d - DN_LD_SCUT] == id)
+                    r += dep * (d == DN_LD_SCUT ? 2 : 1);
+            }
+            if (r) {
+                int32_t m0 = dn_clamp(v - r, lo, hi), m1 = dn_clamp(v + r, lo, hi);
+                cv_rect(x0 + (int32_t)((m0 - lo) * w / span), cy + 37, (int32_t)((m1 - m0) * w / span) + 1, 2, DN_C_RED);
+            }
+        }
+        (void)focus, (void)a0, (void)px, (void)py, (void)qx, (void)qy, (void)av;
+        return;
+    }
     av = -DN_KA + (2 * DN_KA * (pos - lo)) / span;
     dn_arc(cx, cy, 19, 22, -DN_KA, DN_KA, DN_C_TRACK);
     dn_arc(cx, cy, 19, 22, a0, av, focus ? DN_C_BLUE : DN_C_BLUE_D);
@@ -4823,8 +4900,8 @@ static void dn_knob(int32_t cx, int32_t cy, uint32_t id, int focus)
     dn_disc(cx, cy, 8, DN_C_KNOB);
     dn_polar(cx, cy, 5, av, &px, &py);
     dn_polar(cx, cy, 14, av, &qx, &qy);
-    cv_line(px, py, qx, qy, C_WHITE);
-    cv_line(px + 1, py, qx + 1, qy, C_WHITE);
+    cv_line(px, py, qx, qy, DN_C_FG);
+    cv_line(px + 1, py, qx + 1, qy, DN_C_FG);
     cv_text(cx - text_w(&FONT_T, dn_name(id)) / 2, cy - 42, &FONT_T, dn_name(id), DN_C_LABEL);
     dn_text(id, v, t);
     cv_text(cx - text_w(&FONT_XS, t) / 2, cy + 27, &FONT_XS, t, DN_C_BLUE);
@@ -4886,9 +4963,9 @@ static void dn_draw_slice_zoom(const dn_brk_t *b)
         if (b->start[i] >= from && b->start[i] < from + w) {
             int32_t x = 4 + (int32_t)((b->start[i] - from) * 232u / w);
             int sel = i == dn.sl_sel;
-            cv_rect(x, 50, sel ? 2 : 1, 42, sel ? C_WHITE : DN_C_LABEL);
+            cv_rect(x, 50, sel ? 2 : 1, 42, sel ? DN_C_FG : DN_C_LABEL);
             dn_num(t, (int32_t)i + 1);
-            cv_text(x + 3, 51, &FONT_T, t, sel ? C_WHITE : DN_C_DIMTXT);
+            cv_text(x + 3, 51, &FONT_T, t, sel ? DN_C_FG : DN_C_DIMTXT);
         }
     if (dn.sl_cur >= from && dn.sl_cur < from + w)
         cv_rect(4 + (int32_t)((dn.sl_cur - from) * 232u / w), 50, 1, 42, DN_C_RED);
@@ -4924,7 +5001,7 @@ static void dn_draw_loop(const dn_brk_t *b, int32_t sel)
     if (b->on) {
         uint32_t at = b->start[b->slice] + (b->rev ? 0u : b->played >> 8);
         if (at < n)
-            cv_rect(4 + (int32_t)(at / per), 50, 1, 42, C_WHITE);
+            cv_rect(4 + (int32_t)(at / per), 50, 1, 42, DN_C_FG);
     }
 }
 
@@ -5039,12 +5116,12 @@ static void dn_draw_top(void)
     /* the sound: the engine's tag, the preset's name, changed or not */
     cv_rect(0, 22, 240, 24, DN_C_PANEL);
     cv_rect(0, 45, 240, 1, DN_C_EDGE);
-    cv_rect(6, 27, 46, 14, DN_C_BLUE);
+    cv_rect(6, 27, 46, 14, DN_C_ACC);
     {
         const char *tag = dn_top_names(&pn);
-        cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_BAR);
+        cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_ONACC);
     }
-    x = cv_text(60, 26, &FONT_S, pn, C_WHITE);
+    x = cv_text(60, 26, &FONT_S, pn, DN_C_FG);
     if (dn.dirty)
         cv_text(x + 2, 26, &FONT_S, "*", DN_C_BLUE);
     if (dn_sq.playing || dn.rec) {                  /* the transport: bar . beat, and REC */
@@ -5058,7 +5135,7 @@ static void dn_draw_top(void)
         pos[px] = 0;
         px = 234 - text_w(&FONT_XS, pos);
         if (dn_sq.playing) {
-            cv_text(px, 27, &FONT_XS, pos, C_WHITE);
+            cv_text(px, 27, &FONT_XS, pos, DN_C_FG);
             for (i = 0; i < 9; i++)                 /* a play triangle */
                 cv_rect(px - 14 + i / 2, 29 + i / 2, 1, 10 - i / 2 * 2, DN_C_BLUE);
         }
@@ -5099,7 +5176,7 @@ static void dn_draw_top(void)
         if (dn_sq.playing) {
             int32_t px = x0 + (int32_t)((st * (uint32_t)bw * bars) / (bars * 16u));
             cv_rect(x0 + 1, 52, px - x0, 5, DN_C_BLUE_D);
-            cv_rect(px, 50, 2, 9, C_WHITE);
+            cv_rect(px, 50, 2, 9, DN_C_FG);
             flash = st % 4u == 0u ? (st % 16u == 0u ? 2 : 1) : 0;
             dn_num(pos, (int32_t)(st / 16u + 1u));
             i = (int32_t)str_len_dn(pos);
@@ -5116,9 +5193,9 @@ static void dn_draw_top(void)
             dn_cat(pos, bars == 1u ? " BAR" : " BARS");
         }
         if (flash)
-            cv_rect(202, 47, 34, 15, flash == 2 ? C_WHITE : DN_C_BLUE);
+            cv_rect(202, 47, 34, 15, flash == 2 ? DN_C_FG : DN_C_BLUE);
         if (dn_sq.playing || dn.cin_left)
-            cv_text(219 - text_w(&FONT_S, pos) / 2, 47, &FONT_S, pos, flash ? DN_C_BAR : C_WHITE);
+            cv_text(219 - text_w(&FONT_S, pos) / 2, 47, &FONT_S, pos, flash ? DN_C_BAR : DN_C_FG);
         else
             cv_text(219 - text_w(&FONT_T, pos) / 2, 50, &FONT_T, pos, DN_C_LABEL);
     }
@@ -5153,7 +5230,7 @@ static void dn_draw_top(void)
             py = y;
         }
         mx = 4 + (int32_t)(ls->ph >> 16) * 200 / 65536;   /* where it is */
-        cv_rect(mx, 64, 1, 27, C_WHITE);
+        cv_rect(mx, 64, 1, 27, DN_C_FG);
         vy = ls->out * 13 / 32767;                  /* its value: a meter at the right */
         cv_rect(212, 64, 18, 27, DN_C_GRID);
         if (vy >= 0)
@@ -5230,12 +5307,12 @@ static void dn_draw_seq(void)
             if ((st->flags & (DN_ST_ON | DN_ST_SLIDE)) == (DN_ST_ON | DN_ST_SLIDE))
                 cv_rect(x - 2, y + 4, 3, 2, DN_C_BLUE);   /* a slide: joined to the step before */
             if ((int32_t)si == dn.step_held && sel)
-                cv_rect(x + 3, y + 3, 5, 4, C_WHITE);
+                cv_rect(x + 3, y + 3, 5, 4, DN_C_FG);
             if (dn_sq.playing && dn_sq.cur[t] == si) {     /* the playhead */
-                cv_rect(x, y, 11, 1, C_WHITE);
-                cv_rect(x, y + 9, 11, 1, C_WHITE);
-                cv_rect(x, y, 1, 10, C_WHITE);
-                cv_rect(x + 10, y, 1, 10, C_WHITE);
+                cv_rect(x, y, 11, 1, DN_C_FG);
+                cv_rect(x, y + 9, 11, 1, DN_C_FG);
+                cv_rect(x, y, 1, 10, DN_C_FG);
+                cv_rect(x + 10, y, 1, 10, DN_C_FG);
             }
         }
     }
@@ -5328,7 +5405,7 @@ static void dn_draw_overview(void)
             cv_rect(x, y, w > 1 ? w - 1 : 1, 3, (tr->st[i].flags & DN_ST_ACC) ? DN_C_BLUE : DN_C_BLUE_D);
         }
     if (dn_sq.playing)
-        cv_rect(4 + (int32_t)(dn_sq.cur[dn.trk] * 232u / L), 50, 1, 42, C_WHITE);
+        cv_rect(4 + (int32_t)(dn_sq.cur[dn.trk] * 232u / L), 50, 1, 42, DN_C_FG);
 }
 
 /* ROLL: a piano roll of the selected track: pitch up the screen (an octave in view, KNOB 1 scrolls), the 16 steps in
@@ -5337,6 +5414,8 @@ static void dn_draw_overview(void)
 static uint16_t dn_vel_col(const dn_step_t *st)
 {
     int32_t v = (st->flags & DN_ST_ACC) ? 127 : st->vel;
+    if (!dn.dark)                                   /* (LIGHT: pale orange .. the accent) */
+        return RGB(255, 200 - (200 - 90) * v / 127, 170 - (170 - 31) * v / 127);
     return RGB(30 + (98 - 30) * v / 127, 60 + (200 - 60) * v / 127, 90 + (255 - 90) * v / 127);
 }
 /* a note's marks: a condition (a red corner), its retrigs (white ticks where they fall), from x0 over w pixels */
@@ -5351,7 +5430,7 @@ static void dn_step_marks(const dn_step_t *st, int32_t x0, int32_t y, int32_t w,
             int32_t x = x0 + (int32_t)j * px16 / (int32_t)den;
             if ((uint32_t)(x - x0) * DN_LEN_STEP >= len * 13u || x - x0 >= w)
                 break;
-            cv_rect(x, y + 1, 1, h - 2, C_WHITE);
+            cv_rect(x, y + 1, 1, h - 2, DN_C_FG);
         }
     }
 }
@@ -5439,10 +5518,10 @@ static void dn_draw_roll(void)
         uint32_t p = dn.roll_lo + r, pc = (uint32_t)((int32_t)p + trans + 120) % 12u;
         int32_t y = 112 - 8 * (int32_t)r, black = (0x54Au >> pc) & 1u;
         cv_rect(30, y, 208, 8, black ? DN_C_WELL : DN_C_TRACK);
-        cv_rect(2, y, 25, 7, black ? DN_C_BAR : DN_C_KNOB);
+        cv_rect(2, y, 25, 7, black ? DN_C_KEYB : DN_C_KEYW);
         if (pc == 0u) {                             /* C: named, and a line under it */
             dn_note_name(v, (int32_t)p + trans);
-            cv_text(4, y - 3, &FONT_T, v, DN_C_BAR);
+            cv_text(4, y - 3, &FONT_T, v, dn.dark ? DN_C_BAR : DN_C_FG);
             cv_rect(30, y + 7, 208, 1, DN_C_GRID);
         }
     }
@@ -5463,7 +5542,7 @@ static void dn_draw_roll(void)
             x1 = x0 + (int32_t)(13u * st->len / DN_LEN_STEP) - 1;
         if (((st->flags & DN_ST_SLIDE) || (legato && prev_len > (i - (uint32_t)prev_i) * DN_LEN_STEP)) &&
             prev_y >= 0 && prev_end == (int32_t)i && x0 >= 30 && x0 < 238)
-            cv_line(x0 - 4, prev_y + 2, x0 + 2, y + 2, C_WHITE);   /* the slide (flagged, or the note before
+            cv_line(x0 - 4, prev_y + 2, x0 + 2, y + 2, DN_C_FG);   /* the slide (flagged, or the note before
                                                                      * reaches past this one): a ramp from it */
         prev_y = y;
         prev_end = (int32_t)end;
@@ -5492,12 +5571,12 @@ static void dn_draw_roll(void)
         cv_rect(x0, y, 2, 6, DN_C_BLUE);            /* its start */
         dn_step_marks(st, x0, y, x1 - x0 + 1, 6);
         if ((int32_t)i == dn.step_held) {
-            cv_rect(x0, y - 1, x1 - x0 + 1, 1, C_WHITE);
-            cv_rect(x0, y + 6, x1 - x0 + 1, 1, C_WHITE);
+            cv_rect(x0, y - 1, x1 - x0 + 1, 1, DN_C_FG);
+            cv_rect(x0, y + 6, x1 - x0 + 1, 1, DN_C_FG);
         }
     }
     if (dn_sq.playing && dn_sq.cur[dn.trk] >= v0 && dn_sq.cur[dn.trk] < v0 + 16u)
-        cv_rect(30 + 13 * (int32_t)(dn_sq.cur[dn.trk] - v0), 20, 1, 100, C_WHITE);
+        cv_rect(30 + 13 * (int32_t)(dn_sq.cur[dn.trk] - v0), 20, 1, 100, DN_C_FG);
     if (dn.roll_keys && dn.roll_cur >= v0 && dn.roll_cur < v0 + 16u)   /* KEYS: the cursor */
         for (r = 0; r < 100u; r += 4u)
             cv_rect(30 + 13 * (int32_t)(dn.roll_cur - v0), 20 + (int32_t)r, 2, 2, DN_C_RED);
@@ -5571,12 +5650,12 @@ static void dn_draw_drum(void)
         cv_rect(x0, y, x1 - x0 + 1, 10, tr->mute ? DN_C_KNOB : dn_vel_col(st));
         dn_step_marks(st, x0, y, x1 - x0 + 1, 10);
         if (st->flags & DN_ST_SLIDE)                /* reversed: an arrow pointing back */
-            cv_line(x0 + 7, y + 2, x0 + 3, y + 5, C_WHITE), cv_line(x0 + 3, y + 5, x0 + 7, y + 8, C_WHITE);
+            cv_line(x0 + 7, y + 2, x0 + 3, y + 5, DN_C_FG), cv_line(x0 + 3, y + 5, x0 + 7, y + 8, DN_C_FG);
         if ((int32_t)i == dn.step_held)
-            cv_rect(x0 + 2, y + 3, 4, 4, C_WHITE);
+            cv_rect(x0 + 2, y + 3, 4, 4, DN_C_FG);
     }
     if (dn_sq.playing && dn_sq.cur[dn.trk] >= v0 && dn_sq.cur[dn.trk] < v0 + 16u)
-        cv_rect(30 + 13 * (int32_t)(dn_sq.cur[dn.trk] - v0) + 5, 18, 1, 102, C_WHITE);
+        cv_rect(30 + 13 * (int32_t)(dn_sq.cur[dn.trk] - v0) + 5, 18, 1, 102, DN_C_FG);
     cv_rect(0, 121, 240, 23, DN_C_BAR);
     line[0] = 0;
     dn_cat(line, DN_IS_SMP(dn.trk) ? "SAMPLER  PAD " : DN_BK(dn.trk) ? "BRK B  SL " : "BRK A  SL ");
@@ -5621,10 +5700,10 @@ static void dn_draw_pat_tabs(void)
     cv_text(32 - text_w(&FONT_T, dn_inst_name(t)) / 2, 3, &FONT_T, dn_inst_name(t), DN_C_BAR);
     for (n = 0; n < DN_NPAT; n++, x += 17) {
         int cur = n == dn_pcur[t], q = n == dn_pq[t] && (plat_ms() / 200u) % 2u == 0u;
-        uint16_t bg = cur ? C_WHITE : q ? DN_C_BLUE : DN_C_PANEL;
+        uint16_t bg = cur ? DN_C_FG : q ? DN_C_BLUE : DN_C_PANEL;
         cv_rect(x, 1, 15, 15, bg);
         v[0] = (char)('1' + n), v[1] = 0;
-        cv_text(x + 8 - text_w(&FONT_T, v) / 2, 3, &FONT_T, v, cur || q ? DN_C_BAR : (used >> n & 1u) ? C_WHITE
+        cv_text(x + 8 - text_w(&FONT_T, v) / 2, 3, &FONT_T, v, cur || q ? DN_C_BAR : (used >> n & 1u) ? DN_C_FG
                                                                                            : DN_C_DIMTXT);
         if ((used >> n & 1u) && !cur)
             cv_rect(x + 2, 13, 11, 2, DN_C_BLUE_D);
@@ -5674,28 +5753,31 @@ static void dn_draw_home(void)
         int32_t x = 2 + (int32_t)(t % 4u) * 59, y = 21 + (int32_t)(t / 4u) * 50;
         int sel = t == dn.trk, off = dn_eng[t] == DN_E_OFF, mute = dn_sq.pat.tr[t].mute;
         const dn_track_t *tr = &dn_sq.pat.tr[t];
-        uint16_t fg = sel ? DN_C_BAR : off || mute ? DN_C_DIMTXT : C_WHITE;
+        uint16_t hi = dn.dark ? DN_C_BLUE : DN_C_ACC, on = dn.dark ? DN_C_BAR : DN_C_ONACC;   /* (LIGHT: orange) */
+        uint16_t fg = sel ? on : off || mute ? DN_C_DIMTXT : DN_C_FG;
         char n[4] = {0, 0, 0, 0}, nm[10];
         uint32_t i;
-        cv_rect(x, y, 57, 47, sel ? DN_C_BLUE : DN_C_PANEL);
+        cv_rect(x, y, 57, 47, sel ? hi : DN_C_PANEL);
+        if (!sel && !dn.dark)
+            cv_rect(x, y, 57, 3, dn_eng[t] == DN_E_OFF ? DN_C_KNOB : DN_C_FG);   /* (LIGHT: a rule on top) */
         n[0] = (char)('1' + t);
-        cv_text(x + 4, y + 2, &FONT_S, n, sel ? DN_C_BAR : off ? DN_C_DIMTXT : DN_C_BLUE);
+        cv_text(x + 4, y + 2, &FONT_S, n, sel ? on : off ? DN_C_DIMTXT : DN_C_BLUE);
         if (dn_sq.playing && !mute && !off && dn_sq.cur[t] < tr->len && (tr->st[dn_sq.cur[t]].flags & DN_ST_ON))
-            dn_disc(x + 49, y + 8, 4, sel ? DN_C_BAR : DN_C_RED);   /* (a note on this step) */
+            dn_disc(x + 49, y + 8, 4, sel ? on : DN_C_RED);   /* (a note on this step) */
         cv_text(x + 4, y + 21, &FONT_T, dn_inst_name(t), fg);
         for (i = 0; i < 9u && dn_trk_sound(t)[i]; i++)             /* (the sound's name, as much as fits) */
             nm[i] = dn_trk_sound(t)[i];
         nm[i] = 0;
         while (i > 0u && text_w(&FONT_XS, nm) > 50)
             nm[--i] = 0;
-        cv_text(x + 4, y + 34, &FONT_XS, mute && !off ? "MUTED" : nm, sel ? DN_C_BAR : mute ? DN_C_RED : DN_C_LABEL);
+        cv_text(x + 4, y + 34, &FONT_XS, mute && !off ? "MUTED" : nm, sel ? on : mute ? DN_C_RED : DN_C_LABEL);
     }
     cv_rect(0, 121, 240, 23, DN_C_BAR);
     {
         char l[24];
         l[0] = 'T', l[1] = (char)('1' + dn.trk), l[2] = ' ', l[3] = 0;
         dn_cat(l, dn_inst_name(dn.trk));
-        cv_text(8, 127, &FONT_T, l, C_WHITE);
+        cv_text(8, 127, &FONT_T, l, DN_C_FG);
         if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0)
             cv_text(232 - text_w(&FONT_T, dn.msg), 127, &FONT_T, dn.msg, DN_C_RED);
         else
@@ -5783,12 +5865,12 @@ static void dn_draw_bottom(void)
             cv_rect(bx, 40, 18, 30, on ? DN_C_BLUE : DN_C_WELL);
             c[0] = dn.nm[i] == ' ' ? '_' : dn.nm[i];
             cv_text(bx + 9 - text_w(&FONT_M, c) / 2, 46, &FONT_M, c, on ? DN_C_BAR : dn.nm[i] == ' ' ? DN_C_DIMTXT
-                                                                                              : C_WHITE);
+                                                                                              : DN_C_FG);
         }
         cv_text(120 - text_w(&FONT_XS, "K1 / SELECT: PLACE    K2 / PRESETS: LETTER") / 2, 88, &FONT_XS,
                 "K1 / SELECT: PLACE    K2 / PRESETS: LETTER", DN_C_LABEL);
         cv_rect(0, 121, 240, 23, DN_C_BAR);
-        cv_text(8, 127, &FONT_T, "SAVE: KEEP", C_WHITE);
+        cv_text(8, 127, &FONT_T, "SAVE: KEEP", DN_C_FG);
         cv_text(232 - text_w(&FONT_T, "HOME: CANCEL"), 127, &FONT_T, "HOME: CANCEL", DN_C_DIMTXT);
         cv_blit(0, 96);
         return;
@@ -5837,7 +5919,7 @@ static void dn_draw_bottom(void)
         for (i = 0; i < 16u; i++) {
             uint32_t pt = i + 16u * dn.pt_view;
             int32_t x = 8 + (int32_t)i * 14, h = pt < n ? l->pts[pt] * 42 / 100 : 0;
-            uint16_t c = (int8_t)pt == dn.pt_held ? C_WHITE : DN_C_BLUE;
+            uint16_t c = (int8_t)pt == dn.pt_held ? DN_C_FG : DN_C_BLUE;
             if (pt >= n)
                 continue;
             if (h >= 0)
@@ -5855,7 +5937,7 @@ static void dn_draw_bottom(void)
         dn_num(v, dn.pen);
         dn_cat(t, v);
         dn_cat(t, dn.pt_view ? "  17-32" : n == 32u ? "  1-16" : "");
-        cv_text(8, 127, &FONT_T, t, C_WHITE);
+        cv_text(8, 127, &FONT_T, t, DN_C_FG);
         cv_text(232 - text_w(&FONT_T, "K2 SMOOTH K3 PTS FX"), 127, &FONT_T, "K2 SMOOTH K3 PTS FX", DN_C_LABEL);
         cv_blit(0, 96);
         return;
@@ -5879,7 +5961,7 @@ static void dn_draw_bottom(void)
                                                                                                     : "FX: BACK";
         cv_rect(0, 121, 240, 23, DN_C_BAR);
         cv_text(8, 127, &FONT_T, dn.lfo_view ? "MORE: SYNC MODE PHASE SMOOTH" : "LFO: AGAIN FOR THE NEXT", DN_C_LABEL);
-        cv_text(232 - text_w(&FONT_T, nx), 127, &FONT_T, nx, C_WHITE);
+        cv_text(232 - text_w(&FONT_T, nx), 127, &FONT_T, nx, DN_C_FG);
         cv_blit(0, 96);
         return;
     }
@@ -5901,7 +5983,7 @@ static void dn_draw_bottom(void)
         v[0] = (char)('0' + cs / 10u % 10u), v[1] = (char)('0' + cs % 10u), v[2] = 's', v[3] = 0;
         dn_cat(l, v);
         cv_rect(0, 121, 240, 23, DN_C_BAR);
-        cv_text(8, 127, &FONT_T, l, C_WHITE);
+        cv_text(8, 127, &FONT_T, l, DN_C_FG);
         if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0)
             cv_text(232 - text_w(&FONT_T, dn.msg), 127, &FONT_T, dn.msg, DN_C_RED);
         else

@@ -640,6 +640,7 @@ int main(int argc, char **argv)
             long got;
             if (!strcmp(b, "preset")) got = dn.preset;
             else if (!strcmp(b, "page")) got = dn.page;
+            else if (!strcmp(b, "dark")) got = dn.dark;   /* (0.30) the skin */
             else if (!strncmp(b, "srcmap.", 7)) got = dn_brk_src_of((uint8_t)atoi(b + 7));   /* (0.29) a saved loop number */
             else if (!strncmp(b, "bsrc.", 5)) got = dn_bk_src[atoi(b + 5) % DN_NBRK];
             else if (!strncmp(b, "bok.", 4)) got = dn_bk[atoi(b + 4) % DN_NBRK].ok;

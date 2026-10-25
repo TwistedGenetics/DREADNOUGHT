@@ -600,3 +600,18 @@ settings objects only in 0xD8000–0xDBFFF, slot 3's first 64 KB and the panel u
 editor; the editor's unit tests (slot 3's size, packing, old projects' loop numbers, repacking) and end to end (the FM
 tab's banks: load, ▶, FM-1, Keep, send).
 
+## 0.30 — the light skin (2026-10-25)
+
+- **A new look for the screen, and the default:** a warm white ground, ink text and rules, and one orange accent for
+  the fills (the engine's tag, the values' bars, the notes on the roll, the picked track on HOME). A highlight (the
+  page's tab, a pattern playing) is ink with white on it. Jamie picked it from the skin mock-ups.
+- On the sound pages the four knobs are now **big values with a bar under each** in place of the drawn knobs. Numbers
+  are 32 px tall, words 24 px. A value either side of zero (PITCH, DEPTH) fills out from a tick at zero, and an LFO's
+  reach is a red line under the bar.
+- HOME's tiles have an ink rule on top, and the picked one is orange.
+- **SETUP, FX** switches to **DARK**, the look before, and back. It is kept with SAVE (a save from before 0.30 comes
+  up LIGHT).
+
+Tested: host scenario `skin.txt` (LIGHT from the start, DARK by SETUP + FX, kept over a reboot, back to LIGHT, an old
+save LIGHT); every page's screenshot looked at in both skins.
+

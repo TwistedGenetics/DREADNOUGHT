@@ -1,0 +1,35 @@
+# DREADNOUGHT host scenario (0.30): the skins. LIGHT (warm white, ink, orange) from the start; SETUP, FX: DARK (the look
+# before 0.30) and back; the choice kept with the sound over a reboot (a save from before 0.30 comes up LIGHT).
+expect dark 0
+shot skin-01-light-osc.png
+tap GLO
+tap GLO
+tap GLO
+expect page 11
+tap FX
+expect dark 1
+shot skin-02-dark-setup.png
+tap SEL
+shot skin-03-dark-osc.png
+tap SAVE
+wait 300
+reboot
+expect dark 1
+tap GLO
+tap GLO
+tap GLO
+expect page 11
+tap FX
+expect dark 0
+expect page 11
+shot skin-04-light-setup.png
+tap HOME
+shot skin-05-light-home.png
+tap SAVE
+wait 300
+reboot
+expect dark 0
+# a 0.27 save (before the skins): LIGHT
+storeload tests/host/saves/v0.27.bin
+reboot
+expect dark 0
