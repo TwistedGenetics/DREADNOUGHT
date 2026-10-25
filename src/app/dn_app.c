@@ -1019,7 +1019,7 @@ static uint8_t dn_brk_src_of(uint8_t v)
 }
 /* the sample slots: bytes used (4-bit ADPCM: half a byte a sample, plus each slot's header), and in all */
 #define DN_SLOT_BYTES 0x14000u
-#define DN_SLOT3_BYTES 0x10000u                     /* (0.29: slot 3's top 16 KB holds settings) */
+#define DN_SLOT3_BYTES (64u * 1024u)                    /* (0.29: slot 3's top 16 KB holds settings) */
 static uint32_t dn_smp_cap(void) { return (PLAT_NSLOTS - 1u) * DN_SLOT_BYTES + DN_SLOT3_BYTES; }
 static uint32_t dn_smp_used(void)
 {

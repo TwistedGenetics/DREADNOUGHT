@@ -237,7 +237,7 @@ static uint8_t ed_smp_buf[512] __attribute__((aligned(4)));
 static uint32_t ed_smp_slot(uint32_t k) { return SMP_USER_BASE + k * SMP_USER_SIZE; }
 /* (0.29) slot 3 is 64 KB: its top 16 KB (0xD8000..0xDBFFF) holds the settings objects EXT0 / EXT1 (tools/dn_patches.py
  * puts them there in X0X's storage.c). Slots 1 and 2 stay 80 KB. */
-#define DN_SLOT3_SIZE 0x10000u
+#define DN_SLOT3_SIZE (64u * 1024u)
 static uint32_t ed_slot_size(uint32_t k) { return k == 2u ? DN_SLOT3_SIZE : SMP_USER_SIZE; }
 /* the settings objects may be written: slot 3 empty, or its samples inside its 64 KB (one sent before 0.29 can reach
  * further: until it is sent again, EXT0 / EXT1 are not written over it) */
