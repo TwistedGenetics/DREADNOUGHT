@@ -788,3 +788,17 @@ LFO's speed and its text, the CPU budget over 20000 random sounds, the 20 factor
 checks, a 0.32 save read back; the whole app (every view, MATRIX, B on a slot's table, SAVE and reboot); the editor in
 Chromium (B's table and a matrix route sent). Not yet tested: on a real FM-1 — how it sounds and what it costs there.
 
+### 0.33 editor update — a new rate for a sample already on the FM-1 (2026-10-25)
+
+Jamie: "Is there a way with the web editor that we can change the sample rate of a sample already on the fm1?"
+
+- **Samples:** a sample read back from the FM-1 (no original file on this computer) now has its **Rate** menu open.
+  Pick another rate and the editor decodes what's on the FM-1, resamples it (low-passed when lowering, as new samples
+  are), and sends it at the new rate. It isn't trimmed or faded again, so it stays the same length in time, and a
+  loop's hand-set slices are moved to the same places. Lowering frees space; raising it is allowed but gains no detail
+  (the editor says so). **Fit to space** can now lower these samples too.
+- No firmware change: the FM-1 stays on 0.33.
+
+Tested: media unit tests (decode → resample → send at 11 kHz: same length in time, same pitch, less space; slices
+rescaled) and the editor's end-to-end run (a sample read back, set to 8 kHz, sent: half the samples on the simulated
+FM-1, its slices moved with it).

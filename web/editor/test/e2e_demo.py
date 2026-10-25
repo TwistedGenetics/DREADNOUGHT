@@ -364,6 +364,27 @@ with sync_playwright() as pw:
     check("loaded back: the layout and the send", p.evaluate("() => window.__dn.mock.proj.send[0][3]") == 90)
     check("loaded back: the sample can be converted again (its original came with it)",
           p.evaluate("() => !!(window.__dn.media[0] && window.__dn.media[0].ch)"))
+    # (0.33, editor) a sample read back from the FM-1 (no original here) given a lower rate: converted again, its slices moved
+    p.evaluate("""async () => { const S = window.__dn, { sliceKey, key7 } = await import(new URL('../breaks/slices.js', location.href));
+      const M = await import(new URL('./media.js', location.href)), z = M.slotSamples(await M.readSlots(S.link))[0];
+      (S.mock.slices = S.mock.slices || {})[key7(sliceKey(z.adpcm, z.n)).join(',')] = [0, 4000, 8000, 12000]; S.mediaRead = false; }""")
+    p.click("[data-tab=pattern]")
+    p.click("[data-tab=files]")
+    p.wait_for_function("window.__dn.mediaRead && window.__dn.media.length && !window.__dn.media[0].ch")
+    p.wait_for_timeout(300)
+    rs = p.locator("#mlist tr").first.locator("select").nth(1)
+    check("read back from the FM-1: its rate can be changed (L+R stays: it's mono)", rs.is_enabled() and not p.locator("#mlist tr").first.locator("select").nth(0).is_enabled())
+    rs.select_option("8000")
+    p.wait_for_timeout(100)
+    check("at 8 kHz: half the space", "3.9 KB" in p.locator("#mlist tr").first.inner_text(), p.locator("#mlist tr").first.inner_text())
+    p.screenshot(path=str(shots / "editor-rerate.png"), full_page=True)
+    p.click("#msend")
+    p.wait_for_function("window.__dn.mock.slots[0].ok && new DataView(window.__dn.mock.slots[0].buf.buffer).getUint32(48, true) === Math.round(8000 / 44100 * 65536)", timeout=20000)
+    z = p.evaluate("() => { const b = window.__dn.mock.slots[0].buf, v = new DataView(b.buffer); return {n: v.getUint32(36, true)}; }")
+    check("on the FM-1 at 8 kHz: half the samples, the same length in time", 7800 <= z["n"] <= 8000, z)
+    sl = p.evaluate("""async () => { const S = window.__dn, { sliceKey, key7 } = await import(new URL('../breaks/slices.js', location.href));
+      const m = S.media[0]; return S.mock.slices[key7(sliceKey(m.adpcm, m.n)).join(',')] || null; }""")
+    check("its slices moved with it (same places in time)", sl == [0, 2000, 4000, 6000], sl)
     p.fill("#sndname", "Dark one")
     p.click("#keep")
     check("library: kept", p.locator("#library li").count() == 1)

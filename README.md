@@ -33,7 +33,7 @@ follows the box live: turn a knob on the FM-1 and the page moves too. **Demo** t
 The **Project** tab (0.12): what each track plays and its sends to the effects, the FX rack, how full the FM-1's
 memory is and its CPU load; **samples** (three slots: 80 KB, 80 KB and, from 0.29, 64 KB, whose top 16 KB holds settings; the breaks play only your loops, the built-in ROLLER and STEPPER are gone from 0.29; drop WAV, MP3, AIFF… files: each goes on in mono — L+R, left, right or side —
 at the rate you pick, 44.1 kHz down to 8 kHz with 26 kHz for the SP-1200's sound; **Fit to space** picks rates so they
-all fit, the longest lowered first; ▶ plays one as the FM-1 will); and **projects**: Save project to computer writes one
+all fit, the longest lowered first; a sample already on the FM-1 can be given a new rate too, its slices kept; ▶ plays one as the FM-1 will); and **projects**: Save project to computer writes one
 `.dnproj` file with everything (sounds, tempo, layout, all 8 patterns of every track, the samples and their slices, and
 the original sample files, so you can convert them again later); Load a project sends one back (only what differs: a
 cut-off load carries on when you run it again); Choose a projects folder keeps them in a folder and lists them there

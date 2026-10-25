@@ -10,8 +10,9 @@ import {
 } from "./protocol.js";
 import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
-  slotSamples, CAP, RATES, RATE_NAME, FOLDS,
+  slotSamples, CAP, RATES, RATE_NAME, FOLDS, fromDevice, rescaleSlices,
 } from "./media.js";
+import { key7, pos7 } from "../breaks/slices.js";
 import { initPanel } from "./panel.js";
 import { sliceKey } from "../breaks/slices.js";
 import { audition as fmAudition } from "./fmsynth.js";
@@ -1519,11 +1520,21 @@ $("pname").onchange = () => guard(async () => {
 // S.media: [{name, set: {rate, fold}, lock, ch / rate (decoded from orig: changeable), adpcm / n (as on the FM-1),
 //            orig (the file's bytes), stale (changed, not sent)}]
 const isSrc = (m) => !!m.ch;                         // (converted here: its settings can change)
+// (0.33, editor) a new rate for a sample. One read back from the FM-1 is decoded first (fromDevice) and converted from
+// that, at the rate it was on the FM-1: lowering it saves space, raising it gains no detail.
+function reRate(m, rate) {
+  if (!isSrc(m)) {
+    if (rate === m.rate) return;
+    Object.assign(m, fromDevice(m.adpcm, m.n, m.rate, rate));
+  } else m.set = { ...m.set, rate };
+  m.stale = true;
+  if (m.set.trim === false && rate > m.rate) say(`${m.name} was ${(m.rate / 1000).toFixed(1)} kHz on the FM-1: a higher rate takes more space but can't add back detail.`, "bad");
+}
 const dx7Data = (m) => zoneBytes(m.dx7.filter((v) => v.on).map((v) => v.packed));   // (0.25: a DX7 bank's voices picked)
 const sendable = () => S.media.filter((m) => !m.dx7 || m.dx7.some((v) => v.on));   // (0.29: a bank none kept: not sent)
 const sizeOf = (m) => (m.wt ? m.wt.length : m.dx7 ? dx7Data(m).length : isSrc(m) && (m.stale || !m.adpcm) ? costAt(m, m.set.rate) : m.adpcm.length);
 const proxy = (m) => (m.wt ? { rate: 22050, ch: [{ length: 2 * m.wt.length }], set: { rate: 22050 }, lock: true } : m.dx7 ? { rate: 22050, ch: [{ length: 2 * dx7Data(m).length }], set: { rate: 22050 }, lock: true }
-  : isSrc(m) ? m : { rate: m.rate, ch: [{ length: m.n }], set: { rate: m.rate }, lock: true });
+  : isSrc(m) ? m : { rate: m.rate, ch: [{ length: m.n }], set: { rate: m.rate }, lock: !!m.lock });   // (0.33, editor: a read-back can be fitted too)
 async function decodeFile(bytes) {
   try { return readWav(bytes); } catch (_) { /* not a WAV the reader takes: the browser's decoder */ }
   const ctx = new OfflineAudioContext(1, 1, 44100), ab = await ctx.decodeAudioData(bytes.slice().buffer);
@@ -1645,16 +1656,16 @@ function renderMedia() {
     tr.innerHTML = `<td class="name"></td><td>${len.toFixed(2)} s</td><td></td><td></td><td class="v">${(sizeOf(m) / 1024).toFixed(1)} KB</td>
       <td><button class="quiet small" title="Listen (as it will be on the FM-1)">▶</button><button class="quiet small" title="Remove">✕</button></td>`;
     tr.querySelector(".name").textContent = m.name;
-    tr.querySelector(".name").title = isSrc(m) ? `${m.name} (${m.rate} Hz, ${m.ch.length > 1 ? "stereo" : "mono"})` : "On the FM-1 as it is (load the project file it came from to convert it again)";
+    tr.querySelector(".name").title = !isSrc(m) ? `On the FM-1 at ${m.rate} Hz: pick another rate to convert it again`
+      : m.set.trim === false ? `${m.name} (from the FM-1, ${m.rate} Hz)` : `${m.name} (${m.rate} Hz, ${m.ch.length > 1 ? "stereo" : "mono"})`;
     const fs = document.createElement("select"), rs = document.createElement("select");
     FOLDS.forEach((f) => { const o = document.createElement("option"); o.value = f; o.textContent = f === "mix" ? "L+R" : f; fs.appendChild(o); });
     RATES.forEach((r) => { const o = document.createElement("option"); o.value = r; o.textContent = RATE_NAME[r]; rs.appendChild(o); });
     fs.value = m.set.fold; rs.value = m.set.rate;
     if (!rs.value) { const o = document.createElement("option"); o.value = m.set.rate; o.textContent = `${m.set.rate} Hz`; rs.appendChild(o); rs.value = m.set.rate; }
-    fs.disabled = rs.disabled = !isSrc(m) || (m.ch.length < 2 && false);
-    if (isSrc(m) && m.ch.length < 2) fs.disabled = true;
+    fs.disabled = !isSrc(m) || m.ch.length < 2;        // (0.33, editor: a read-back's rate can change; it's mono)
     fs.onchange = () => { m.set = { ...m.set, fold: fs.value }; m.stale = true; renderMedia(); };
-    rs.onchange = () => { m.set = { ...m.set, rate: +rs.value }; m.stale = true; m.lock = true; renderMedia(); };
+    rs.onchange = () => { reRate(m, +rs.value); m.lock = true; renderMedia(); };
     tr.children[2].appendChild(fs);
     tr.children[3].appendChild(rs);
     const [pl, rm] = tr.querySelectorAll("button");
@@ -1677,12 +1688,19 @@ $("mediaCard").ondrop = (ev) => { ev.preventDefault(); $("mediaCard").classList.
 $("mfit").onclick = () => {
   const px = S.media.map(proxy), r = fitToSpace(px);
   if (!r) return say("Even at 8 kHz these don't all fit: remove some.", "bad");
-  S.media.forEach((m, i) => { if (isSrc(m) && m.set.rate !== r[i]) { m.set = { ...m.set, rate: r[i] }; m.stale = true; } });
+  S.media.forEach((m, i) => { if (isSrc(m) && m.set.rate !== r[i]) { m.set = { ...m.set, rate: r[i] }; m.stale = true; } else if (!isSrc(m) && m.set && m.rate !== r[i]) reRate(m, r[i]); });
   say("Rates picked to fit. Listen, then send.", "ok");
   renderMedia();
 };
 $("msend").onclick = () => guard(async () => {
   if (S.st.playing) throw new Error("Stop the FM-1 first: writing its memory interrupts the sound.");
+  // (0.33, editor) a loop read back and given a new rate keeps its hand-set slices: read under its old sound, put back moved
+  const carry = [];
+  for (const m of sendable()) {
+    if (!(isSrc(m) && m.stale && m.sent && m.adpcm && m.set.trim === false)) continue;
+    const r = await S.link.req(50, key7(sliceKey(m.adpcm, m.n)), 1500).catch(() => null), cnt = r ? r[5] || 0 : 0;
+    if (cnt) carry.push({ m, n: m.n, starts: Array.from({ length: cnt }, (_, j) => r[6 + 3 * j] | r[7 + 3 * j] << 7 | r[8 + 3 * j] << 14) });
+  }
   const parts = sendable().map((m) => {
     if (m.wt) return { adpcm: m.wt, n: 2 * m.wt.length, rate: 22050 };   // (0.32: a wavetable: a zone of its own)
     if (m.dx7) { const b = dx7Data(m); return { adpcm: b, n: 2 * b.length, rate: 22050 }; }   // (DX7 voices: a zone of their own)
@@ -1695,6 +1713,10 @@ $("msend").onclick = () => guard(async () => {
   try {
     if (!S.dev) S.dev = await readSlots(S.link);
     await writeSlots(S.link, ims, S.dev, (f) => { $("pprog").value = f; }, (t) => say(t));
+    for (const c of carry) {
+      const st = rescaleSlices(c.starts, c.n, c.m.n);
+      await S.link.req(51, [...key7(sliceKey(c.m.adpcm, c.m.n)), st.length, ...st.flatMap(pos7)], 5000).catch(() => say(`${c.m.name}: its slices couldn't be moved (set them again on the FM-1).`, "bad"));
+    }
     const sent = sendable();
     keepNames(sent);
     S.media = S.media.filter((m) => sent.includes(m) || (m.dx7 && !m.sent && m.bank));   // (a bank none kept: still to pick from)

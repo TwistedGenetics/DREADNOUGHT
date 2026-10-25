@@ -127,6 +127,23 @@ export function convert(sample, set = sample.set) {
   return { s: finish(r, set.rate, { trim: set.trim !== false }), rate: set.rate };
 }
 
+// (0.33, editor) a sample read back from the FM-1, made changeable again: its ADPCM decoded to the source a new rate is
+// converted from. Not trimmed or faded again (set.trim false): the same length in time, so its slices carry over.
+export function fromDevice(adpcm, n, rate, to = rate) {
+  const s = imaDecode(adpcm, n), x = new Float32Array(n);
+  for (let i = 0; i < n; i++) x[i] = s[i] / 32768;
+  return { ch: [x], rate, set: { rate: to, fold: "mix", trim: false } };
+}
+// a loop's hand-set slice starts, moved to the same places in time at its new length
+export function rescaleSlices(starts, oldN, newN) {
+  const out = [];
+  for (const v of starts) {
+    const w = Math.min(newN - 1, Math.round((v * newN) / oldN));
+    if (!out.length || w > out[out.length - 1]) out.push(w);
+  }
+  return out;
+}
+
 // what a sample costs at a rate (before trimming: an upper bound), ADPCM: half a byte a sample
 export const framesAt = (sample, rate) => Math.ceil((sample.ch[0].length * rate) / sample.rate);
 export const costAt = (sample, rate) => (framesAt(sample, rate) + 1) >> 1;
@@ -197,7 +214,7 @@ export function fitToSpace(samples) {
   for (let guard = 0; guard < 200 && !fits(); guard++) {
     let best = -1;
     samples.forEach((s, i) => {
-      if (s.lock || idx(r[i]) >= RATES.length - 1) return;
+      if (s.lock || idx(r[i]) < 0 || idx(r[i]) >= RATES.length - 1) return;   // (a rate not in the list: left)
       if (best < 0 || seconds(s) > seconds(samples[best])) best = i;
     });
     if (best < 0) return null;

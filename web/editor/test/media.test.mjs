@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   fold, resample, finish, convert, imaEncode, imaDecode, costAt, fitToSpace, packPlan, slotImage, parseSlot, imagesOf,
-  readSlots, writeSlots, slotSamples, readWav, RATES, CAP, SLOT_MAX_DATA,
+  readSlots, writeSlots, slotSamples, readWav, RATES, CAP, SLOT_MAX_DATA, fromDevice, rescaleSlices,
 } from "../media.js";
 import { connect } from "../protocol.js";
 import { MockFM1 } from "../mock-fm1.js";
@@ -155,4 +155,35 @@ test("(0.31.2) adding a sample sends only what changed: the slot's first sector 
   assert.deepEqual([...back[1].adpcm], [...b.adpcm], "the new one after it");
   assert.ok(m.writes < full / 2, `only the new part sent: ${m.writes} writes against ${full} for the first`);
   } finally { m.close(); }
+});
+
+test("(0.33, editor) a sample on the FM-1 given a new rate: decoded, resampled, sent; same length in time, same pitch, slices moved", async () => {
+  const m = new MockFM1(), link = await connect(m.access);
+  const smp = { rate: 44100, ch: [sine(440, 44100, 0.5)], set: { rate: 32000, fold: "mix" } };
+  const c = convert(smp);
+  await writeSlots(link, imagesOf([{ adpcm: imaEncode(c.s), n: c.s.length, rate: 32000 }]), await readSlots(link));
+  let dev = await readSlots(link);
+  const old = slotSamples(dev)[0];
+  const src = fromDevice(old.adpcm, old.n, old.rate, 11025);
+  assert.equal(src.rate, 32000);
+  assert.equal(src.set.trim, false);
+  const c2 = convert(src);
+  assert.ok(Math.abs(c2.s.length - Math.round((old.n * 11025) / 32000)) <= 1, "not trimmed: the same length in time");
+  let zc = 0;                                        // (the pitch: zero crossings a second)
+  for (let i = 1; i < c2.s.length; i++) if ((c2.s[i - 1] < 0) !== (c2.s[i] < 0)) zc++;
+  assert.ok(Math.abs((zc / 2) / (c2.s.length / 11025) - 440) < 5, `still 440 Hz (${(zc / 2) / (c2.s.length / 11025)})`);
+  const back = imaDecode(imaEncode(c2.s), c2.s.length);
+  assert.ok(rms(Float32Array.from(back, (v) => v / 32768)) > 0.5, "the level kept");
+  await writeSlots(link, imagesOf([{ adpcm: imaEncode(c2.s), n: c2.s.length, rate: 11025 }]), dev);
+  dev = await readSlots(link);
+  const now = slotSamples(dev)[0];
+  assert.equal(now.rate, 11025);
+  assert.ok(now.adpcm.length < old.adpcm.length / 2.5, "less space");
+  m.close();
+});
+
+test("(0.33, editor) slices rescaled to a new length: same places in time, in order, inside the sample", () => {
+  assert.deepEqual(rescaleSlices([0, 8000, 16000, 24000], 32000, 11025), [0, 2756, 5513, 8269]);
+  assert.deepEqual(rescaleSlices([0, 1, 2, 30000], 32000, 8), [0, 7]);   // (crowded ones merge)
+  assert.deepEqual(rescaleSlices([0, 100], 200, 400), [0, 200]);
 });
