@@ -140,10 +140,10 @@ def qs_figs():
         dict(t="SAVE", n=5, title="SAVE", side="left", at=420, edge="bottom", col=4, w=250),
     ], screen=SHOTS / "progress-04-countin.png", lit={"REC"}, margin=(300, 300, 20, 90), **M)
     F[5] = fm1([
-        dict(t="GLO", n=1, title="GLO ×5", side="right", at=110, edge="top", col=0, w=250),
-        dict(t="K1", n=2, title="TRACK", side="top", at=440, w=250, col=1),
-        dict(t="K2", n=3, title="INSTRUMENT", side="top", at=790, w=330, col=2),
-        dict(t="FX", n=4, title="FX: PUT IT ON", side="right", at=270, edge="bottom", col=3, w=290),
+        dict(t="HOME", n=1, title="HOME", side="right", at=290, edge="bottom", col=0, w=250),
+        dict(t="SELECT", n=2, title="THE TRACK", side="left", at=92, col=1, edge="left", w=270),
+        dict(t="FX", n=3, title="FX: PICKER", side="right", at=110, edge="top", col=2, w=250),
+        dict(t="K1", n=4, title="INSTRUMENT", side="top", at=610, w=320, col=3),
         dict(t="SAVE", n=5, title="SAVE", side="left", at=420, edge="bottom", col=4, w=250),
     ], screen=SHOTS / "project-05-chosen.png", margin=(300, 300, 90, 20), **M)
     F[6] = fm1([
@@ -153,6 +153,20 @@ def qs_figs():
         dict(t="K1", n=4, title="SLICE ROW", side="top", at=610, w=320, col=3),
         dict(t=[f"W{i}" for i in range(1, 17)], n=5, title="TAP STEPS", side="bottom", at=500, w=360, col=4),
     ], screen=SHOTS / "drum-01.png", margin=(300, 300, 90, 90), **M)
+    F[7] = fm1([
+        dict(t="GLO", n=1, title="GLO ×6", side="right", at=110, edge="top", col=0, w=250),
+        dict(t="B9", n=2, title="BLACK 9: A ROW", side="bottom", at=700, w=330, col=1),
+        dict(t=["K1", "K2", "K3", "K4"], n=3, title="ROW, TRACK, PATTERN, BARS", side="top", at=766, w=560, col=2),
+        dict(t="FX", n=4, title="FX: SONG ON", side="right", at=250, edge="bottom", col=3, w=270),
+        dict(t="PLAY", n=5, title="PLAY", side="right", at=400, edge="bottom", col=4, w=250),
+    ], screen=SHOTS / "song-01-rows.png", margin=(300, 300, 90, 90), **M)
+    F[8] = fm1([
+        dict(t="SEQ", n=1, title="SEQ", side="right", at=240, edge="bottom", col=0, w=250),
+        dict(t="W1", n=2, title="HOLD A STEP", side="bottom", at=300, w=300, col=1),
+        dict(t="K4", n=3, title="COND 1:4", side="top", at=900, w=250, col=2),
+        dict(t="FX", n=4, title="FX ×2", side="right", at=110, edge="top", col=3, w=250),
+        dict(t="K3", n=5, title="HIT FX", side="top", at=600, w=250, col=4),
+    ], screen=SHOTS / "hfx-01-page3.png", lit={"SEQ"}, margin=(300, 300, 90, 90), **M)
     return F
 
 
@@ -178,8 +192,8 @@ def body():
   <div class="tiles">
     <div style="background:{COL[0]}"><small>FIRMWARE</small><b>{VERSION}</b></div>
     <div style="background:{COL[1]}"><small>TRACKS</small><b>8</b></div>
-    <div style="background:{COL[2]}"><small>INSTRUMENTS</small><b>8</b></div>
-    <div style="background:{COL[3]}"><small>PATTERNS</small><b>64</b></div>
+    <div style="background:{COL[2]}"><small>INSTRUMENTS</small><b>10</b></div>
+    <div style="background:{COL[3]}"><small>EFFECTS</small><b>17</b></div>
   </div>
   {fig(overview())}
   <div class="covernote">Manual &amp; quick start · github.com/TwistedGenetics/DREADNOUGHT · a beta: back up your FM-1 first (see INSTALLING, UPDATING, RECOVERY)</div>
@@ -187,7 +201,7 @@ def body():
 
     # ---- quick start
     o.append(f'<section class="qsintro"><div class="chead" style="background:{COL[0]}"><span class="ct">QUICK START</span></div>'
-             f'<p class="lead">Six walks round the box, each a few presses. Every one starts from the screen DREADNOUGHT starts '
+             f'<p class="lead">Eight walks round the box, each a few presses. Every one starts from the screen DREADNOUGHT starts '
              f'on: REESE\'s OSC page. The numbers on the pictures are the order to press things in.</p></section>')
     o.append(qs(1, "HEAR IT", 0, F[1], steps(
         f"Press {k('PLAY')}. The demo pattern plays: REESE, the bass on track 1. {k('PLAY')} again stops it.",
@@ -231,6 +245,20 @@ def body():
         f"{k('SEQ')}: the slice grid. {k('KNOB 1')} picks the slice row; tap white keys to put that slice on those steps.",
         f"{k('PLAY')}. The loop follows the tempo ({k('ALGORITHM')})."),
         "drum-01.png", "DRUM: slices down, steps across."))
+    o.append(qs(7, "MAKE A SONG", 0, F[7], steps(
+        f"Make a few patterns first (SAVE + a white key 1-8 picks a track's pattern; SAVE + white A held + white B copies A into B).",
+        f"Press {k('GLO')} six times: SONG. Black key 9 adds a row of the patterns playing now.",
+        f"{k('KNOB 1')} the row, {k('KNOB 2')} the track (or white keys 1-8), {k('KNOB 3')} its pattern (– : it carries on), {k('KNOB 4')} the row's bars. Black 10 copies the row, 11 deletes it.",
+        f"{k('FX')} turns the song on (lit).",
+        f"{k('PLAY')}: the rows play in turn from the one picked, then round again. {k('SAVE')} keeps the song."),
+        "song-01-rows.png", "SONG: two rows."))
+    o.append(qs(8, "STRETCH A BREAK EVERY 4 BARS", 1, F[8], steps(
+        f"On a break's slice grid ({k('SEQ')} from its page), hold the step to change.",
+        f"Turn {k('KNOB 4')}, COND, to 1:4 (the first of every 4 passes). For a 1-bar pattern that is every 4 bars.",
+        f"Still holding, press {k('FX')} twice: the third page.",
+        f"{k('KNOB 3')}, HIT FX: STR 1/2 (the Akai stretch), STUT32, TAPESTOP …",
+        f"{k('KNOB 4')}, COND ON: FX. Now the hit always plays, and only the effect waits for its turn. Let go; {k('PLAY')}."),
+        "hfx-01-page3.png", "A step's third page: HIT FX, COND ON."))
 
     # ---- 1 the panel
     o.append(chapter("THE PANEL", 0, "Everything on the FM-1, and what it does in DREADNOUGHT. The screen tells you what "
@@ -242,16 +270,16 @@ def body():
         (k("ALGORITHM"), "The tempo, 60-200 BPM."),
         (k("KNOB 1") + " – " + k("KNOB 4"), "The four tiles on the screen, in their colours: orange, yellow, green, blue."),
         (k("OCT-") + " " + k("OCT+"), "Octave, -3 to +3. With a step held: moves its note an octave."),
-        (k("SEL") + " " + k("EDIT") + " " + k("ENV") + " " + k("LFO") + " " + k("GLO"), "The sound's five pages (OSC, FILTER, AMP, MOD, OUT on the synths). Pressed again: the page's second view. GLO goes on: FX, SETUP, MIDI, PROJECT."),
+        (k("SEL") + " " + k("EDIT") + " " + k("ENV") + " " + k("LFO") + " " + k("GLO"), "The sound's five pages (OSC, FILTER, AMP, MOD, OUT on the synths). Pressed again: the page's second view. GLO goes on: FX, SETUP, MIDI, PROJECT, SONG."),
         (k("FX"), "Tap: more: the next four values of an effect, a held step, an LFO; on HOME, the instrument picker; on SETUP, the skin; on ROLL and DRUM, the keys' mode. Held ½ s: the FX page (again: back)."),
         (k("HOME"), "Tap: the HOME page (the eight tracks). On a sequencer page, held: FILL."),
-        (k("SAVE"), "Tap: keep the sound, patterns, slices and layout (lit when something changed). Held with other controls: store, name, copy (see SAVING)."),
+        (k("SAVE"), "Tap: keep the sound, patterns, song, slices and layout (lit when something changed). Held with other controls: store, name, pick and copy patterns (see SAVING, PATTERNS)."),
         (k("ARP"), "BREAKS: BRK, again BRK2, again SLICE (chop mode)."),
         (k("SEQ"), "This instrument's sequencer page; again: back. Held + a key 1-8: jump to a track."),
         (k("PLAY"), "Start / stop the sequencer (MIDI clock, start and stop go out on USB)."),
         (k("REC"), "Record into the selected track: playing, live; stopped, step by step."),
         ("White keys", "Notes. On ROLL and DRUM: the 16 steps in view. On HOME: tracks 1-8. On SLICE with REC lit: chops."),
-        ("Black keys", "Notes. On ROLL and DRUM: 1-8 mute tracks 1-8, 9 held 1 s clears the track, 10 / 11 the bar in view."),
+        ("Black keys", "Notes. On ROLL and DRUM: 1-8 mute tracks 1-8 (the sound stops at once), 9 held 1 s clears the track, 10 / 11 the bar in view (held: lengths and shifts, see THE SEQUENCER). On SONG: rows."),
         (k("OCT-") + " + " + k("OCT+") + " held 5 s", "Update mode, for the flasher (recovery)."),
     ], head=["CONTROL", "DOES"]))
 
@@ -473,12 +501,16 @@ def body():
     o.append(knobs([("MIDI", k("GLO") + " ×4", "MIDI: which (1-5…)", "CHANNEL 1-16", "OVERLAP: SLIDE / CUT", "USB OUT: STEREO / 10 CH")],
                    f"{k('SELECT')} on MIDI: the next MIDI instrument. With a MIDI track selected the keys play out on its channel. "
                    "SLIDE sends the new note before the old one's note-off: legato on the other synth."))
+    o.append("<h2>USB audio</h2>")
     o.append(table([
         ("USB OUT: STEREO", "The computer records the FM-1's stereo mix over the cable (as ever)."),
         ("USB OUT: 10 CH", "Ten channels over the cable: 1-8 the tracks, each mono and dry (no FX); 9-10 the FX returns only, "
                            "for mixing and effects in the DAW. The FM-1's own output still plays the whole mix. Turn it, "
                            "SAVE, then power off and on: the USB starts with ten channels. The ring it needs comes out of the "
                            "FX memory (131 KB left: DELAY and any echo or small reverb still fit; two big reverbs don't)."),
+        ("In the DAW", "The FM-1 shows up as an audio input (class compliant: no driver). With 10 CH, arm channels 1-8 for "
+                       "the tracks and 9-10 for the effects. 16-bit, 44.1 kHz, kept in time with the computer's clock."),
+        ("Back to STEREO", "Turn USB OUT back, SAVE, power off and on. The knob is on the FM-1, so you can always get back."),
     ], head=["SETTING", "WHAT IT DOES"]))
 
     # ---- sequencer
@@ -510,13 +542,25 @@ def body():
     o.append(table([
         ("Move a note", "Hold its step and press the step it should go to (black keys 10 / 11: another bar; onto a note: they swap). Or turn SELECT. OCT- / OCT+: an octave."),
         ("Copy a note", "As moving, with SAVE held."),
-        ("A range of steps", "Hold the first step, hold REC, press the last: KNOB 1 the notes' CONDITION (e.g. !4:4 to drop them every 4th time round), KNOB 2 their LENGTH, KNOB 3 / 4 a velocity ramp's start and end."),
+        ("A range of steps", "Hold the first step, hold REC, press the last: KNOB 1 the notes' CONDITION (e.g. !4:4 to drop them every 4th time round: a mute every 4 bars), KNOB 2 their LENGTH, KNOB 3 / 4 a velocity ramp's start and end."),
         ("Retrigs", "RETRIG on: the step repeats at RATE (1/16 a step, 1/32 two …) for RT LEN, its velocity fading (RT VEL): rolls and builds."),
         ("Chords", "FM, WAVE, SAMPLER's keys and MIDI: 15 chords (MIN, MAJ, MIN7, MAJ7, 7, MIN9, MAJ9, ADD9, SUS2, SUS4, 5, DIM, AUG, MIN6, 6). Hold a step and turn PRESETS, or CHORD on page 3, or record keys held together."),
-        ("Hit FX", "Breaks and SAMPLER's pads: a step can carry its own effect (page 3, KNOB 3). STR 1/2 and STR 1/4: the Akai way of stretching, the hit at its own pitch but 2x / 4x longer, in 32nd-note cycles with their grainy warble. STUT32 / STUT64: its first 32nd / 64th over and over for a beat, then the hit plays on. TAPESTOP: it slows to a stop over a beat. OCT- / OCT+: an octave down / up. KNOB 4 COND ON: FX makes the step's condition decide only the effect: the hit always plays, stretched, say, on 1:4 (every 4th time round). On a chord's track it decides the chord."),
+        ("Hit FX", "Breaks and SAMPLER's pads: a step's own effect (page 3, KNOB 3). See below."),
+        ("COND ON", "Page 3, KNOB 4. NOTE: the condition decides whether the step plays (as ever). FX: the step always plays, and the condition decides only its hit FX, or on a chord's track its chord."),
         ("Conditions", "COND: a % chance; FILL / !FILL; PRE / !PRE (the track's last condition); NEI / !NEI (the track before's); 1ST / !1ST; LST / !LST; A:B (the A-th of every B passes)."),
         ("Overlaps", "A note whose length reaches the next slides into it (OVERLAP SLIDE on OUT) or retriggers it (CUT)."),
     ], head=["DOING", "HOW"]))
+    o.append("<h2>Hit FX</h2><p>On the breaks and SAMPLER's pads a step can carry an effect of its own, played on that hit "
+             "alone. Hold the step, " + k("FX") + " twice, " + k("KNOB 3") + ". With COND ON: FX and a condition, it comes "
+             "now and then: 1:2 every other pass, 1:4 every fourth, 50% at random, FILL when you hold " + k("HOME") + ".</p>")
+    o.append(table([
+        ("STR 1/2, STR 1/4", "The Akai S950 / S1000's cyclic time-stretch: the hit at its own pitch, 2x / 4x as long, played in "
+                             "32nd-note cycles with their grainy, metallic warble."),
+        ("STUT32, STUT64", "The hit's first 32nd / 64th over and over for a beat, then it plays on."),
+        ("TAPESTOP", "The hit slows to a stop over a beat, pitch and all."),
+        ("OCT-, OCT+", "An octave down / up (half / double speed)."),
+    ], head=["HIT FX", "WHAT IT DOES"]))
+    o.append(shots(("hfx-01-page3.png", "Page 3 on a break: HIT FX, COND ON."),))
     o.append("<h2>Patterns</h2><p>Each instrument has 8 patterns, along the top of its sequencer page: the playing one lit, a "
              "queued one flashing, ones with notes marked, and how full pattern memory is.</p>")
     o.append(table([
@@ -538,8 +582,9 @@ def body():
                    ("perform-05-ruler.png", "A 1-bar track against a 4-bar break: the ruler, bar 3 playing."),
                    ("perform-04-drumplay.png", "DRUM in PLAY mode: the key played selects its row.")))
 
-    # ---- FX
-    o.append("<h2>Song</h2><p>" + k("GLO") + " six times: SONG. A song is rows: each row the pattern every track plays "
+    # ---- song
+    o.append(chapter("SONG", 1, "Patterns in order: the arrangement.", brk=False))
+    o.append("<p>" + k("GLO") + " six times: SONG. A song is rows: each row the pattern every track plays "
              "(– : that track carries on with its own) for so many bars. " + k("FX") + " turns the song on; then " +
              k("PLAY") + " plays it from the row picked, each row's patterns coming in at its first bar and starting from the "
              "top, round to the first row after the last. Up to 64 rows.</p>")
@@ -561,8 +606,12 @@ def body():
         ("FX A", k("FX") + " (on the FX page; hold FX anywhere to get there)", "the effect", "its 1st value", "2nd", "3rd"),
         ("FX A 2", k("FX") + " again", "its 4th", "5th", "6th", "7th"),
         ("FX B, FX B 2", k("FX") + " again", "as FX A", "", "", ""),
-    ], "176 KB of effect memory: an effect that won't fit beside the other is refused. DELAY fits beside anything; two of the big reverbs fit; two DELAYs don't."))
-    o.append(shots(("project-01-fx-mix.png", "MIX: the sends and returns."), ("fx-01-massive.png", "FX A: MASSIVE."), ("fx-05-quadra-flange.png", "QUADRA, FLANGE.")))
+    ], "176 KB of effect memory (131 KB with USB OUT at 10 CH): an effect that won't fit beside the other is refused. DELAY fits beside anything; two of the big reverbs fit; two DELAYs don't. The light effects (FILTER to DRIVE) take almost nothing."))
+    o.append("<p>The effects are sends: each track's SEND sets how much of it goes in, and the effect's sound comes back "
+             "at RETURN on top of the dry track. So CRUSH and DRIVE are parallel processing (the clean sound stays), and the "
+             "PHASER's notches are deepest with plenty sent.</p>")
+    o.append(shots(("project-01-fx-mix.png", "MIX: the sends and returns."), ("fx-01-massive.png", "FX A: MASSIVE."),
+                   ("lfx-01-filter.png", "FX A: FILTER."), ("lfx-05-crush.png", "FX B: CRUSH.")))
     o.append(table([
         ("DELAY", "The dark half-rate ping-pong.", "TIME (synced), FEEDBACK, TONE"),
         ("TAPE", "Tape echo: wow, flutter, head loss, saturation.", "TIME, FEEDBACK, DEGRADE, PINGPONG"),
@@ -582,6 +631,8 @@ def body():
         ("RING", "Ring modulator, 20 Hz to 5 kHz, its pitch swept by a synced LFO; sine or soft square.", "FREQ, LFO RATE, LFO AMT, SHAPE"),
         ("DRIVE", "SOFT, HARD, FOLD, TUBE, RECT (an octave up). LOW CUT before it keeps the sub clean: the parallel bass distortion.", "TYPE, DRIVE, TONE, LOW CUT"),
     ], head=["EFFECT", "WHAT IT IS", "VALUES"]))
+    o.append(tip("Parallel bass dirt: DRIVE on FX B, LOW CUT up to ~150 Hz, the bass track's SEND B up. The sub stays clean, "
+                 "the mids growl. A filter sweep over 4 bars: FILTER, LFO RATE 4 BAR, SEND A up on the pad.", 2, "TRY"))
 
     # ---- setup
     o.append(chapter("SETUP AND SKINS", 3, f"{k('GLO')} three times."))
@@ -606,14 +657,14 @@ def body():
     o.append("<p>The editor opens on a big copy of the FM-1: its screen, knobs, buttons and keys. Everything there does what it "
              "does on the FM-1, and turning a knob on the FM-1 moves the page. The tabs after it edit in depth:</p>")
     o.append(table([
-        ("Pattern", "Every track in a mouse-driven piano roll or slice grid; velocity, conditions, retrigs, chords, the 8 patterns."),
+        ("Pattern", "Every track in a mouse-driven piano roll or slice grid; velocity, conditions, retrigs, chords, hit FX, the 8 patterns."),
         ("REESE, SUB, LFOs", "Every value; LFO shapes drawn with the mouse."),
         ("SAMPLER", "The 16 pads or the key map; SAMPLER 2 picked at the top when it's on a track."),
         ("FM", "Every value of the voice. DX7 banks: load a .syx, hear each voice here or on the FM-1, keep some, send them."),
         ("WAVE", "Every value. Wavetables: load a Serum wavetable or single-cycle WAV, see its frames, hear it, send it: it comes up on TABLE."),
         ("JUNO", "Every value, its factory sounds, keys to hear it on the FM-1."),
         ("Breaks", "The breaks' settings and slices."),
-        ("Project", "Each track's instrument and sends, the FX, memory and CPU; samples (WAV, MP3, AIFF … converted and sent); save and load whole projects."),
+        ("Project", "Each track's instrument and sends, the FX, memory and CPU; the song's rows; samples (WAV, MP3, AIFF … converted and sent); save and load whole projects."),
     ], head=["TAB", "WHAT'S THERE"]))
     o.append("<p><b>Sample memory:</b> three slots, 80 + 80 + 64 KB. Samples, loops, DX7 voices and wavetables share it. A "
              "wavetable is about 2 KB a frame. The editor sends only what changed.</p>")
@@ -626,7 +677,7 @@ def body():
     o.append(table([
         ("Patterns", "8 per instrument, 64 steps each; notes of all 64 patterns share memory (about 1 680). The sequencer page shows how full it is."),
         ("Samples", "224 KB in three slots, shared by loops, samples, DX7 voices and wavetables."),
-        ("Effects", "176 KB between FX A and FX B."),
+        ("Effects", "176 KB between FX A and FX B (131 KB with USB OUT at 10 CH)."),
         ("CPU", f"PROJECT shows the load and its peak. From 0.40 the FM-1's two cores share the work: the instruments are split between them (weighed again all the time, the heaviest first) and FX B runs beside FX A. The tile reads CPU x2 then; CPU x1 if the second core is off (it didn't start, or it gave up: one core until you power off). Too much at once: the status line says AUDIO LATE: CPU FULL. Fewer voices, less unison or a smaller reverb bring it back."),
     ]))
 
@@ -642,7 +693,7 @@ def body():
                  "docs/RECOVERY.md on GitHub has every way back. Updates keep your sounds, patterns and samples.", 0, "RECOVERY"))
 
     # ---- reference card
-    o.append(chapter("QUICK REFERENCE", 2, "The combinations, on one page."))
+    o.append(chapter("QUICK REFERENCE", 2, "The combinations, at a glance."))
     o.append(table([
         (k("HOME"), "the eight tracks; key 1-8 opens one"),
         (k("FX") + " on HOME", "the instrument picker"),
@@ -657,18 +708,23 @@ def body():
         (k("FX") + " held ½ s", "the FX page; again: back"),
         (k("FX") + " on ROLL / DRUM", "STEP · KEYS · PLAY mode"),
         ("black 10 / 11 held + white 1-4", "track 1-4 bars long"),
+        ("black 10 / 11 held + " + k("SELECT") + " / " + k("OCT-") + k("OCT+"), "shift every step a step / a bar, round"),
         (k("REC") + " held + knob", "record quantise"),
         ("step held + knobs", "NOTE LENGTH VEL COND; FX: SLIDE ACCENT RETRIG RATE; FX: RT LEN RT VEL CHORD / HIT FX, COND ON"),
         ("step held + another step", "move it there (SAVE held: copy)"),
-        ("step held + " + k("REC") + " + last step", "velocity ramp"),
+        ("step held + " + k("REC") + " + last step", "a range: COND, LENGTH, velocity ramp"),
+        ("step held, " + k("FX") + " ×2, " + k("KNOB 3") + " / " + k("KNOB 4"), "HIT FX (breaks, pads) · COND ON"),
         (k("SAVE") + " + " + k("PRESETS"), "store to USER 1-8"),
         (k("SAVE") + " + " + k("FX"), "name the project / sound"),
         (k("SAVE") + " + white 1-8", "pattern 1-8"),
+        (k("SAVE") + " + white A held + white B", "copy pattern A into B"),
         (k("SAVE") + " + black 10 / 11", "copy / paste the pattern"),
         (k("SAVE") + " + " + k("OCT-") + " / " + k("OCT+"), "copy / paste the bar"),
         (k("SAVE") + " + " + k("REC"), "×2: double the pattern"),
         (k("HOME") + " held (sequencer)", "FILL"),
         ("black 9 held 1 s", "clear the track"),
+        ("SONG: black 9 / 10 / 11, " + k("FX"), "row of what plays · copy · delete · song on"),
+        ("MIDI page " + k("KNOB 4"), "USB OUT: STEREO / 10 CH (SAVE, restart)"),
         (k("OCT-") + " + " + k("OCT+") + " 5 s", "update mode"),
     ], head=["PRESS", "FOR"], cls="tbl ref"))
     return "\n".join(o)
