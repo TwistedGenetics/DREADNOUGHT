@@ -338,9 +338,13 @@ static inline int32_t next(dn_brk_t *b)              /* the next sample forward;
     return ima(b->loop.adpcm, b->p++, &b->pred, &b->idx);
 }
 
+void dn_brk_hfx(dn_brk_t *b, uint32_t type) { dn_hfx_setup(&b->nfx, type, b->bpm, 44100u); }
+
 void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse)
 {
     uint32_t start;
+    dn_hfx_t fx = b->nfx;                           /* (0.39) its own FX: this hit's, not the next's */
+    b->nfx.type = DN_HFX_OFF, b->nfx.dr16 = 0;
     if (!b->ok)
         return;
     slice %= b->nslices;
@@ -353,6 +357,10 @@ void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse)
     b->gain = (int32_t)dn_clamp((int32_t)vel, 1, 127) * 258;
     b->played = 0;
     b->hold_n = 0;
+    b->hfx = fx;                                    /* (STRETCH's grains: none) */
+    if (b->stretch == 2u)
+        b->hfx.type = DN_HFX_OFF, b->hfx.dr16 = 0;
+    b->hfx.start = start;
     seek(b, start);
     b->endp = b->start[slice + 1u];
     if (b->rev || b->stretch == 2u) {               /* the slice into RAM: played backwards, or by grains */
@@ -410,6 +418,7 @@ void dn_brk_audition(dn_brk_t *b, uint32_t at)
     b->played = 0;
     b->hold_n = 0;
     b->endp = b->loop.n;
+    b->hfx.type = DN_HFX_OFF, b->hfx.dr16 = 0;
     seek(b, at < b->loop.n ? at : 0u);
     b->a = next(b);
     b->b = next(b);
@@ -488,7 +497,7 @@ void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
     if (!b->ok)
         return;
     for (i = 0; i < n; i++) {
-        int32_t v = 0, o;
+        int32_t v = 0, o, jv = 0, jump = 0;
         uint8_t was = b->on;
         k = DN_ENV_K[b->fast ? 30 : dec] >> 5;   /* per sample (the table: per 32) */
         if (b->on) {
@@ -513,16 +522,44 @@ void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
                 int32_t j = b->rpos >> 16;
                 int32_t s0 = b->rbuf[j], s1 = j + 1 < (int32_t)DN_BRK_RBUF ? b->rbuf[j + 1] : s0;   /* at j + frac */
                 v = s0 + (((s1 - s0) * ((b->rpos & 0xFFFF) >> 1)) >> 15);
-                b->rpos -= (int32_t)b->inc;
+                b->rpos -= (int32_t)dn_hfx_inc(&b->hfx, b->inc);
                 if (b->rpos < 0)
                     b->on = 0;
+                if (b->hfx.type) {                  /* (0.39) reversed: a cycle goes back to where the time is */
+                    int r = dn_hfx_tick(&b->hfx, b->inc);
+                    if (r == 2)
+                        b->on = 0;
+                    else if (r == 1) {
+                        int32_t at = (int32_t)((b->blen - 1u) << 16) - (int32_t)b->hfx.t16;
+                        jv = b->rbuf[at < 0 ? 0 : at >> 16], jump = 1;
+                        b->rpos = at;
+                        if (at < 0)
+                            b->on = 0;
+                    }
+                }
             } else {
                 v = b->a + (((b->b - b->a) * (int32_t)(b->frac >> 1)) >> 15);
-                b->frac += b->inc;
+                b->frac += dn_hfx_inc(&b->hfx, b->inc);
                 while (b->frac >= 65536u) {
                     b->frac -= 65536u;
                     b->a = b->b;
                     b->b = next(b);
+                }
+                if (b->hfx.type) {                  /* (0.39) the hit's FX: a cycle begins where the time has got to
+                                                     * (declicked: the jump's step fades out through dc) */
+                    int r = dn_hfx_tick(&b->hfx, b->inc);
+                    if (r == 2)
+                        b->rel = b->fast = 1;       /* (TAPESTOP: stopped) */
+                    else if (r == 1) {
+                        uint32_t at = dn_hfx_at(&b->hfx);
+                        if (at + 2u >= b->loop.n)
+                            at = b->loop.n > 2u ? b->loop.n - 2u : 0u;
+                        seek(b, at);
+                        b->a = next(b);
+                        b->b = next(b);
+                        b->frac = 0;
+                        jv = b->a, jump = 1;
+                    }
                 }
                 if (b->p >= b->loop.n + 2u)
                     b->on = 0;                      /* the end of the loop */
@@ -543,9 +580,13 @@ void dn_brk_render(dn_brk_t *b, int32_t *lr, uint32_t n)
                     b->env = 0, b->on = 0;
             }
             v = (((v * b->env) >> 15) * b->gain) >> 15;
+            if (jump)                               /* (0.39) a hit FX's jump: from the next sample, the step it makes
+                                                     * fades out through dc */
+                jump = v - ((((jv * b->env) >> 15) * b->gain) >> 15);
         }
         o = v + b->dc;
         b->dc -= b->dc >= 0 ? (b->dc + 31) >> 5 : -((31 - b->dc) >> 5);   /* to zero, from either side */
+        b->dc += jump;
         if (was && !b->on)
             b->dc = o;                              /* stopped mid-wave: it fades from there, no click */
         b->last = o;

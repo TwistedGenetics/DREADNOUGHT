@@ -206,7 +206,7 @@ def body():
     o.append(qs(3, "MAKE A PATTERN", 2, F[3], steps(
         f"On the track you want, press {k('SEQ')}: its piano roll. (On a break: the slice grid, DRUM.)",
         "Tap white keys: steps 1-16 on and off. A new step gets the note, length and chord you last put in.",
-        f"Hold a step: its four values pop up big. Turn {k('KNOB 1')} NOTE, {k('KNOB 2')} LENGTH, {k('KNOB 3')} VEL, {k('KNOB 4')} COND (a chance, FILL, every 2nd time…). {k('FX')} while holding: SLIDE, ACCENT, RETRIG, RATE; again: the retrig's fade and CHORD.",
+        f"Hold a step: its four values pop up big. Turn {k('KNOB 1')} NOTE, {k('KNOB 2')} LENGTH, {k('KNOB 3')} VEL, {k('KNOB 4')} COND (a chance, FILL, every 2nd time…). {k('FX')} while holding: SLIDE, ACCENT, RETRIG, RATE; again: the retrig's fade, CHORD (breaks and pads: HIT FX) and what COND decides.",
         f"{k('PLAY')} to hear it. Black keys 10 and 11 show bars 2-4 (64 steps).",
         f"Tap {k('SAVE')} (lit when something has changed) to keep it."),
         "seq-02-step-held.png", "A step held: its values, big."))
@@ -498,7 +498,7 @@ def body():
     o.append(knobs([
         ("1", "hold a step", "NOTE (break: slice)", "LENGTH", "VEL", "COND"),
         ("2", k("FX"), "SLIDE (break: reverse)", "ACCENT", "RETRIG", "RATE"),
-        ("3", k("FX") + " again", "RT LEN", "RT VEL: fade in / out", "CHORD", ""),
+        ("3", k("FX") + " again", "RT LEN", "RT VEL: fade in / out", "CHORD (break / pad: HIT FX)", "COND ON: NOTE / FX"),
     ]))
     o.append(table([
         ("Move a note", "Hold its step and press the step it should go to (black keys 10 / 11: another bar; onto a note: they swap). Or turn SELECT. OCT- / OCT+: an octave."),
@@ -506,6 +506,7 @@ def body():
         ("A range of steps", "Hold the first step, hold REC, press the last: KNOB 1 the notes' CONDITION (e.g. !4:4 to drop them every 4th time round), KNOB 2 their LENGTH, KNOB 3 / 4 a velocity ramp's start and end."),
         ("Retrigs", "RETRIG on: the step repeats at RATE (1/16 a step, 1/32 two …) for RT LEN, its velocity fading (RT VEL): rolls and builds."),
         ("Chords", "FM, WAVE, SAMPLER's keys and MIDI: 15 chords (MIN, MAJ, MIN7, MAJ7, 7, MIN9, MAJ9, ADD9, SUS2, SUS4, 5, DIM, AUG, MIN6, 6). Hold a step and turn PRESETS, or CHORD on page 3, or record keys held together."),
+        ("Hit FX", "Breaks and SAMPLER's pads: a step can carry its own effect (page 3, KNOB 3). STR 1/2 and STR 1/4: the Akai way of stretching, the hit at its own pitch but 2x / 4x longer, in 32nd-note cycles with their grainy warble. STUT32 / STUT64: its first 32nd / 64th over and over for a beat, then the hit plays on. TAPESTOP: it slows to a stop over a beat. OCT- / OCT+: an octave down / up. KNOB 4 COND ON: FX makes the step's condition decide only the effect: the hit always plays, stretched, say, on 1:4 (every 4th time round). On a chord's track it decides the chord."),
         ("Conditions", "COND: a % chance; FILL / !FILL; PRE / !PRE (the track's last condition); NEI / !NEI (the track before's); 1ST / !1ST; LST / !LST; A:B (the A-th of every B passes)."),
         ("Overlaps", "A note whose length reaches the next slides into it (OVERLAP SLIDE on OUT) or retriggers it (CUT)."),
     ], head=["DOING", "HOW"]))
@@ -644,7 +645,7 @@ def body():
         (k("FX") + " on ROLL / DRUM", "STEP · KEYS · PLAY mode"),
         ("black 10 / 11 held + white 1-4", "track 1-4 bars long"),
         (k("REC") + " held + knob", "record quantise"),
-        ("step held + knobs", "NOTE LENGTH VEL COND; FX: SLIDE ACCENT RETRIG RATE; FX: RT LEN RT VEL CHORD"),
+        ("step held + knobs", "NOTE LENGTH VEL COND; FX: SLIDE ACCENT RETRIG RATE; FX: RT LEN RT VEL CHORD / HIT FX, COND ON"),
         ("step held + another step", "move it there (SAVE held: copy)"),
         ("step held + " + k("REC") + " + last step", "velocity ramp"),
         (k("SAVE") + " + " + k("PRESETS"), "store to USER 1-8"),

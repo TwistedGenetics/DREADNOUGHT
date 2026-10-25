@@ -319,9 +319,12 @@ static void sm_start(dn_smp_t *s, dn_smp_v_t *v, const dn_smp_src_t *r, uint32_t
     }
     v->env = 0, v->stage = 1, v->ctl = 0, v->amp_now = v->amp_next = 0;
     v->lastl = v->lastr = 0;
+    v->hfx.type = DN_HFX_OFF, v->hfx.dr16 = 0, v->jd = 0;
     v->age = ++s->age;
     v->on = 1;
 }
+
+void dn_smp_hfx(dn_smp_t *s, uint32_t type, uint32_t bpm) { dn_hfx_setup(&s->nfx, type, bpm, 44100u); }
 
 void dn_smp_pad(dn_smp_t *s, uint32_t pad, uint32_t vel)
 {
@@ -329,6 +332,8 @@ void dn_smp_pad(dn_smp_t *s, uint32_t pad, uint32_t vel)
     const dn_smp_src_t *r;
     dn_smp_v_t *v;
     uint32_t i, n, a, b, choke;
+    dn_hfx_t fx = s->nfx;                           /* (0.39) its own FX: this hit's, not the next's */
+    s->nfx.type = DN_HFX_OFF, s->nfx.dr16 = 0;
     if (pad >= DN_SMP_PADS)
         return;
     s->last_pad = (uint8_t)pad;
@@ -351,6 +356,8 @@ void dn_smp_pad(dn_smp_t *s, uint32_t pad, uint32_t vel)
     v = sm_voice(s);
     v->kind = 0, v->idx = (uint8_t)pad, v->note = 0, v->gate = 1, v->loop = 0;
     sm_start(s, v, r, a, b, p[PD_REV] != 0, (float)p[PD_PITCH] + (float)p[PD_FINE] * 0.01f);
+    v->hfx = fx;
+    v->hfx.start = a;
     v->ka = p[PD_ATK] ? DN_ENV_K[dn_clamp(p[PD_ATK], 0, 127)] : 0u;
     v->kd = DN_ENV_K[dn_clamp(p[PD_DEC], 0, 127)];
     v->hold = p[PD_HOLD] >= 127 ? 0xFFFFFFFFu
@@ -487,12 +494,51 @@ static inline int32_t sm_rev_at(dn_smp_v_t *v, uint32_t i)
     return v->rb[i - v->rbase];
 }
 
+/* (0.39) a pad's hit FX, an output sample on (x0: the sample just played): a cycle begins where the time has got to;
+ * 1: the voice has ended */
+static int sm_hfx(dn_smp_t *s, dn_smp_v_t *v, int32_t x0)
+{
+    const dn_smp_src_t *r = v->s;
+    int k = dn_hfx_tick(&v->hfx, v->inc);
+    uint32_t d;
+    if (k == 2) {                                   /* (TAPESTOP: stopped) */
+        sm_kill(s, v);
+        return 1;
+    }
+    if (k != 1)
+        return 0;
+    d = v->hfx.t16 >> 16;
+    if (v->rev) {
+        if (v->end < v->from + 2u + d) {
+            sm_kill(s, v);
+            return 1;
+        }
+        v->ipos = v->end - 1u - d;
+        v->frac = 0;
+        v->jd += x0 - sm_rev_at(v, v->ipos);
+        return 0;
+    }
+    d += v->from;
+    if (d + 2u >= v->end) {
+        sm_kill(s, v);
+        return 1;
+    }
+    sm_seek(r, d, &v->pred, &v->dix);
+    v->pos = d;
+    v->ipos = d;
+    v->a = sm_dec(r->adpcm, v->pos++, &v->pred, &v->dix);
+    v->b = sm_dec(r->adpcm, v->pos++, &v->pred, &v->dix);
+    v->frac = 0;
+    v->jd += x0 - v->a;
+    return 0;
+}
+
 static void sm_voice_render(dn_smp_t *s, dn_smp_v_t *v, int32_t *lr, uint32_t n)
 {
     const dn_smp_src_t *r = v->s;
-    uint32_t i;
+    uint32_t i, done = 0;
     for (i = 0; i < n && v->on; i++) {
-        int32_t x, amp;
+        int32_t x, x0, amp;
         float y;
         if (!v->ctl) {
             sm_control(s, v);
@@ -508,6 +554,11 @@ static void sm_voice_render(dn_smp_t *s, dn_smp_v_t *v, int32_t *lr, uint32_t n)
             x = a + (int32_t)(((int64_t)(b - a) * v->frac) >> 16);
         } else {
             x = v->a + (int32_t)(((int64_t)(v->b - v->a) * v->frac) >> 16);
+        }
+        x0 = x;
+        if (v->jd) {                                /* (0.39) a hit FX's jump: the step it made, fading (~1.5 ms) */
+            x += v->jd;
+            v->jd -= v->jd >= 0 ? (v->jd + 63) >> 6 : -((63 - v->jd) >> 6);
         }
         y = (float)x;
         if (v->filt) {                              /* the low-pass (a TPT state-variable filter) */
@@ -530,8 +581,11 @@ static void sm_voice_render(dn_smp_t *s, dn_smp_v_t *v, int32_t *lr, uint32_t n)
         v->lastr = (int32_t)((float)x * v->gr);
         lr[2u * i] += v->lastl;
         lr[2u * i + 1u] += v->lastr;
+        done = i + 1u;
         /* on */
-        v->frac += v->inc;
+        v->frac += dn_hfx_inc(&v->hfx, v->inc);
+        if (v->hfx.type && sm_hfx(s, v, x0))
+            break;
         while (v->frac >= 65536u && v->on) {
             v->frac -= 65536u;
             if (v->rev) {
@@ -560,6 +614,17 @@ static void sm_voice_render(dn_smp_t *s, dn_smp_v_t *v, int32_t *lr, uint32_t n)
             v->b = v->pos < v->end ? sm_dec(r->adpcm, v->pos++, &v->pred, &v->dix) : 0;
         }
     }
+    if (!v->on && done < n) {                       /* (0.39) it ended inside the block: what it left fades from
+                                                     * there, not from the block's start (sm_kill put it in res) */
+        float l = (float)v->lastl, rr = (float)v->lastr;
+        s->res_l -= l, s->res_r -= rr;
+        for (i = done; i < n; i++) {
+            lr[2u * i] += (int32_t)l;
+            lr[2u * i + 1u] += (int32_t)rr;
+            l *= 0.96f, rr *= 0.96f;
+        }
+        s->resn_l += l, s->resn_r += rr;
+    }
     if (v->on) {                                    /* (no denormals) */
         if (v->ic1 < 1e-6f && v->ic1 > -1e-6f)
             v->ic1 = 0.f;
@@ -584,4 +649,6 @@ void dn_smp_render(dn_smp_t *s, int32_t *lr, uint32_t n)
         s->res_l = l < 0.5f && l > -0.5f ? 0.f : l;
         s->res_r = r < 0.5f && r > -0.5f ? 0.f : r;
     }
+    s->res_l += s->resn_l, s->res_r += s->resn_r;
+    s->resn_l = s->resn_r = 0.f;
 }

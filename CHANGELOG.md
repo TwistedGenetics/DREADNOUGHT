@@ -933,3 +933,25 @@ patterns switching at each bar and back round; a row of what's playing now; dele
 golden check (SONG_GET as the firmware sends it) and end-to-end run (a row added and changed: the FM-1 has it). Not
 yet tried on the FM-1.
 
+## 0.39 — a hit's own FX (2026-10-25)
+
+- **HIT FX** on breaks and SAMPLER's pads: hold a step, FX twice, KNOB 3 (where a chord goes on the other tracks).
+  STR 1/2 and STR 1/4 are the Akai way of stretching (S950 / S1000 cyclic time-stretch): the hit is played in 32nd-note
+  cycles, each from where the time has got to, the time moving at half / a quarter speed, so the same pitch lasts 2x /
+  4x longer with the cycles' grainy warble. STUT32 / STUT64 repeat its first 32nd / 64th for a beat, then let it play
+  on. TAPESTOP slows it to a stop over a beat. OCT− / OCT+ play it an octave down / up. Each cycle's jump is
+  declicked. Forward and reversed hits both; a break in STRETCH mode keeps its own grains (no hit FX there).
+- **COND ON** (KNOB 4 on the same page): NOTE, as ever, or FX: the hit always plays and its condition decides only
+  the effect. Set 1:4 for a stretch every 4th time round. On FM, WAVE, JUNO, SAMPLER's keys and MIDI the same switch
+  makes the condition decide the step's chord. The condition's tile reads FX IF / CHORD IF when it's on. Kept in the
+  condition's top bit; older patterns load as before.
+- SAMPLER: a voice that ends inside an audio block now fades from where it ended, not from the block's start (a
+  small click at a pad's END, and at the hit FX's end).
+- **Web editor:** the note inspector has a Hit FX list on break and pad tracks, and "Condition: the FX only" (or "the
+  chord only"). The FM-1 lists the effects (NAMES kind 10); an older FM-1 doesn't show them.
+
+Tested: host engine tests for each effect on a break and on a pad (lengths, pitch inside a cycle, the stutter's
+repeat, the tape stop's half speed half a beat in, octaves, joins declicked, the next hit plain again, reversed); host
+scenario `hitfx.txt` (the page, a 1:2 condition on the FX only: stretched, plain, stretched); the editor's end-to-end
+run (a break step's STR 1/2 and 1:2 on the FX only reach the FM-1). Not yet tried on the FM-1.
+

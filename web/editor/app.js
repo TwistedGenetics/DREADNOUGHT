@@ -5,7 +5,7 @@ import {
   noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
   lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
   PF, FX_NAMES, fxParams, E, SUB, subIndex, NPARAM_13, nLfos, FENV, NPARAM_19, feIndex,
-  ST_CHORD, chordOf, chordNotes, CHORD_NAMES,
+  ST_CHORD, chordOf, chordNotes, CHORD_NAMES, HFX_NAMES, CO_FXONLY,
   SMP_PAD, SMP_ZONE, SMP_KEYS, SMP_NPADS, SMP_NZONES, readSampler, smpNote, FM_MACROS, smpIdx, readSong, writeSong, SONG_N,
 } from "./protocol.js";
 import {
@@ -95,6 +95,9 @@ async function start(link, label) {
           buildJuno();
           const sseq = S.songSeq, g = await readSong(link);   // (0.38: SONG; none before)
           if (sseq === S.songSeq) { S.song = g; buildSong(); }
+          const h = await link.names(10).catch(() => null);   // (0.39: hit FX; an older FM-1 answers with something else)
+          S.hfx = !!(h && h[1] === HFX_NAMES[1]);
+          renderInsp();
         });
       });
     });
@@ -1283,9 +1286,14 @@ function renderInsp() {
   ["i-rtim", "i-rlen", "i-rvel"].forEach((id) => { $(id).disabled = !(st.flags & ST_RTRG); });
   if (box.contains(document.activeElement)) return;  // (not the control in your hand)
   $("i-vel").value = st.flags & ST_ACC ? 127 : st.vel; $("i-velv").textContent = st.flags & ST_ACC ? "accent" : st.vel;
-  $("i-cond").value = st.cond;
+  $("i-cond").value = st.cond & 127;
   $("i-chordl").hidden = !chordable();
   $("i-chord").value = chordOf(st);
+  $("i-hfxl").hidden = !(S.hfx && isBrk());          // (0.39) a break's / pad's hit FX, and the condition on it alone
+  $("i-hfx").value = chordOf(st) < HFX_NAMES.length ? chordOf(st) : 0;
+  $("i-condfxl").hidden = !(S.hfx && (isBrk() || chordable()));
+  $("i-condfxw").textContent = chordable() ? "Condition: the chord only" : "Condition: the FX only";
+  $("i-condfx").checked = !!(st.cond & CO_FXONLY);
   $("i-rtrg").checked = !!(st.flags & ST_RTRG);
   $("i-rtim").value = st.rtim;
   $("i-rlen").value = st.rlen;
@@ -1299,7 +1307,10 @@ function buildInsp() {
     .forEach(([v, t]) => { const o = document.createElement("option"); o.value = v; o.textContent = t; l.appendChild(o); });
   const step = () => S.pat.tracks[S.sel].steps[S.selNote];
   $("i-vel").oninput = () => { const st = step(); st.vel = +$("i-vel").value; st.flags &= ~ST_ACC; $("i-velv").textContent = st.vel; patternChanged(); };
-  c.onchange = () => { step().cond = +c.value; patternChanged(); };
+  c.onchange = () => { const st = step(); st.cond = +c.value | (st.cond & CO_FXONLY); patternChanged(); };
+  HFX_NAMES.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = i ? n : "None"; $("i-hfx").appendChild(o); });
+  $("i-hfx").onchange = () => { const st = step(); st.flags = (st.flags & ~ST_CHORD) | (+$("i-hfx").value << 4); patternChanged(); };
+  $("i-condfx").onchange = () => { const st = step(); st.cond = $("i-condfx").checked ? st.cond | CO_FXONLY : st.cond & ~CO_FXONLY; patternChanged(); };
   CHORD_NAMES.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = i ? `${n}` : "None"; $("i-chord").appendChild(o); });
   $("i-chord").onchange = () => { const st = step(); st.flags = (st.flags & ~ST_CHORD) | (+$("i-chord").value << 4); patternChanged(); };
   $("i-rtrg").onchange = () => { const st = step(); st.flags = $("i-rtrg").checked ? st.flags | ST_RTRG : st.flags & ~ST_RTRG; patternChanged(); renderInsp(); };
@@ -1950,7 +1961,7 @@ function render() {
   renderInsp();
   if (S.selNote >= 0 && tr.steps[S.selNote] && (tr.steps[S.selNote].flags & ST_ON)) {
     const st = tr.steps[S.selNote];
-    $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `${KIND(S.sel) === "SAMPLER" ? "pad" : "slice"} ${st.note + 1}` : noteName(st.note + trans())}${chordable() && chordOf(st) ? ` ${CHORD_NAMES[chordOf(st)]}` : ""}, `
+    $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `${KIND(S.sel) === "SAMPLER" ? "pad" : "slice"} ${st.note + 1}` : noteName(st.note + trans())}${chordable() && chordOf(st) ? ` ${CHORD_NAMES[chordOf(st)]}` : ""}${S.hfx && isBrk() && chordOf(st) ? ` (${HFX_NAMES[chordOf(st) % HFX_NAMES.length]})` : ""}, `
       + `${lenText(st.len)} step${st.len === 4 ? "" : "s"}, velocity ${st.flags & ST_ACC ? "accent" : st.vel}`
       + `${st.flags & ST_SLIDE ? (isBrk() ? ", reversed" : ", slides in") : !isBrk() && overlapSlide(S.pat, S.sel, S.selNote) ? ", slides in (the note before overlaps it)" : ""}.`;
   }

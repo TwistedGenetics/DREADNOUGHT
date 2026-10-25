@@ -650,6 +650,10 @@ export function parseUi(r) {
 // ---- chords (0.28): a step's flags' top 4 bits pick one of 15 chords (0: none), its notes above the step's; FM,
 // SAMPLER's keys and MIDI play them (the same table as the FM-1's: tests/host/editor_golden.mjs) ----------------------
 export const ST_CHORD = 0xf0, NCHORDS = 15, CHORD_N = 5;
+// (0.39) a break's / pad's hit FX (dn_hfx.h DN_HFX_*: NAMES kind 10), in the step's flags where a chord goes; the
+// condition's top bit: it decides only the FX (or, on a chord's track, the chord), the note always plays
+export const HFX_NAMES = ["OFF", "STR 1/2", "STR 1/4", "STUT32", "STUT64", "TAPESTP", "OCT-", "OCT+"];
+export const CO_FXONLY = 0x80;
 export const CHORD_NAMES = ["OFF", "MIN", "MAJ", "MIN7", "MAJ7", "7", "MIN9", "MAJ9", "ADD9", "SUS2", "SUS4", "5", "DIM", "AUG", "MIN6", "6"];
 export const CHORDS = [[3, 7], [4, 7], [3, 7, 10], [4, 7, 11], [4, 7, 10], [3, 7, 10, 14], [4, 7, 11, 14], [4, 7, 14], [2, 7], [5, 7],
   [7, 12], [3, 6], [4, 8], [3, 7, 9], [4, 7, 9]].map((c) => [...c, 0, 0, 0, 0, 0].slice(0, CHORD_N));

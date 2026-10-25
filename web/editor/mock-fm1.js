@@ -7,7 +7,7 @@ import { zoneVoices, unpack as fmUnpack } from "./dx7.js";
 import { parseTable, wtMin, wtMax } from "./wavetable.js";
 import { juMin, juMax } from "./juno.js";
 import { REESE, CHORDS } from "./protocol.js";
-import { SMP_PAD, SMP_ZONE, SMP_KEYS, HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
+import { SMP_PAD, SMP_ZONE, SMP_KEYS, HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, HFX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
 
 const PRESETS = ["CLASSIC RS", "OG REESE", "HOLLOW RS", "TECHSTEP", "NEURO RS", "SYNC RS", "DARK RS", "SUB REESE", "HOOVER RS", "INIT"];
 const USERS = Array.from({ length: 8 }, (_, i) => `USER ${i + 1} -`);   // (0.15: the user sounds, empty)
@@ -435,7 +435,7 @@ export class MockFM1 {
       case CMD.NAMES: {
         const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE", "JUNO", "SAMPLER 2"], FX_NAMES,
           ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], [...SUB_PRESETS, ...USERS],
-          [...FM_FACTORY, ...this.fmVoices().map((v) => v.name)], this.wtNames(), WT_PRESETS.map((x) => x[0]), JU_PRESETS.map((x) => x[0])][a[0]] || [];
+          [...FM_FACTORY, ...this.fmVoices().map((v) => v.name)], this.wtNames(), WT_PRESETS.map((x) => x[0]), JU_PRESETS.map((x) => x[0]), HFX_NAMES][a[0]] || [];
         const out = [list.length, a[1]];
         for (let i = a[1]; i < list.length; i++) out.push(...list[i].split("").map((c) => c.charCodeAt(0)), 0);
         return out;

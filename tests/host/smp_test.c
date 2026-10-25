@@ -269,6 +269,73 @@ int main(void)
         check("... let go: plays on from the loop to the end (70 % of 2 s, s)", fabs(last / 44100.0 - 1.4) < 0.05,
               last / 44100.0, 1.4);
     }
+    /* (0.39) a pad's hit FX, at 120 BPM (a beat: 22050 samples; a cycle: a 32nd, 2756): a 440 Hz pad of 0.5 s */
+    {
+        static dn_smp_t h;
+        const uint32_t g = 22050u / 8u;
+        uint32_t last;
+        int32_t d = 0;
+        dn_smp_init(&h);
+        put(&h, 0, &SA);
+        h.p.pad[0][PD_SAMPLE] = 0, h.p.pad[0][PD_END] = 250;
+#define LAST(n) do { last = 0; for (uint32_t i = 0; i < (n); i++) if (abs(lr[2u * i]) > 100) last = i; } while (0)
+        dn_smp_hfx(&h, DN_HFX_STR2, 120);
+        dn_smp_pad(&h, 0, 127);
+        render(&h, FS * 2u);
+        LAST(FS * 2u);
+        check("HIT FX STR 1/2: 0.5 s of pad lasts 1 s (less the last cycle's reach: s)",
+              last > FS * 92u / 100u && last <= FS, last / 44100.0, 1.0);
+        f = freq(3u * g + 100u, 4u * g - 100u);
+        check("... at its own pitch (440 Hz inside a cycle, cents)", fabs(cents(f, 440.0)) < 5, cents(f, 440.0), 0);
+        check("... the cycles' joins declicked (largest step: the sine's own ~1000, a join's fade adds under 700)",
+              maxstep(200, last - 10) < 1700, maxstep(200, last - 10), 1000);
+        dn_smp_hfx(&h, DN_HFX_STR4, 120);
+        dn_smp_pad(&h, 0, 127);
+        render(&h, FS * 3u);
+        LAST(FS * 3u);
+        check("HIT FX STR 1/4: lasts 2 s (less the last cycle's reach: s)", last > FS * 18u / 10u && last <= 2u * FS,
+              last / 44100.0, 2.0);
+        dn_smp_hfx(&h, DN_HFX_STUT32, 120);
+        dn_smp_pad(&h, 0, 127);
+        render(&h, FS);
+        for (uint32_t i = 2u * g + 200u; i < 3u * g - 200u; i++)
+            if (abs(lr[2u * i] - lr[2u * (i + g)]) > d) d = abs(lr[2u * i] - lr[2u * (i + g)]);
+        check("HIT FX STUT32: the first 32nd over and over (a cycle vs the next: largest difference)", d < 300, d, 0);
+        LAST(FS);
+        check("... for a beat, then the pad plays on (it ends past 0.6 s, s)", last > FS * 6u / 10u, last / 44100.0, 0.75);
+        dn_smp_hfx(&h, DN_HFX_TAPE, 120);
+        dn_smp_pad(&h, 0, 127);
+        render(&h, FS);
+        f = freq(FS / 4u - 1500u, FS / 4u + 1500u);
+        check("HIT FX TAPESTOP: half speed half a beat in (Hz)", fabs(f - 220.0) < 25.0, f, 220.0);
+        check("... stopped by the beat's end (voices)", voices(&h) == 0 && peak(23000u, FS) < 1, voices(&h), 0);
+        dn_smp_hfx(&h, DN_HFX_OCTUP, 120);
+        dn_smp_pad(&h, 0, 127);
+        render(&h, FS);
+        f = freq(1000, 10000);
+        LAST(FS);
+        check("HIT FX OCT+: 880 Hz (cents)", fabs(cents(f, 880.0)) < 3, cents(f, 880.0), 0);
+        check("... a quarter second (s)", fabs(last / 44100.0 - 0.25) < 0.01, last / 44100.0, 0.25);
+        dn_smp_hfx(&h, DN_HFX_OCTDN, 120);
+        dn_smp_pad(&h, 0, 127);
+        render(&h, FS);
+        f = freq(1000, 30000);
+        check("HIT FX OCT-: 220 Hz (cents)", fabs(cents(f, 220.0)) < 3, cents(f, 220.0), 0);
+        dn_smp_pad(&h, 0, 127);
+        render(&h, FS);
+        f = freq(1000, 20000);
+        LAST(FS);
+        check("the next hit without one: as it was (440 Hz, 0.5 s)", fabs(cents(f, 440.0)) < 3 &&
+              fabs(last / 44100.0 - 0.5) < 0.01, last / 44100.0, 0.5);
+        h.p.pad[0][PD_REV] = 1;
+        dn_smp_hfx(&h, DN_HFX_STR2, 120);
+        dn_smp_pad(&h, 0, 127);
+        render(&h, FS * 2u);
+        LAST(FS * 2u);
+        check("HIT FX STR 1/2 on a reversed pad: 1 s too (s)", last > FS * 92u / 100u && last <= FS, last / 44100.0, 1.0);
+        check("... declicked (largest step; not its last cycle: the test encoder's own start, reversed)",
+              maxstep(200, last - 1500) < 1700, maxstep(200, last - 1500), 1000);
+    }
     printf(fails ? "SAMPLER: %d FAILED\n" : "SAMPLER: pitch, zones, START / END, REVERSE, CHOKE, loops, voices all ok\n",
            fails);
     return fails ? 1 : 0;

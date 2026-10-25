@@ -17,6 +17,7 @@
  * about a millisecond, so nothing clicks. */
 #pragma once
 #include <stdint.h>
+#include "dn_hfx.h"
 
 #define DN_SMP_PADS 16u
 #define DN_SMP_ZONES 8u
@@ -62,6 +63,8 @@ typedef struct {
     uint32_t cph;
     int32_t lastl, lastr;
     uint32_t age, rbase;
+    dn_hfx_t hfx;                                   /* (0.39) a pad's hit FX */
+    int32_t jd;                                     /* ... its jumps' declick (what the sample stepped by, fading) */
     int16_t rb[DN_SMP_RB];
 } dn_smp_v_t;
 
@@ -70,8 +73,10 @@ typedef struct {
     dn_smp_src_t src[DN_SMP_NSRC];
     dn_smp_v_t v[DN_SMP_VOICES];
     float res_l, res_r;                             /* what cut voices left, fading */
+    float resn_l, resn_r;                           /* (0.39) ... what a voice ending inside a block left: from the next */
     uint32_t age;
     uint8_t last_pad, last_zone;                    /* (the screen: what played last) */
+    dn_hfx_t nfx;                                   /* (0.39) the next pad hit's FX (dn_smp_hfx) */
 } dn_smp_t;
 
 void dn_smp_init(dn_smp_t *s);
@@ -82,6 +87,8 @@ uint32_t dn_smp_checkpoints(const uint8_t *adpcm, uint32_t n, uint32_t *ck, uint
 /* main loop (the app's lock held): zone j's loop points from its values, snapped to rising zero crossings */
 void dn_smp_zone_prepare(dn_smp_t *s, uint32_t j);
 /* audio */
+/* (0.39) the next pad hit's own FX (DN_HFX_*), at the tempo; dn_smp_pad plays it, then it's off again */
+void dn_smp_hfx(dn_smp_t *s, uint32_t type, uint32_t bpm);
 void dn_smp_pad(dn_smp_t *s, uint32_t pad, uint32_t vel);
 void dn_smp_note_on(dn_smp_t *s, uint32_t note, uint32_t vel);
 void dn_smp_note_off(dn_smp_t *s, uint32_t note);

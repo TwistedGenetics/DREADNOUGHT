@@ -784,12 +784,17 @@ static void dn_sq_on1(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t 
         dn_rs_on(note, vel, slide);
     else if (DN_IS_SUB(t))
         dn_sb_on(note, vel, slide, (flags & DN_ST_ACC) != 0);
-    else if (DN_IS_BRK(t))
+    else if (DN_IS_BRK(t)) {
+        if (DN_ST_CHORD_OF(flags))                  /* (0.39) the step's hit FX */
+            dn_brk_hfx(&dn_bk[DN_BK(t)], DN_ST_CHORD_OF(flags));
         dn_brk_hit(DN_BK(t), note, vel, (flags & DN_ST_SLIDE) != 0);
-    else if (DN_IS_SMP(t)) {                        /* SAMPLER: a pad (DRUM's row), or a key of the map */
+    } else if (DN_IS_SMP(t)) {                      /* SAMPLER: a pad (DRUM's row), or a key of the map */
         dn_smp_t *sm = &dn_smx[DN_SMI(t)];
-        if (sm->p.mode == DN_SMP_ONESHOT)
+        if (sm->p.mode == DN_SMP_ONESHOT) {
+            if (DN_ST_CHORD_OF(flags))
+                dn_smp_hfx(sm, DN_ST_CHORD_OF(flags), dn_sq.bpm);
             dn_smp_pad(sm, note, vel);
+        }
         else
             dn_smp_note_on(sm, note, vel);
     } else if (DN_IS_FM(t)) {
@@ -825,6 +830,8 @@ static void dn_sq_off1(uint32_t t, uint8_t note)
 /* (0.27) chords: the instruments that play several notes at once (FM, SAMPLER's keys, MIDI) play a step's chord too;
  * the others its own note */
 #define DN_CHORDABLE(t) (DN_IS_POLY(t) || DN_IS_MIDI(t))
+/* (0.39) the tracks whose steps carry a hit FX instead (a break; SAMPLER's pads) */
+#define DN_HITFX(t) (DN_IS_BRK(t) || (DN_IS_SMP(t) && dn_smx[DN_SMI(t)].p.mode == DN_SMP_ONESHOT))
 static void dn_sq_on(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t flags)
 {
     uint32_t c = DN_CHORDABLE(t) ? DN_ST_CHORD_OF(flags) : 0u, k;
@@ -4536,10 +4543,10 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
         int32_t a = dn.ramp_a, b = dn.ramp_b, i, v;
         dn_lock();
         if (k == 0u) {
-            v = dn_clamp(tr->st[a].cond + d, 0, DN_CO_N - 1);
+            v = dn_clamp((tr->st[a].cond & 0x7F) + d, 0, DN_CO_N - 1);
             for (i = a; i <= b; i++)
                 if ((tr->st[i].flags & DN_ST_ON) || i == a)
-                    tr->st[i].cond = (uint8_t)v;
+                    tr->st[i].cond = (uint8_t)(v | (tr->st[i].cond & DN_CO_FXONLY));
         } else {
             int32_t n = d < 0 ? -d : d;
             v = tr->st[a].len;
@@ -4592,6 +4599,11 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
                 dn_unlock();                        /* (0.28) its CHORD */
                 dn_chord_turn(d);
                 return;
+            } else if (k == 2u && DN_HITFX(dn.trk)) {   /* (0.39) its HIT FX (a break's / pad's: where a chord goes) */
+                int32_t f = dn_clamp((int32_t)DN_ST_CHORD_OF(st->flags) + d, 0, DN_HFX_N - 1);
+                st->flags = (uint8_t)((st->flags & ~DN_ST_CHORD) | (uint32_t)f << 4);
+            } else if (k == 3u) {                   /* (0.39) what the CONDITION decides: the NOTE, or only its FX */
+                st->cond = (uint8_t)(d > 0 ? st->cond | DN_CO_FXONLY : st->cond & ~DN_CO_FXONLY);
             }
         }
         dn_unlock();
@@ -4620,7 +4632,7 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
         else if (k == 2u)
             st->vel = (uint8_t)dn_clamp(st->vel + dn_accel(127, d), 1, 127);
         else
-            st->cond = (uint8_t)dn_clamp(st->cond + d, 0, DN_CO_N - 1);
+            st->cond = (uint8_t)(dn_clamp((st->cond & 0x7F) + d, 0, DN_CO_N - 1) | (st->cond & DN_CO_FXONLY));
         dn_unlock();
         if (k < 2u)
             dn_step_remember(dn.trk, st);           /* (0.29) its note, length: the next step's */
@@ -6640,6 +6652,8 @@ static void dn_step_status(const dn_track_t *tr, int drum, int32_t trans)
         dn_len_text(v[1], st->len);
         dn_num(v[2], (st->flags & DN_ST_ACC) ? 127 : st->vel);
         dn_cond_text(st->cond, v[3]);
+        if (st->cond & DN_CO_FXONLY)                /* (0.39) the condition on its FX / chord only */
+            nm[3] = DN_CHORDABLE(dn.trk) ? "CHORD IF" : "FX IF";
         q[1] = (int32_t)st->len * 256 / DN_LEN_MAX;
         q[2] = ((st->flags & DN_ST_ACC) ? 127 : st->vel) * 256 / 127;
     } else if (pg == 1u) {
@@ -6670,9 +6684,16 @@ static void dn_step_status(const dn_track_t *tr, int drum, int32_t trans)
         if (DN_CHORDABLE(dn.trk)) {                 /* (0.28) the chord on it */
             dn_cat(v[2], DN_CHORD_NAME[DN_ST_CHORD_OF(st->flags)]);
             q[2] = (int32_t)DN_ST_CHORD_OF(st->flags) * 256 / DN_CHORDS;
+        } else if (DN_HITFX(dn.trk)) {             /* (0.39) the hit's own FX */
+            nm[2] = "HIT FX";
+            dn_cat(v[2], DN_HFX_NAME[DN_ST_CHORD_OF(st->flags) % DN_HFX_N]);
+            q[2] = (int32_t)DN_ST_CHORD_OF(st->flags) * 256 / (DN_HFX_N - 1);
         } else {
             nm[2] = "";
         }
+        nm[3] = "COND ON";                          /* (0.39) the condition: the note, or only its FX / chord */
+        dn_cat(v[3], (st->cond & DN_CO_FXONLY) ? (DN_CHORDABLE(dn.trk) ? "CHORD" : "FX") : "NOTE");
+        q[3] = (st->cond & DN_CO_FXONLY) ? 256 : 0;
     }
     if (!hd[0]) {                                   /* the step, the page of three */
         dn_cat(hd, "STEP ");

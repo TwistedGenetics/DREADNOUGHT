@@ -68,6 +68,8 @@
  *   98 SONG_GET from           -> SONG (0.38): rows n, on, from, count (16 at most), each row: 8 patterns (0-7, 127
  *                                 carries on), bars (1-16)
  *   99 SONG_SET n on from count rows... -> rc (0 set)               the song's length and on / off, rows from..
+ * NAMES kind 10 (0.39): the hit FX a break's / pad's step can carry (its flags' top 4 bits there; cond's top bit: the
+ * condition decides only the FX).
  *   87 UI_STATE                -> what the screen shows (0.26, the editor's panel): page, track, its instrument, flags
  *                                 (1 playing, 2 rec, 4 changed, 8 naming, 16 HOLD, 32 a sequencer page, 64 a step held),
  *                                 OCT + 8, BPM (2), position (2), the tag and the sound's name (strings), the tabs (count,
@@ -787,7 +789,7 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         count = kind == 1u ? dn_src_count() : kind == 2u ? DN_E_N : kind == 3u ? DN_FX_N : kind == 4u ? DN_FX_NDIV
               : kind == 5u ? dn_sub_preset_count() + DN_NUSER : kind == 6u ? dn_fm_presets()
               : kind == 7u ? dn_wv_ntab() : kind == 8u ? dn_wt_preset_count() : kind == 9u ? dn_ju_preset_count()
-              : reese_preset_count() + DN_NUSER;
+              : kind == 10u ? DN_HFX_N : reese_preset_count() + DN_NUSER;
         put(count);
         put(from);
         for (i = from; i < count && used < 180u; i++) {
@@ -800,6 +802,8 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
                 s = dn_wt_preset_name(i);
             } else if (kind == 9u) {
                 s = dn_ju_preset_name(i);
+            } else if (kind == 10u) {
+                s = DN_HFX_NAME[i];
             } else if (kind == 6u) {                /* (FM: a factory voice's name, or a project voice's 10) */
                 if (i < dn_fm_factory_count()) {
                     s = dn_fm_factory_name(i);

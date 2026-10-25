@@ -883,6 +883,7 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "slsel")) got = dn.sl_sel;
             else if (!strcmp(b, "cursor")) got = (long)dn.sl_cur;
             else if (!strncmp(b, "bon.", 4)) got = dn_bk[atoi(b + 4) - 1].on;   /* BREAKS A (1) / B (2) sounding */
+            else if (!strncmp(b, "hfx.", 4)) got = dn_bk[atoi(b + 4) - 1].hfx.type;   /* (0.39) its hit's FX now */
             else if (!strncmp(b, "pos.", 4)) got = (long)dn_brk_pos(&dn_bk[atoi(b + 4) - 1]);  /* where K plays */
             else if (!strncmp(b, "aud.", 4)) got = dn_bk[atoi(b + 4) - 1].aud;
             else if (!strncmp(b, "ns.", 3)) got = dn_bk[atoi(b + 3) - 1].nslices;

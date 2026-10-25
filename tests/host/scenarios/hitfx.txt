@@ -1,0 +1,57 @@
+# DREADNOUGHT host scenario (0.39): a hit's own FX. On a break (and SAMPLER's pads) a step held, FX's third page: KNOB 3
+# its HIT FX (STR 1/2, STR 1/4: the Akai's cyclic time-stretch; STUT32, STUT64; TAPESTOP; OCT-, OCT+), KNOB 4 what
+# its CONDITION decides: the NOTE (as before), or only the FX (the hit always plays; the FX when the condition says).
+# White keys (steps 1-16): 0 2 4 6 7 9 11 12 14 16 18 19 21 23 24 26. Black keys 1-11: 1 3 5 8 10 13 15 17 20 22 25.
+tap ARP
+tap SEQ
+expect page 8
+tapkey 1 50
+expect mute.1 1
+expect trk 2
+# steps 1 and 2 on (the rest off: a hit plays on through the loop, so its FX shows)
+tapkey 0 40
+tapkey 2 40
+expect on.2 2
+# step 1 held: its condition 1:2 (K4 33: past the chances and the words), then FX twice: STR 1/2, the condition on the FX
+key 0 down
+turn K4 33
+expect cd.2.1 33
+tap FX
+tap FX
+turn K3 1
+turn K4 1
+shot hfx-01-page3.png
+key 0 up
+expect st.2.1 17
+expect cd.2.1 161
+# step 2: STUT32, then back to OFF (K3 down: the chord's place cleared), and off
+key 2 down
+tap FX
+tap FX
+turn K3 3
+expect st.2.2 49
+turn K3 -5
+key 2 up
+expect st.2.2 1
+tapkey 2 40
+expect on.2 1
+# playing: the first pass (1:2 says yes) step 1's hit has STR 1/2; the second pass (no) it plays, plain
+tap PLAY
+wait 40
+expect bon.1 1
+expect hfx.1 1
+wav hitfx.wav
+wait 1980
+expect bon.1 1
+expect hfx.1 0
+wait 2000
+expect hfx.1 1
+wavstop
+tap PLAY
+# FX ON: back to NOTE: the second pass's step 1 is silent again (as a 1:2 step always was)
+key 0 down
+tap FX
+tap FX
+turn K4 -1
+key 0 up
+expect cd.2.1 33

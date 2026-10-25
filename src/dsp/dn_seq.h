@@ -50,6 +50,8 @@ enum { DN_CO_NONE = 0, DN_CO_FILL = DN_CO_NPCT + 1u, DN_CO_NFILL, DN_CO_PRE, DN_
        DN_CO_1ST, DN_CO_N1ST, DN_CO_LST, DN_CO_NLST, DN_CO_AB };
 #define DN_CO_NAB 35u                               /* A:B with 1 <= A <= B, 2 <= B <= 8 */
 #define DN_CO_N (DN_CO_AB + 2u * DN_CO_NAB)         /* (then !A:B) */
+#define DN_CO_FXONLY 0x80u                          /* (0.39) cond's top bit: when it says no, the note still plays,
+                                                     * only without its FX (a break's / pad's hit FX; a chord) */
 extern const uint8_t DN_CO_PCT[DN_CO_NPCT];
 void dn_cond_ab(uint32_t c, uint32_t *a, uint32_t *b);   /* an A:B / !A:B condition's A and B */
 void dn_cond_text(uint32_t c, char out[8]);

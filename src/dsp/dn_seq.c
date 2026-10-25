@@ -29,6 +29,7 @@ static void put(char *o, const char *s)
 void dn_cond_text(uint32_t c, char out[8])
 {
     static const char *const W[10] = {"FILL", "!FILL", "PRE", "!PRE", "NEI", "!NEI", "1ST", "!1ST", "LST", "!LST"};
+    c &= 0x7Fu;                                     /* (DN_CO_FXONLY: the app says it apart) */
     if (c == DN_CO_NONE) {
         put(out, "ALWAYS");
     } else if (c <= DN_CO_NPCT) {
@@ -171,8 +172,8 @@ int dn_pattern_valid(const dn_pattern_t *cp)
             st->flags &= DN_ST_ON | DN_ST_SLIDE | DN_ST_ACC | DN_ST_RTRG | DN_ST_CHORD;
             st->len = (uint8_t)clampi(st->len, 1, DN_LEN_MAX);
             st->vel = (uint8_t)clampi(st->vel, 1, 127);
-            if (st->cond >= DN_CO_N)
-                st->cond = 0;
+            if ((st->cond & 0x7Fu) >= DN_CO_N)
+                st->cond = 0;                       /* (the top bit: the condition is on the FX only, 0.39) */
             if (st->rtim >= DN_RTIM_N)
                 st->rtim = 12;
             st->rvel = (int8_t)clampi(st->rvel, -127, 127);
@@ -338,6 +339,7 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
         uint32_t L, i;
         const dn_step_t *st;
         int slide;
+        uint8_t fl;
         if (s->tpos[t] >= (tr->len ? tr->len : 1u))
             s->tpos[t] = 0;                         /* (the track was made shorter) */
         if (s->fresh >> t & 1u) {                   /* (0.38) restarted by the song: from the top, as at PLAY */
@@ -360,8 +362,12 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
         }
         if (!(st->flags & DN_ST_ON))
             continue;                               /* a long note sounds on through steps that are off */
-        if (!cond_ok(s, t, st->cond))
-            continue;                               /* its condition says no: as if it were off */
+        fl = st->flags;
+        if (!cond_ok(s, t, st->cond & 0x7Fu)) {
+            if (!(st->cond & DN_CO_FXONLY))
+                continue;                           /* its condition says no: as if it were off */
+            fl &= (uint8_t)~DN_ST_CHORD;            /* (0.39) ... or: the note plays, without its FX (its chord) */
+        }
         slide = ((st->flags & DN_ST_SLIDE) || (s->ovl >> t & 1u)) && s->sounding[t] != 0xFF;
         s->ovl &= (uint8_t)~(1u << t);
         if (s->sounding[t] != 0xFF && !slide)
@@ -376,7 +382,7 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
                 if (iv > 0)
                     v = dn_rt_vel(v, st->rvel, 0, (uint32_t)clampi((tot + iv - 1) / iv, 1, 255));
             }
-            cb->note_on(t, st->note, (uint8_t)v, slide, st->flags);
+            cb->note_on(t, st->note, (uint8_t)v, slide, fl);
         }
         if (slide && s->sounding[t] != st->note)
             cb->note_off(t, s->sounding[t]);        /* (MIDI: the old note ends after the new one starts) */
@@ -416,7 +422,7 @@ static void fire_step(dn_seq_t *s, const dn_seq_cb_t *cb)
                     s->rt_note[t] = st->note;
                     s->rt_vel[t] = (st->flags & DN_ST_ACC) ? 127u : st->vel;
                     s->rt_curve[t] = st->rvel;
-                    s->rt_flags[t] = (uint8_t)(st->flags & ~DN_ST_SLIDE);
+                    s->rt_flags[t] = (uint8_t)(fl & ~DN_ST_SLIDE);
                     if (s->gate[t] < (tot >> 8))
                         s->gate[t] = tot >> 8;      /* (the note sounds through its retrigs) */
                 }

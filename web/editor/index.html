@@ -98,6 +98,8 @@
         <label>Velocity <input id="i-vel" type="range" min="1" max="127"><span id="i-velv"></span></label>
         <label id="i-chordl" title="The chord this step plays, on its note (FM, SAMPLER's keys, MIDI): the FM-1's 15, as on a held step's CHORD">Chord <select id="i-chord"></select></label>
         <label title="Digitakt's trig conditions: a chance, FILL, PRE (the last condition on this track), NEI (the track before's), 1ST / LST (the pattern's first / last pass), A:B (the A-th of every B passes)">Condition <select id="i-cond"></select></label>
+        <label id="i-hfxl" hidden title="This hit's own effect (a break's slice, a SAMPLER pad): STR 1/2 and 1/4 stretch it the Akai way (the same pitch, longer, in 32nd-note cycles), STUT32 / STUT64 repeat its start for a beat, TAPESTOP slows it to a stop, OCT- / OCT+ an octave down / up">Hit FX <select id="i-hfx"></select></label>
+        <label id="i-condfxl" hidden title="Ticked: the note always plays, and the condition decides only whether its FX (or chord) comes with it - say a 1:4 condition: the stretch every 4th time round"><input id="i-condfx" type="checkbox"> <span id="i-condfxw">Condition: the FX only</span></label>
         <label><input id="i-rtrg" type="checkbox"> Retrig</label>
         <label>Rate <select id="i-rtim"></select></label>
         <label>For <select id="i-rlen"></select></label>

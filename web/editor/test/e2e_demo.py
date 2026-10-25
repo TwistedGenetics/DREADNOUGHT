@@ -36,7 +36,7 @@ def check(what, ok, got=""):
 
 # the simulated FM-1's pattern, parsed in the page
 DEV = """([t, i]) => { const m = window.__dn.mock, b = m.pattern, o = 8 + t * 516 + 8 * i;
-  return {note: b[o], flags: b[o + 1], len: b[o + 2], vel: b[o + 3]}; }"""
+  return {note: b[o], flags: b[o + 1], len: b[o + 2], vel: b[o + 3], cond: b[o + 4]}; }"""
 
 with sync_playwright() as pw:
     b = pw.chromium.launch()
@@ -269,6 +269,17 @@ with sync_playwright() as pw:
     p.mouse.dblclick(bbox["x"] + 46 + 3.5 * geo["cw"], bbox["y"] + 5.5 * rh)
     p.wait_for_timeout(600)
     check("BREAKS: double-click reverses it", p.evaluate(DEV, [1, 3])["flags"] & 2)
+    # 0.39: its hit FX (STR 1/2), the condition 1:2 on the FX only: the hit always plays, stretched every other time
+    p.mouse.click(bbox["x"] + 46 + 3.5 * geo["cw"], bbox["y"] + 5.5 * rh)
+    p.wait_for_timeout(300)
+    check("BREAKS: the Hit FX list shows for a break's step", p.locator("#i-hfxl").is_visible() and p.locator("#i-condfxl").is_visible())
+    p.select_option("#i-hfx", label="STR 1/2")
+    p.select_option("#i-cond", label="1:2")
+    p.check("#i-condfx")
+    p.wait_for_timeout(900)
+    d = p.evaluate(DEV, [1, 3])
+    check("BREAKS: STR 1/2 and 1:2 on the FX only reach the FM-1 (flags' top 4 bits 1, cond 33 + 128)",
+          d["flags"] >> 4 == 1 and d["flags"] & 2 and d["cond"] == 33 + 128, d)
     p.screenshot(path=str(shots / "editor-03-breaks.png"), full_page=True)
 
     # 0.9: the LFOs: LFO 1 to CUTOFF, then a shape drawn on its canvas (it becomes DRAW), a preset on LFO 2

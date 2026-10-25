@@ -349,6 +349,63 @@ int main(int argc, char **argv)
         }
         check("STRETCH keeps the kick's attack (peak in 5 ms vs REPITCH)", pk[1] * 10 >= pk[0] * 8, pk[1], pk[0]);
     }
+    /* (0.39) a hit's own FX, at 172 BPM (a cycle: a 32nd, 1922 samples) */
+    {
+        dn_loop_t R = {DN_BRK_BUILTIN_LOOPS[0].adpcm, DN_BRK_BUILTIN_LOOPS[0].n, DN_BRK_BUILTIN_LOOPS[0].rate, 2, ""};
+        const uint32_t g = 15383u / 8u, N = 12000u;
+        uint32_t p0, p1, st;
+        int32_t d = 0, worst = 0, wfx = 0;
+        dn_brk_init(&B);
+        dn_brk_load(&B, &R);
+        dn_brk_tempo(&B, 172);
+        st = B.start[0];
+        dn_brk_trigger(&B, 0, 127, 0);
+        render(N);
+        p0 = B.p - st;
+        for (i = 201; i < N; i++)
+            worst = abs(out[2 * i] - out[2 * i - 2]) > worst ? abs(out[2 * i] - out[2 * i - 2]) : worst;
+        dn_brk_hfx(&B, DN_HFX_STR2);
+        dn_brk_trigger(&B, 0, 127, 0);
+        render(N);
+        p1 = B.p - st;
+        check("HIT FX STR 1/2: the hit half as far in after a while (of plain)", fabs((double)p1 / p0 - 0.5) < 0.1,
+              (double)p1 / p0, 0.5);
+        for (i = 201; i < N; i++)
+            wfx = abs(out[2 * i] - out[2 * i - 2]) > wfx ? abs(out[2 * i] - out[2 * i - 2]) : wfx;
+        check("... its cycles' joins no worse than the break's own steps (largest step, of plain's)",
+              wfx <= worst * 3 / 2, wfx, worst);
+        dn_brk_hfx(&B, DN_HFX_STUT32);
+        dn_brk_trigger(&B, 0, 127, 0);
+        render(N);
+        for (i = 2u * g + 100u; i < 3u * g - 100u; i++)
+            d = abs(out[2 * i] - out[2 * i + 2u * g]) > d ? abs(out[2 * i] - out[2 * i + 2u * g]) : d;
+        check("HIT FX STUT32: the first 32nd over and over (a cycle vs the next: largest difference)", d < 200, d, 0);
+        dn_brk_hfx(&B, DN_HFX_OCTUP);
+        dn_brk_trigger(&B, 0, 127, 0);
+        render(N);
+        p1 = B.p - st;
+        check("HIT FX OCT+: twice as far in (of plain)", fabs((double)p1 / p0 - 2.0) < 0.05, (double)p1 / p0, 2.0);
+        dn_brk_hfx(&B, DN_HFX_TAPE);
+        dn_brk_trigger(&B, 0, 127, 0);
+        render(15383u + 2000u);
+        check("HIT FX TAPESTOP: stopped a beat on (the voice off)", B.on == 0, B.on, 0);
+        dn_brk_trigger(&B, 0, 127, 0);
+        render(N);
+        p1 = B.p - st;
+        check("the next hit without one: as it was (of plain)", p1 == p0, p1, p0);
+        {
+            uint32_t e = 0, e2 = 0;
+            dn_brk_trigger(&B, 0, 127, 1);
+            for (e = 0; e < 40000u && B.on; e += 32u)
+                render(32);
+            dn_brk_hfx(&B, DN_HFX_STR2);
+            dn_brk_trigger(&B, 0, 127, 1);
+            for (e2 = 0; e2 < 80000u && B.on; e2 += 32u)
+                render(32);
+            check("HIT FX STR 1/2 reversed: twice as long (less the last cycle's reach, of plain)",
+                  (double)e2 / e > 1.7 && (double)e2 / e <= 2.05, (double)e2 / e, 2.0);
+        }
+    }
     /* the cost on this machine, a voice a second of audio (the FM-1's own figure: the CPU % on the BRK2 page) */
     {
         double t[3];

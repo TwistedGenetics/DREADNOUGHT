@@ -14,6 +14,7 @@
  * release and render run in the audio interrupt. */
 #pragma once
 #include <stdint.h>
+#include "dn_hfx.h"
 
 #define DN_BRK_CK 640u                              /* decoder states, one per 256 samples: loops up to ~7 s */
 #define DN_BRK_RBUF 4096u                           /* a reversed slice, samples (~186 ms of a 22 kHz loop) */
@@ -75,6 +76,7 @@ typedef struct {
     int32_t tpos;                                   /* STRETCH: where the time is in rbuf, Q16 */
     int32_t tdir;                                   /* STRETCH: +1 forward, -1 reversed */
     uint32_t gpos[2], gage[2];                      /* STRETCH: each grain's read place (Q16) and age (samples) */
+    dn_hfx_t hfx, nfx;                              /* (0.39) this hit's own FX (forward and reverse); the next's */
     int16_t rbuf[DN_BRK_RBUF];
 } dn_brk_t;
 
@@ -95,6 +97,8 @@ void dn_brk_range_peaks(const dn_brk_t *b, uint32_t from, uint32_t n, uint8_t *o
 /* the sample nearest `at` where the wave crosses zero, within +-range */
 uint32_t dn_brk_zero_near(const dn_brk_t *b, uint32_t at, uint32_t range);
 /* audio interrupt */
+/* (0.39) the next hit's own FX (DN_HFX_*), at the tempo last set; dn_brk_trigger plays it, then it's off again */
+void dn_brk_hfx(dn_brk_t *b, uint32_t type);
 void dn_brk_trigger(dn_brk_t *b, uint32_t slice, uint32_t vel, int reverse);
 void dn_brk_release(dn_brk_t *b);
 void dn_brk_cut(dn_brk_t *b);                       /* a quick fade whatever DECAY says (stop) */
