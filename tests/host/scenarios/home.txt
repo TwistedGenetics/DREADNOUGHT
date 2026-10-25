@@ -81,3 +81,34 @@ tapkey 0 40
 release SEQ
 expect trk 1
 expect page 7
+# (0.35) an empty track: track 7 OFF (HOME, FX, OFF, FX: it stays on HOME); key 7 opens it: the picker. SEQ calls it
+# off; key 7 again, FM, FX: FM on track 7, its pages open
+tap HOME
+expect page 19
+turn SELECT 6
+expect trk 7
+tap FX
+turn K1 -9
+expect picke 0
+tap FX
+expect eng.7 0
+expect page 19
+expect pick 0
+tapkey 11 40
+expect pick 1
+expect picke 0
+turn SELECT 7
+shot home-pick-empty.png
+tap SEQ
+expect pick 0
+expect page 19
+expect eng.7 0
+tapkey 11 40
+expect pick 1
+turn K1 7
+expect picke 7
+tap FX
+expect eng.7 7
+expect trk 7
+expect page 0
+

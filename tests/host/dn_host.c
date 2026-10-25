@@ -806,6 +806,8 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "reclen")) got = dn_sq.pat.tr[dn.trk].st[dn.rec_last].len;
             else if (!strcmp(b, "rollkeys")) got = dn.roll_keys;
             else if (!strcmp(b, "drumplay")) got = dn.drum_play;   /* (0.34) DRUM's PLAY mode */
+            else if (!strcmp(b, "pick")) got = dn.pick;              /* (0.35) HOME's instrument picker open */
+            else if (!strcmp(b, "picke")) got = dn.pick_e;           /* ... the instrument on in it */
             else if (!strcmp(b, "recq")) got = dn.rec_q;            /* (0.34) REC's grid: 0 1/16 .. 4 a bar */
             else if (!strcmp(b, "reclast")) got = dn.rec_last + 1;  /* the step the last live note went to (1-based) */
             else if (!strcmp(b, "row")) got = dn.drum_row;

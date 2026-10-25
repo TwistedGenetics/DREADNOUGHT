@@ -1,15 +1,11 @@
 # DREADNOUGHT host scenario (0.15): each synth's LFOs are part of its sound. A factory sound sets them (off, but
 # WOBBLE's on S CUT); INIT is the last factory sound; USER 1-8 follow it. SAVE held + PRESETS picks a user slot and
 # SAVE coming up stores the synth's sound there (with its LFOs), kept over a reboot.
-# SUB on track 5 (PROJECT), as sub.txt does
-tap GLO
-tap GLO
-tap GLO
-tap GLO
-tap GLO
-expect page 15
+# SUB on track 5 (HOME), as sub.txt does
+tap HOME
+turn SELECT 4
+tap FX
 turn K1 1
-turn K2 1
 tap FX
 expect eng.5 5
 press SEQ

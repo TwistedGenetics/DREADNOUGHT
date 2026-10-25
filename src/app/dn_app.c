@@ -253,7 +253,8 @@ static const uint8_t DN_SUB_OSC2[4] = {DN_S(SP_PW), DN_S(SP_PWM), DN_S(SP_PWMR),
 static const uint8_t DN_SUB_DIRT[4] = {DN_S(SP_DRIVE), DN_S(SP_DTYPE), DN_S(SP_CRUSH), DN_S(SP_TONE)};
 static const uint8_t DN_SET_PAGE[4] = {DN_PX_CLICK, DN_PX_CLKLVL, DN_PX_CIN, DN_PX_VSENS};
 static const uint8_t DN_MIDI_PAGE[4] = {DN_PX_MSEL, DN_PX_MCHAN, DN_PX_MOVL, DN_PX_NONE};
-static const uint8_t DN_PROJ_PAGE[4] = {DN_PX_PTRK, DN_PX_PENG, DN_PX_NONE, DN_PX_NONE};
+static const uint8_t DN_PROJ_PAGE[4] = {DN_PX_NONE, DN_PX_NONE, DN_PX_NONE, DN_PX_NONE};   /* (0.35: the tracks'
+                                                     * instruments are picked on HOME) */
 /* the FX page's views (FX: the next): MIX, FX A, its next values (when it has more than 3), FX B, its next */
 static const uint8_t DN_FX_PAGE[5][4] = {{DN_PX_SENDA, DN_PX_SENDB, DN_PX_RETA, DN_PX_RETB},
                                          {DN_PX_FXA, DN_PX_FXA + 1u, DN_PX_FXA + 2u, DN_PX_FXA + 3u},
@@ -417,6 +418,7 @@ static struct {
     uint8_t fx_long, fx_back;                       /* ... it was held (the FX page opened); the page it came from */
     int8_t bar_key;                                 /* (0.34) black key 10 / 11 held (9, 10; -1 none): + white 1-4 */
     uint8_t bar_chord;                              /* ... a length set with it (no bar change when it comes up) */
+    uint8_t pick, pick_t, pick_e;                   /* (0.35) HOME's instrument picker: open; for track; the one on */
     uint8_t roll_cur;                               /* ROLL KEYS: the cursor (a step) */
     uint8_t entry_len;                              /* ROLL KEYS: the length a key writes (quarter steps) */
     uint8_t drum_row, drum_top;                     /* DRUM: the slice row selected, the first in view */
@@ -3848,8 +3850,25 @@ static void dn_lfo_draw_knob(uint32_t k, int32_t d)  /* DRAW: KNOB 1 the pen (or
 static void dn_trk_go2(uint32_t t, int seq);
 static void dn_trk_go(uint32_t t) { dn_trk_go2(t, DN_IS_SEQPG(dn.page)); }
 /* (0.29) track t's instrument: its sound pages (HOME, SEQ held + black key 1-8) */
+static void dn_pick_open(uint32_t t)               /* (0.35) HOME's instrument picker, for track t */
+{
+    t %= DN_SEQ_TRACKS;
+    if (dn.page != DN_PG_HOME) {
+        dn.home_back = dn.page;
+        dn_goto(DN_PG_HOME);
+    }
+    dn.trk = (uint8_t)t;
+    dn.pick = 1;
+    dn.pick_t = (uint8_t)t;
+    dn.pick_e = dn_eng[t];
+    dn.redraw |= DN_RD_ALL;
+}
 static void dn_trk_open(uint32_t t)
 {
+    if (dn_eng[t % DN_SEQ_TRACKS] == DN_E_OFF) {   /* (0.35) nothing on it: the picker */
+        dn_pick_open(t);
+        return;
+    }
     if (DN_IS_SEQPG(dn.page) || dn.page == DN_PG_HOME)
         dn.page = 0xFFu;                            /* (not a sound page: the instrument's first) */
     dn_trk_go2(t, 0);
@@ -3876,7 +3895,7 @@ static void dn_trk_go2(uint32_t t, int seq)
     else if (DN_IS_MIDI(t))
         dn_goto(DN_PG_MIDI);
     else
-        dn_goto(DN_PG_PROJ);
+        dn_goto(DN_PG_HOME);                        /* (0.35: nothing on it: HOME, where it's picked) */
     dn.trk = (uint8_t)t;                            /* (whatever the page chose) */
     dn.view = (uint8_t)dn_clamp(dn.view, 0, (dn_sq.pat.tr[t].len + 15) / 16 - 1);
     dn_say(dn_inst_name(t));
@@ -3908,6 +3927,10 @@ static void dn_keys(uint32_t raw)
         dn.key_page = dn.page;
         dn.key_mode = dn.page == DN_PG_DRUM ? (dn.drum_play ? 2u : 0u)   /* (0.34: DRUM's PLAY mode) */
                     : dn.roll_keys == 1u ? 1u : dn.roll_keys == 2u || (dn.rec && dn.step_held < 0) ? 2u : 0u;
+    }
+    if (dn.pick) {                                  /* (0.35) the picker open: the keys wait */
+        dn.keys_prev = keys;
+        return;
     }
     if (dn.key_page == DN_PG_HOME) {                /* (0.29) HOME: a key 1-8, white or black, opens that track */
         uint32_t dw = keys & ~dn.keys_prev;
@@ -4715,6 +4738,44 @@ void dn_app_input(void)
         dn_name_input(press);
         return;
     }
+    if (dn.pick) {                                  /* (0.35) HOME's instrument picker has the controls */
+        int32_t dd = dn_in_enc(EN_SELECT) + dn_in_enc(EN_K1) + dn_in_enc(EN_PRESET);
+        for (k = EN_K2; k <= EN_K4; k++)
+            (void)dn_in_enc((int)k);
+        (void)dn_in_enc(EN_ALGO);
+        if (dd) {
+            dn.pick_e = (uint8_t)dn_clamp((int32_t)dn.pick_e + dd, 0, (int32_t)DN_E_N - 1);
+            dn.redraw |= DN_RD_ALL;
+        }
+        if (press & ((1u << B_FX) | (1u << B_HOME))) {   /* FX (or HOME): it goes on the track, and opens */
+            uint32_t t = dn.pick_t % DN_SEQ_TRACKS, e = dn.pick_e, u = DN_ONE(e) ? dn_trk_of(e) : 8u;
+            static char w[24];
+            dn.pick = 0;
+            dn.home_chord = 1;                      /* (HOME coming up: not HOME's job) */
+            if (e != dn_eng[t]) {
+                dn_eng_set(t, e);
+                w[0] = 0;
+                dn_cat(w, DN_E_NAME[e]);
+                if (u < 8u && u != t) {
+                    char f[6] = {' ', 'F', 'R', 'O', 'M', 0};
+                    dn_cat(w, f);
+                    f[0] = ' ', f[1] = 'T', f[2] = (char)('1' + u), f[3] = 0;
+                    dn_cat(w, f);
+                }
+                dn_say(w);
+            }
+            if (e != DN_E_OFF)
+                dn_trk_open(t);
+            dn.redraw |= DN_RD_ALL;
+        } else if (press & ((1u << B_SEQ) | (1u << B_SEL) | (1u << B_EDIT) | (1u << B_ENV) | (1u << B_LFO) |
+                            (1u << B_GLO) | (1u << B_ARP))) {
+            dn.pick = 0;                            /* SEQ or a page button: called off */
+            dn.redraw |= DN_RD_ALL;
+        }
+        if (press & (1u << B_SEQ))
+            dn.seq_held = 0;                        /* (SEQ's own job: not when it comes up) */
+        return;
+    }
     /* (0.22) HOME held + SELECT: the next / last track and its instrument's pages (HOME's own job then waits: a hold
      * on release, chop deletes cancelled, no FILL) */
     if (press & (1u << B_HOME))
@@ -4948,14 +5009,8 @@ void dn_app_input(void)
         dn_say(DN_SK_NAME[dn.skin]);
         dn_mark();
     }
-    if ((press & (1u << B_FX)) && dn.page == DN_PG_PROJ) {   /* PROJECT: the instrument chosen goes on the track */
-        if (dn.peng != 0xFFu) {
-            uint32_t e = dn.peng;
-            dn_eng_set(dn.trk, e);
-            dn_say(e == DN_E_OFF ? "TRACK OFF" : "CHANGED");
-        }
-        dn.redraw |= DN_RD_ALL;
-    }
+    if ((press & (1u << B_FX)) && dn.page == DN_PG_HOME)   /* (0.35) HOME: FX, another instrument on the track */
+        dn_pick_open(dn.trk);
     if ((press & (1u << B_FX)) && dn.page == DN_PG_LFO) {   /* LFO: the main knobs, MORE, DRAW (a DRAW shape) */
         dn.lfo_view = (uint8_t)((dn.lfo_view + 1u) % (dn_lp[DN_LSEL].shape == DN_LS_DRAW ? 3u : 2u));
         dn.pt_held = -1;
@@ -5740,24 +5795,6 @@ static void dn_draw_top(void)
         else
             cv_text(219 - text_w(&FONT_T, pos) / 2, 50, &FONT_T, pos, DN_C_LABEL);
     }
-    if (dn.page == DN_PG_PROJ) {                    /* PROJECT: the eight tracks and their instruments (the selected
-                                                     * one lit; one chosen, not in yet: red) */
-        uint32_t t;
-        cv_rect(4, 63, 232, 30, DN_C_BG);
-        for (t = 0; t < DN_SEQ_TRACKS; t++) {
-            int32_t cx = 4 + (int32_t)(t % 4u) * 58, cy = 63 + (int32_t)(t / 4u) * 15;
-            int sel = t == dn.trk;
-            uint32_t e = sel && dn.peng != 0xFFu ? dn.peng : dn_eng[t];
-            char c[12];
-            cv_rect(cx, cy, 56, 14, sel ? DN_C_BLUE : DN_C_WELL);
-            c[0] = (char)('1' + t), c[1] = ' ', c[2] = 0;
-            dn_cat(c, DN_IS_MIDI(t) && !(sel && dn.peng != 0xFFu) ? dn_inst_name(t) : DN_E_NAME[e % DN_E_N]);
-            cv_text(cx + 3, cy + 1, &FONT_T, c, sel && dn.peng != 0xFFu ? DN_C_RED : sel ? DN_C_BAR
-                                               : e == DN_E_OFF ? DN_C_DIMTXT : DN_C_LABEL);
-        }
-        cv_blit(0, 0);
-        return;
-    }
     if (dn.page == DN_PG_LFO) {                     /* the LFO: its shape over a cycle, where it is, its value now */
         const dn_lfo_p_t *l = &dn_lp[DN_LSEL];
         const dn_lfo_s_t *ls = &dn_ls[DN_LSEL];
@@ -6388,8 +6425,47 @@ static const char *dn_trk_sound(uint32_t t)
 
 /* (0.29) HOME: the eight tracks, each its number, instrument, sound; the picked one lit; a note playing lights a
  * dot, a muted track is dim. A key 1-8 opens one; SELECT picks, HOME opens it */
+/* each instrument's colour (BLOCKS' HOME tiles, the picker) */
+static const uint16_t DN_E_COL[DN_E_N] = {RGB(58, 61, 69), RGB(255, 106, 43), RGB(255, 194, 26), RGB(255, 194, 26),
+                                          RGB(214, 212, 204), RGB(61, 220, 151), RGB(195, 162, 255), RGB(91, 155, 255),
+                                          RGB(255, 92, 168)};
+/* (0.35) HOME's instrument picker, over the tracks: the nine (OFF too) as tiles, the one on outlined; an instrument
+ * there is one of on another track says which (choosing it swaps the two) */
+static void dn_draw_pick(void)
+{
+    uint32_t e, t = dn.pick_t % DN_SEQ_TRACKS;
+    char h[28];
+    cv_rect(0, 17, 240, 104, DN_C_BG);
+    h[0] = 'T', h[1] = (char)('1' + t), h[2] = 0;
+    dn_cat(h, ": WHICH INSTRUMENT?");
+    cv_text(6, 18, &FONT_S, h, DN_C_FG);
+    for (e = 0; e < DN_E_N; e++) {
+        int32_t x = 2 + (int32_t)(e % 3u) * 79, y = 44 + (int32_t)(e / 3u) * 26;
+        int on = e == dn.pick_e;
+        uint32_t u = DN_ONE(e) ? dn_trk_of(e) : 8u;
+        uint16_t c = e == DN_E_OFF ? DN_C_PANEL : DN_E_COL[e];
+        if (on) {
+            cv_rect(x, y, 76, 24, DN_C_FG);
+            cv_rect(x + 3, y + 3, 70, 18, c);
+        } else {
+            cv_rect(x, y, 76, 24, c);
+        }
+        cv_text(x + 6, y + 3, &FONT_S, DN_E_NAME[e], e == DN_E_OFF ? DN_C_LABEL : DN_C_ONACC);
+        if (u < 8u && u != t) {                     /* (on another track: it moves here, swapping) */
+            char w[4] = {'T', (char)('1' + u), 0, 0};
+            cv_text(x + 72 - text_w(&FONT_T, w), y + 6, &FONT_T, w, e == DN_E_OFF ? DN_C_LABEL : DN_C_ONACC);
+        }
+    }
+    cv_rect(0, 121, 240, 23, DN_C_BAR);
+    cv_text(8, 127, &FONT_T, "SELECT: PICK  FX: PUT IN  SEQ: CANCEL", DN_C_FG);
+}
 static void dn_draw_home(void)
 {
+    if (dn.pick) {
+        dn_draw_pick();
+        return;
+    }
+    {
     uint32_t t;
     cv_rect(0, 0, 64, 17, DN_C_BLUE);
     cv_text(32 - text_w(&FONT_T, "HOME") / 2, 3, &FONT_T, "HOME", DN_C_BAR);
@@ -6398,9 +6474,7 @@ static void dn_draw_home(void)
         int32_t x = 2 + (int32_t)(t % 4u) * 59, y = 21 + (int32_t)(t / 4u) * 50;
         int sel = t == dn.trk, off = dn_eng[t] == DN_E_OFF, mute = dn_sq.pat.tr[t].mute;
         const dn_track_t *tr = &dn_sq.pat.tr[t];
-        static const uint16_t EC[DN_E_N] = {RGB(58, 61, 69), RGB(255, 106, 43), RGB(255, 194, 26), RGB(255, 194, 26),
-                                            RGB(214, 212, 204), RGB(61, 220, 151), RGB(195, 162, 255), RGB(91, 155, 255),
-                                            RGB(255, 92, 168)};
+        const uint16_t *EC = DN_E_COL;
         int blk = dn.skin == DN_SK_BLOCKS && !off && !mute;   /* (BLOCKS: each track its instrument's colour) */
         uint16_t hi = dn.dark ? DN_C_BLUE : DN_C_ACC, on = dn.dark ? DN_C_BAR : DN_C_ONACC;   /* (LIGHT: orange) */
         if (blk)
@@ -6436,7 +6510,8 @@ static void dn_draw_home(void)
         if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0)
             cv_text(232 - text_w(&FONT_T, dn.msg), 127, &FONT_T, dn.msg, DN_C_RED);
         else
-            cv_text(232 - text_w(&FONT_T, "HOME: OPEN IT"), 127, &FONT_T, "HOME: OPEN IT", DN_C_DIMTXT);
+            cv_text(232 - text_w(&FONT_T, "HOME: OPEN  FX: CHANGE"), 127, &FONT_T, "HOME: OPEN  FX: CHANGE", DN_C_DIMTXT);
+    }
     }
 }
 
@@ -6652,34 +6727,29 @@ static void dn_draw_bottom(void)
         cv_blit(0, 96);
         return;
     }
-    if (dn.page == DN_PG_PROJ) {                    /* PROJECT: the samples' memory, the FX memory, the load */
-        char c[40], v[8];
-        uint32_t used = dn_smp_used() / 1024u, cap = dn_smp_cap() / 1024u;
-        c[0] = 0;
-        dn_cat(c, "SMP ");
-        dn_num(v, (int32_t)used);
-        dn_cat(c, v);
-        dn_cat(c, "/");
-        dn_num(v, (int32_t)cap);
-        dn_cat(c, v);
-        dn_cat(c, "K FX ");
-        dn_num(v, (int32_t)((dn_fxs[0].bytes + dn_fxs[1].bytes) / 1024u));
-        dn_cat(c, v);
-        dn_cat(c, "/");
-        dn_num(v, (int32_t)(DN_FX_ARENA / 1024u));
-        dn_cat(c, v);
-        dn_cat(c, "K CPU ");
-        dn_num(v, (int32_t)plat_cpu_pct());
-        dn_cat(c, v);
-        dn_cat(c, " PK ");                          /* (0.16.1: the peak since the last look) */
-        dn_num(v, (int32_t)plat_cpu_peak_pct());
-        dn_cat(c, v);
-        dn_cat(c, "%");
+    if (dn.page == DN_PG_PROJ) {                    /* PROJECT: the samples' memory, the FX memory, the load (0.35:
+                                                     * four tiles; the tracks' instruments are picked on HOME) */
+        static const char *const N[4] = {"SAMPLES", "FX MEM", "CPU", "PEAK"};
+        uint32_t used = dn_smp_used(), cap = dn_smp_cap(), fxb = dn_fxs[0].bytes + dn_fxs[1].bytes;
+        uint32_t cpu = plat_cpu_pct(), pk = plat_cpu_peak_pct(), k;
+        char v[4][8];
+        int32_t q[4];
+        dn_num(v[0], (int32_t)(used / 1024u)), dn_cat(v[0], "K");
+        dn_num(v[1], (int32_t)(fxb / 1024u)), dn_cat(v[1], "K");
+        dn_num(v[2], (int32_t)cpu), dn_cat(v[2], "%");
+        dn_num(v[3], (int32_t)pk), dn_cat(v[3], "%");
+        q[0] = cap ? (int32_t)(used / 64u * 256u / (cap / 64u ? cap / 64u : 1u)) : 0;
+        q[1] = (int32_t)(fxb / 64u * 256u / (DN_FX_ARENA / 64u));
+        q[2] = (int32_t)(cpu > 100u ? 256u : cpu * 256u / 100u);
+        q[3] = (int32_t)(pk > 100u ? 256u : pk * 256u / 100u);
+        cv_rect(0, 36, 240, 85, DN_C_BG);
+        for (k = 0; k < 4u; k++)
+            dn_tile(2 + 60 * (int32_t)k, 38, 56, 82, k, N[k], v[k], q[k] > 256 ? 256 : q[k], 0, 0);
         cv_rect(0, 121, 240, 23, DN_C_BAR);
         if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0)
             cv_text(232 - text_w(&FONT_T, dn.msg), 127, &FONT_T, dn.msg, DN_C_RED);
         else
-            cv_text(8, 125, &FONT_XS, c, DN_C_LABEL);
+            cv_text(8, 127, &FONT_T, "TRACKS: ON HOME   SAVE+FX: NAME", DN_C_LABEL);
         cv_blit(0, 96);
         return;
     }
@@ -6744,8 +6814,6 @@ void dn_app_draw(int force)
         lit |= 1u << B_FX;
     if ((dn.page == 2u || dn.page == DN_PG_FENV) && DN_IS_SYN(dn.trk) && (DN_IS_SUB(dn.trk) ? dn_sb.esync : dn_rs.esync))
         lit |= 1u << B_FX;                          /* (AMP: the envelope synced) */
-    if (dn.page == DN_PG_PROJ && dn.peng != 0xFFu && (plat_ms() / 250u) % 2u)
-        lit |= 1u << B_FX;                          /* (an instrument chosen: FX blinks to put it in) */
     if ((dn.page == DN_PG_ROLL && dn.roll_keys) || (dn.page == DN_PG_DRUM && dn.drum_play))
         lit |= 1u << B_FX;
     if (dn.dirty)

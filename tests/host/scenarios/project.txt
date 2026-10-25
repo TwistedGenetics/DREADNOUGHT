@@ -48,25 +48,34 @@ tap GLO
 tap GLO
 expect page 15
 shot project-04-project.png
-# track 4 (the MIDI page on the way selected MIDI 1, track 4) to REESE: chosen (red, FX blinking), then FX: it swaps
-# with track 1, which plays MIDI now
+# (0.35) the tracks' instruments are picked on HOME. Track 4 (the MIDI page on the way selected MIDI 1, track 4) to
+# REESE: HOME, FX: the picker; REESE (on track 1: it swaps, track 1 plays MIDI now); FX puts it in and opens it
+tap HOME
+expect page 19
 expect trk 4
-turn K2 -3
-expect peng 1
+tap FX
+expect pick 1
+expect picke 4
+turn K1 -3
+expect picke 1
 expect eng.4 4
 shot project-05-chosen.png
 tap FX
+expect pick 0
 expect eng.4 1
 expect eng.1 4
-expect peng -1
+expect page 0
 # BREAKS A to track 8 (track 2 gets track 8's MIDI); overlaps no longer slide on track 8, they do on track 2
-turn K1 4
+tap HOME
+turn SELECT 4
 expect trk 8
-turn K2 -2
+tap FX
+turn K1 -2
 tap FX
 expect eng.8 2
 expect eng.2 4
 expect legato 123
+tap HOME
 shot project-06-moved.png
 # SEQ held + white key 1: track 1, a MIDI track now: the MIDI page
 press SEQ

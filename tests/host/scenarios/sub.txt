@@ -1,19 +1,18 @@
-# DREADNOUGHT host scenario (0.13): SUB, the SH-101-style bass, on a track. PROJECT puts it on track 5; SEQ + white key
+# DREADNOUGHT host scenario (0.13): SUB, the SH-101-style bass, on a track. HOME puts it on track 5 (0.35; PROJECT before); SEQ + white key
 # 5 opens its pages (OSC, SEL again OSC2; FILTER, EDIT again DIRT; AMP; MOD; OUT); PRESETS its factory sounds; the
 # keys and the sequencer play it; SAVE keeps it.
 # White keys (tracks 1..8): 0 2 4 6 7 9 11 12.
-tap GLO
-tap GLO
-tap GLO
-tap GLO
-tap GLO
-expect page 15
-turn K1 1
+tap HOME
+expect page 19
+turn SELECT 4
 expect trk 5
-turn K2 1
-expect peng 5
+tap FX
+expect pick 1
+turn K1 1
+expect picke 5
 tap FX
 expect eng.5 5
+expect pick 0
 # SEQ + white key 5: SUB's OSC page
 press SEQ
 tapkey 7 40

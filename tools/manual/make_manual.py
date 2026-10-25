@@ -218,12 +218,12 @@ def body():
         f"Tap {k('SAVE')}.") + tip(f"Stopped, REC records step by step: each key writes the next step. The click and the count-in are on SETUP ({k('GLO')} three times).", 3),
         "progress-04-countin.png", "The count-in: the bar counts down."))
     o.append(qs(5, "CHOOSE THE INSTRUMENTS", 4, F[5], steps(
-        f"Press {k('GLO')} five times: OUT, FX, SETUP, MIDI, PROJECT.",
-        f"{k('KNOB 1')}: the track.",
-        f"{k('KNOB 2')}: an instrument for it: OFF, REESE, BRK A, BRK B, MIDI, SUB, SAMPLER, FM or WAVE.",
-        f"{k('FX')} puts it on the track. REESE, SUB, SAMPLER, FM, WAVE and each break are on one track at a time: given to another, the two tracks swap. The patterns stay with their track.",
+        f"Tap {k('HOME')}. Turn {k('SELECT')} to the track.",
+        f"Tap {k('FX')}: the picker. (An empty track, OFF, opens it by itself when you press its key.)",
+        f"Turn {k('SELECT')} or {k('KNOB 1')}: OFF, REESE, BRK A, BRK B, MIDI, SUB, SAMPLER, FM or WAVE. One already on another track says which (T1).",
+        f"{k('FX')} puts it on the track and opens it; {k('SEQ')} calls it off. REESE, SUB, SAMPLER, FM, WAVE and each break are on one track at a time: given to another, the two tracks swap. The patterns stay with their track.",
         f"{k('SAVE')} keeps the layout."),
-        "project-05-chosen.png", "PROJECT: a track and its instrument."))
+        "project-05-chosen.png", "HOME's picker: track 4, REESE (now on track 1)."))
     o.append(qs(6, "PLAY A BREAK", 5, F[6], steps(
         "First send some loops: the breaks page or the web editor's Project tab (see THE WEB EDITOR). Until then the breaks are silent.",
         f"Open a break track (HOME, key 2) and press {k('ARP')}: BRK, the loop's page. {k('ARP')} again: BRK2, then SLICE.",
@@ -243,7 +243,7 @@ def body():
         (k("KNOB 1") + " – " + k("KNOB 4"), "The four tiles on the screen, in their colours: orange, yellow, green, blue."),
         (k("OCT-") + " " + k("OCT+"), "Octave, -3 to +3. With a step held: moves its note an octave."),
         (k("SEL") + " " + k("EDIT") + " " + k("ENV") + " " + k("LFO") + " " + k("GLO"), "The sound's five pages (OSC, FILTER, AMP, MOD, OUT on the synths). Pressed again: the page's second view. GLO goes on: FX, SETUP, MIDI, PROJECT."),
-        (k("FX"), "Tap: more: the next four values of an effect, a held step, an LFO; on PROJECT, puts the instrument on the track; on SETUP, the skin; on ROLL and DRUM, the keys' mode. Held ½ s: the FX page (again: back)."),
+        (k("FX"), "Tap: more: the next four values of an effect, a held step, an LFO; on HOME, the instrument picker; on SETUP, the skin; on ROLL and DRUM, the keys' mode. Held ½ s: the FX page (again: back)."),
         (k("HOME"), "Tap: the HOME page (the eight tracks). On a sequencer page, held: FILL."),
         (k("SAVE"), "Tap: keep the sound, patterns, slices and layout (lit when something changed). Held with other controls: store, name, copy (see SAVING)."),
         (k("ARP"), "BREAKS: BRK, again BRK2, again SLICE (chop mode)."),
@@ -264,13 +264,13 @@ def body():
              "status line says so for a moment.</p>")
     o.append(shots(("home-01.png", "HOME: the tracks in their instrument's colour."),
                    ("seq-02-step-held.png", "A step held on ROLL: its values big."),
-                   ("project-04-project.png", "PROJECT: the tracks and their instruments.")))
+                   ("project-04-project.png", "PROJECT: memory and CPU.")))
 
     # ---- 3 tracks
     o.append(chapter("TRACKS, HOME AND PROJECTS", 2, "A project is eight tracks. Each plays one instrument and has "
                      "8 patterns of up to 64 steps."))
     o.append("<p>Out of the box: track 1 REESE, tracks 2 and 3 BREAKS A and B, tracks 4-8 MIDI (your other gear, "
-             "channels 4-8). PROJECT changes that (quick start 5); the instruments you can put on a track:</p>")
+             "channels 4-8). HOME changes that (quick start 5); the instruments you can put on a track:</p>")
     o.append(table([
         (f'<span class="sw" style="background:#FF6A2B"></span><b>REESE</b>', "Detuned saws through a ladder filter: the jungle bass. Mono, slides.", ""),
         (f'<span class="sw" style="background:#3DDC97"></span><b>SUB</b>', "A 101-style mono synth with a dirt stage: dread bass, acid, 808 subs.", ""),
@@ -284,7 +284,10 @@ def body():
     o.append("<h2>HOME</h2><p>Tap " + k("HOME") + " from any sound page. Each track shows its number, instrument and "
              "sound; a dot lights when it plays a note, a muted track is dim. A white or black key 1-8 opens that track. Or "
              "turn " + k("SELECT") + " to pick one and tap " + k("HOME") + " again. Hold " + k("HOME") + " and turn " + k("SELECT") +
-             " to step through the instruments without leaving the page you're on.</p>")
+             " to step through the instruments without leaving the page you're on.</p><p>" + k("FX") + " on HOME opens the "
+             "instrument picker for the selected track: turn " + k("SELECT") + " or " + k("KNOB 1") + ", " + k("FX") + " puts it "
+             "in and opens it, " + k("SEQ") + " calls it off. An empty track (OFF) opens the picker when you open it. PROJECT "
+             "(" + k("GLO") + " ×5) shows the samples' and effects' memory and the CPU load.</p>")
     o.append("<h2>Jumping</h2>" + table([
         (k("SEQ") + " held + white key 1-8", "That track's instrument (on a sequencer page: its sequencer page)."),
         (k("SEQ") + " held + black key 1-8", "That track's sound pages, from anywhere."),
@@ -583,6 +586,7 @@ def body():
     o.append(chapter("QUICK REFERENCE", 2, "The combinations, on one page."))
     o.append(table([
         (k("HOME"), "the eight tracks; key 1-8 opens one"),
+        (k("FX") + " on HOME", "the instrument picker"),
         (k("SEQ"), "this instrument's sequencer; again: back"),
         (k("SEQ") + " + white 1-8", "that track's sequencer / instrument"),
         (k("SEQ") + " + black 1-8", "that track's sound pages"),

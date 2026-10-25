@@ -829,3 +829,21 @@ the FX page and goes back, a tap still changes the mode; PLAY mode plays without
 without toggling REC; a note played ~3.4 steps into the bar lands on step 5 at 1/4; DRUM's PLAY mode plays and selects
 the row without writing; the ruler with a 1-bar roll against a 4-bar break). The ROLL scenarios step through the
 new third mode. Not yet tried on the FM-1.
+
+## 0.35 — instruments chosen on HOME (2026-10-25)
+
+Jamie: "i want to remove the track selection in global menu for the 8 slots and add it to the home page, if a box is
+selected that has no instrument in it then a pop up window will appear to allow you to choose a new instrument".
+
+- **HOME's instrument picker:** FX on HOME opens it for the selected track: the nine choices (OFF, REESE, BRK A, BRK B,
+  MIDI, SUB, SAMPLER, FM, WAVE) as big tiles in their colours. SELECT or KNOB 1 picks, FX puts it on the track and
+  opens it, SEQ (or a page button) calls it off. An instrument that's one-of and on another track shows which (T1):
+  choosing it swaps the two tracks, as before. Opening an empty (OFF) track, by its key on HOME, HOME again or SEQ +
+  black key, opens the picker by itself.
+- **PROJECT** no longer picks instruments: it shows the samples' memory, the effects' memory, the CPU and its peak
+  as four tiles. SAVE + FX still names the project.
+
+Tested: host scenarios `project.txt` (track 4 to REESE and BREAKS A to track 8 through the picker, the swaps as
+before), `sub.txt` / `patches.txt` (SUB put on track 5 from HOME), `home.txt` (a track set OFF, its key opens the
+picker, SEQ calls it off, FM put on it opens FM's pages). Not yet tried on the FM-1.
+
