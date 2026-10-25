@@ -266,12 +266,14 @@ export function noteName(n) {
 // ---- the project (0.12): PROJ ---------------------------------------------------------------------------------
 // the FX rack's effects (src/dsp/dn_fx.h; 0.16 adds Carnac OS's echoes and reverbs, QUADRA and MASSIVE)
 export const FX_NAMES = ["OFF", "DELAY", "TAPE", "BBD", "SPRING", "TOMB", "MOD", "CELESTIAL", "DOLMEN", "TUMULUS", "QUADRA",
-  "MASSIVE"];
-export const FX_KB = [0, 96, 32, 32, 17, 20, 73, 77, 73, 73, 52, 64];   // memory (MASSIVE: at least; it takes the rest)
+  "MASSIVE", "FILTER", "PHASER", "CHORUS", "CRUSH", "RING", "DRIVE"];   // (0.41: the light ones from FILTER)
+export const FX_KB = [0, 96, 32, 32, 17, 20, 73, 77, 73, 73, 52, 64, 0, 0, 4, 0, 0, 0];   // memory (MASSIVE: at least; it takes the rest)
 export const FX_ARENA_KB = 176;
 export const FX_DEFAULTS = [[0, 0, 0, 0, 0, 0, 0], [7, 60, 70, 0, 0, 0, 0], [7, 70, 36, 1, 0, 0, 0], [7, 70, 36, 1, 0, 0, 0],
   [60, 40, 0, 30, 0, 0, 0], [70, 50, 10, 30, 0, 0, 0], [80, 50, 10, 30, 0, 0, 0], [90, 40, 20, 40, 0, 0, 0],
-  [64, 30, 0, 30, 0, 0, 0], [90, 70, 20, 30, 0, 0, 0], [0, 70, 7, 40, 40, 64, 0], [1, 89, 96, 108, 120, 50, 54]];
+  [64, 30, 0, 30, 0, 0, 0], [90, 70, 20, 30, 0, 0, 0], [0, 70, 7, 40, 40, 64, 0], [1, 89, 96, 108, 120, 50, 54],
+  [0, 64, 70, 6, 90, 20, 0], [6, 90, 70, 1, 64, 40, 0], [0, 30, 60, 64, 50, 90, 0], [7, 70, 30, 100, 0, 0, 0],
+  [60, 6, 0, 0, 0, 0, 0], [0, 70, 90, 50, 0, 0, 0]];
 export const FX_DIVS = ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"];
 export const QUADRA_CFG = ["CHORUS", "REVERB", "5EQ>REV", "FLANGE", "DETUNE", "DLY>REV"];
 export const MASSIVE_MODES = ["ROOM", "HALL", "HALO", "SWELL", "ABYSS", "ECHOVRB", "ORBIT", "PRISM", "PONG", "DUB"];
@@ -295,6 +297,23 @@ export function fxParams(type, p = []) {
     const c = (p[0] || 0) % 6;
     l = [P("CONFIG", 5, (v) => QUADRA_CFG[v % 6]), ...QN[c].map((n) => (n === "TIME" ? P(n, 11, div) : n === "16-BIT" ? P(n, 1, onoff)
       : /^(TONE|LOW|LO MID|MID|HI MID|HIGH)$/.test(n) ? P(n, 127, sgn64) : n === "-" ? P(n, 0) : P(n, 127)))];
+  } else if (type >= 12 && type <= 17) {           // (0.41) the light ones (dn_fxl.c)
+    const DV = ["1/16", "1/8T", "1/8", "1/4T", "1/4", "1/2", "1 BAR", "2 BAR", "4 BAR", "8 BAR"];
+    const hz = (f) => (f < 1000 ? `${Math.round(f)}Hz` : f < 10000 ? `${(Math.round(f / 100) / 10).toFixed(1)}K` : `${Math.round(f / 1000)}K`);
+    const cut = (c) => 20 * Math.pow(2, (c * 9.9658) / 127);
+    const dv = (v) => DV[v] || DV[0];
+    if (type === 12) l = [P("MODE", 3, (v) => ["LP", "BP", "HP", "NOTCH"][v & 3]), P("CUTOFF", 127, (v) => hz(cut(v))), P("RES", 127),
+      P("LFO RATE", 9, dv), P("LFO AMT", 127, sgn64), P("DRIVE", 127), P("LFO SHP", 4, (v) => ["SINE", "TRI", "SAW", "SQUARE", "S&H"][v] || "SINE")];
+    else if (type === 13) l = [P("RATE", 9, dv), P("DEPTH", 127), P("FEEDBACK", 127), P("STAGES", 2, (v) => `${4 + 2 * Math.min(2, v)}`),
+      P("CENTER", 127, (v) => hz(cut(40 + v * 0.6))), P("STEREO", 127)];
+    else if (type === 14) l = [P("MODE", 1, (v) => ["CHORUS", "FLANGE"][v & 1]), P("RATE", 127, (v) => (0.05 * Math.pow(2, (v * 7) / 127)).toFixed(2)),
+      P("DEPTH", 127), P("FEEDBACK", 127, sgn64), P("DELAY", 127, (v) => `${Math.floor((500 + (v * 19500) / 127) / 1000)}ms`), P("STEREO", 127)];
+    else if (type === 15) l = [P("BITS", 15, (v) => `${16 - (v & 15)}BIT`), P("RATE", 127, (v) => hz(44100 * Math.pow(2, (-v * 8) / 127))),
+      P("DRIVE", 127), P("TONE", 127, (v) => hz(cut(64 + v * 0.5)))];
+    else if (type === 16) l = [P("FREQ", 127, (v) => hz(20 * Math.pow(2, (v * 8) / 127))), P("LFO RATE", 9, dv), P("LFO AMT", 127),
+      P("SHAPE", 1, (v) => ["SINE", "SQUARE"][v & 1])];
+    else l = [P("TYPE", 4, (v) => ["SOFT", "HARD", "FOLD", "TUBE", "RECT"][v] || "SOFT"), P("DRIVE", 127), P("TONE", 127, (v) => hz(cut(64 + v * 0.5))),
+      P("LOW CUT", 127, (v) => (v ? hz(20 * Math.pow(2, (v * 5.64) / 127)) : "OFF"))];
   } else if (type === 11)
     l = [P("MODE", 9, (v) => MASSIVE_MODES[v % 10]),
       P("TIME", 127, (v) => (v < 13 ? MDIVS[v] : `${Math.round(10 * Math.pow(125, (v - 13) / 114))}ms`)),

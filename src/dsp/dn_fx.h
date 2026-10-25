@@ -13,6 +13,8 @@
  *              with an octave-up shimmer (CELESTIAL), small and still (DOLMEN), long and dark (TUMULUS). (dn_fxc.c)
  *   QUADRA     an Alesis Quadraverb-style chain: configurations of EQ, chorus / flange / detune, delay and a small
  *              plate, with a 16-BIT switch for the 1989 grit. (dn_fxq.c)
+ *   FILTER, PHASER, CHORUS, CRUSH, RING, DRIVE
+ *              (0.41) the light ones: little memory, little CPU. (dn_fxl.c)
  *   MASSIVE    Jamie's Super-Massive ("Horizon", microKORG 2): an 8-line feedback delay network with ten modes, from a
  *              room to a self-oscillating dub echo, at half rate. (dn_fxm.c)
  *
@@ -22,7 +24,9 @@
 #include <stdint.h>
 
 enum { DN_FX_OFF, DN_FX_DELAY, DN_FX_TAPE, DN_FX_BBD, DN_FX_SPRING, DN_FX_TOMB, DN_FX_MOD, DN_FX_CELEST, DN_FX_DOLMEN,
-       DN_FX_TUMULUS, DN_FX_QUADRA, DN_FX_MASSIVE, DN_FX_N };
+       DN_FX_TUMULUS, DN_FX_QUADRA, DN_FX_MASSIVE,
+       DN_FX_FILTER, DN_FX_PHASER, DN_FX_CHORUS, DN_FX_CRUSH, DN_FX_RING, DN_FX_DRIVE,   /* (0.41) the light ones */
+       DN_FX_N };
 #define DN_FX_NDIV 12u
 #define DN_FX_NP 7u                                 /* an effect's values (after its type): two pages of the FX page */
 #define DN_FX_BLK 32u                               /* the effects' inner block */
@@ -121,12 +125,20 @@ typedef struct {                                    /* MASSIVE (Horizon) */
     uint16_t last_bpm;
 } dn_fxm_t;
 
+typedef struct {                                    /* (0.41) the light effects (dn_fxl.c) */
+    int16_t *buf;                                   /* CHORUS: its lines, L then R */
+    uint32_t w, rng;
+    float lph, shv, rph, hph;                       /* the LFO's phase (turns), S&H's value; RING's carrier; CRUSH's hold */
+    float s1[2], s2[2], fb[2], hp[2], lp[2], dc[2], held[2];
+    float ap[2][8];                                 /* PHASER's stages */
+} dn_fxl_t;
+
 typedef struct {
     uint8_t type;
     void *mem;
     uint32_t bytes;                                 /* its memory in the arena */
     float lim;                                      /* the send limiter's envelope */
-    union { dn_fxd_t d; dn_fxt_t t; dn_fxk_t k; dn_fxs_t s; dn_fxr_t r; dn_fxq_t q; dn_fxm_t m; } u;
+    union { dn_fxd_t d; dn_fxt_t t; dn_fxk_t k; dn_fxs_t s; dn_fxr_t r; dn_fxq_t q; dn_fxm_t m; dn_fxl_t l; } u;
 } dn_fx_s_t;
 
 extern const char *const DN_FX_NAME[DN_FX_N];
@@ -172,6 +184,16 @@ float dn_fxm_time_ms(const dn_fx_s_t *s, const dn_fx_p_t *p, uint32_t bpm);   /*
 #define DN_FXM_NMODE 10u
 extern const char *const DN_FXM_MODE[DN_FXM_NMODE];
 extern const float DN_FXM_BEATS[13];                /* TIME 0..12: the synced divisions, in beats */
+
+void dn_fxl_init(dn_fx_s_t *s);
+void dn_fxl_run(dn_fx_s_t *s, const dn_fx_p_t *p, const int32_t *st, int32_t *wl, int32_t *wr, uint32_t n,
+                uint32_t bpm);
+uint32_t dn_fxl_ram(uint32_t type);
+uint32_t dn_fxl_np(uint32_t type);
+void dn_fxl_default(dn_fx_p_t *p);
+const char *dn_fxl_pname(uint32_t type, uint32_t i);
+int32_t dn_fxl_pmax(uint32_t type, uint32_t i);
+int dn_fxl_ptext(uint32_t type, uint32_t i, uint32_t v, char out[8]);   /* 1: written */
 
 /* shared helpers */
 #ifdef DN_FX_CLIPS                                  /* (tests: how often a line clamps) */

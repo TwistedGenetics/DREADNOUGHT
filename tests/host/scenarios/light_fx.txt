@@ -1,0 +1,56 @@
+# DREADNOUGHT host scenario (0.41): the light effects. FX A from DELAY up to FILTER (past MASSIVE), its seven values on
+# two views; REESE sent to it: the wet sounds; FX B to CHORUS (4 KB) beside it, then each light one in turn on B;
+# SAVE keeps them over a reboot.
+tap GLO
+tap GLO
+expect page 14
+expect fxa 1
+tap FX
+expect fxview 1
+turn K1 11
+expect fxa 12
+shot lfx-01-filter.png
+tap FX
+expect fxview 2
+shot lfx-02-filter-more.png
+tap FX
+expect fxview 3
+turn K1 14
+expect fxb 14
+expect fxbkb 4
+shot lfx-03-chorus.png
+tap FX
+expect fxview 4
+tap FX
+expect fxview 0
+# REESE's send A (K1 on the mix view): the filter's wet in the mix
+turn K1 60
+wav light-fx-filter.wav
+key 0 down
+wait 600
+key 0 up
+wait 300
+wavstop
+expect peak >1000
+# FX B through the others: PHASER, CRUSH, RING, DRIVE
+tap FX
+tap FX
+tap FX
+expect fxview 3
+turn K1 -1
+expect fxb 13
+shot lfx-04-phaser.png
+turn K1 2
+expect fxb 15
+shot lfx-05-crush.png
+turn K1 1
+expect fxb 16
+shot lfx-06-ring.png
+turn K1 1
+expect fxb 17
+shot lfx-07-drive.png
+tap SAVE
+wait 100
+reboot
+expect fxa 12
+expect fxb 17

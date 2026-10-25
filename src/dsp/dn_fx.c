@@ -7,7 +7,8 @@
 #define DN_DLY_LEN 24576u                           /* DELAY: half-rate samples a line, 1.11 s */
 
 const char *const DN_FX_NAME[DN_FX_N] = {"OFF", "DELAY", "TAPE", "BBD", "SPRING", "TOMB", "MOD", "CELESTIAL",
-                                         "DOLMEN", "TUMULUS", "QUADRA", "MASSIVE"};
+                                         "DOLMEN", "TUMULUS", "QUADRA", "MASSIVE", "FILTER", "PHASER", "CHORUS",
+                                         "CRUSH", "RING", "DRIVE"};
 const char *const DN_FX_DIV_NAME[DN_FX_NDIV] = {"1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4",
                                                 "1/2T", "1/4D", "1/2"};
 const uint8_t DN_FX_DIV[DN_FX_NDIV][2] = {{1, 8}, {1, 6}, {1, 4}, {1, 3}, {3, 8}, {1, 2}, {2, 3}, {3, 4}, {1, 1},
@@ -23,18 +24,21 @@ uint32_t dn_fx_ram(uint32_t type)
         return dn_fxq_ram();
     if (type == DN_FX_MASSIVE)
         return dn_fxm_ram();
+    if (type >= DN_FX_FILTER)
+        return dn_fxl_ram(type);
     return dn_fxc_ram(type);
 }
 int dn_fx_flex(uint32_t type) { return type == DN_FX_MASSIVE; }
 
 uint32_t dn_fx_np(uint32_t type)
 {
-    return type == DN_FX_OFF ? 0u : type == DN_FX_DELAY ? 3u : type <= DN_FX_BBD || dn_fx_isrev(type) ? 4u : 7u;
+    return type == DN_FX_OFF ? 0u : type >= DN_FX_FILTER ? dn_fxl_np(type) : type == DN_FX_DELAY ? 3u
+         : type <= DN_FX_BBD || dn_fx_isrev(type) ? 4u : 7u;
 }
 
 void dn_fx_default(dn_fx_p_t *p, uint32_t type)
 {
-    static const uint8_t D[DN_FX_N][DN_FX_NP] = {
+    static const uint8_t D[DN_FX_FILTER][DN_FX_NP] = {
         {0},
         {7, 60, 70},                                /* DELAY: 1/8D, the jungle dub default */
         {7, 70, 36, 1},                             /* TAPE: 1/8D, ping-pong, Carnac's wear */
@@ -50,6 +54,10 @@ void dn_fx_default(dn_fx_p_t *p, uint32_t type)
     };
     uint32_t i;
     p->type = (uint8_t)(type < DN_FX_N ? type : 0u);
+    if (p->type >= DN_FX_FILTER) {
+        dn_fxl_default(p);
+        return;
+    }
     for (i = 0; i < DN_FX_NP; i++)
         p->p[i] = D[p->type][i];
 }
@@ -78,6 +86,8 @@ const char *dn_fx_pname(const dn_fx_p_t *p, uint32_t i)
     uint32_t t = p->type;
     if (i >= dn_fx_np(t))
         return "-";
+    if (t >= DN_FX_FILTER)
+        return dn_fxl_pname(t, i);
     if (t == DN_FX_DELAY)
         return DL[i];
     if (t == DN_FX_TAPE || t == DN_FX_BBD)
@@ -95,6 +105,8 @@ int32_t dn_fx_pmax(const dn_fx_p_t *p, uint32_t i)
     const char *n = dn_fx_pname(p, i);
     if (n[0] == '-')
         return 0;
+    if (t >= DN_FX_FILTER)
+        return dn_fxl_pmax(t, i);
     if (t == DN_FX_DELAY || t == DN_FX_TAPE || t == DN_FX_BBD)
         return i == 0u ? (int32_t)DN_FX_NDIV - 1 : i == 3u ? 1 : 127;
     if (t == DN_FX_QUADRA) {
@@ -148,6 +160,8 @@ void dn_fx_ptext(const dn_fx_s_t *s, const dn_fx_p_t *p, uint32_t i, uint32_t bp
         dn_fx_str(out, "-");
         return;
     }
+    if (dn_fxl_ptext(t, i, v, out))
+        return;
     if ((t == DN_FX_DELAY || t == DN_FX_TAPE || t == DN_FX_BBD) && i == 0u) {
         dn_fx_str(out, DN_FX_DIV_NAME[v < DN_FX_NDIV ? v : 8u]);
         return;
@@ -227,6 +241,8 @@ void dn_fx_init(dn_fx_s_t *s, uint32_t type, void *mem, uint32_t bytes)
         dn_fxq_init(s);
     } else if (type == DN_FX_MASSIVE) {
         dn_fxm_init(s);
+    } else if (type >= DN_FX_FILTER) {
+        dn_fxl_init(s);
     } else {
         dn_fxc_init(s);
     }
@@ -332,6 +348,8 @@ void dn_fx_run(dn_fx_s_t *s, const dn_fx_p_t *p, const int32_t *in, int32_t *out
             dn_fxq_run(s, p, mono, wl, wr, k, bpm);
         else if (s->type == DN_FX_MASSIVE)
             dn_fxm_run(s, p, st, wl, wr, k, bpm);
+        else if (s->type >= DN_FX_FILTER)
+            dn_fxl_run(s, p, st, wl, wr, k, bpm);
         else
             dn_fxc_run(s, p, mono, wl, wr, k, bpm);
         for (i = 0; i < k; i++) {

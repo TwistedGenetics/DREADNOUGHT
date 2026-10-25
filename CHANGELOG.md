@@ -970,3 +970,23 @@ Tested on the host: every scenario now runs with a simulated second core (its jo
 of them (FX, JUNO, FM, WAVE, SAMPLER 2, hit FX, breaks, LFOs) are played again on one core: the 11 recordings match to
 the bit. Not yet tried on the FM-1: how much it saves depends on the project (one heavy instrument can't be split).
 
+## 0.41 — light effects (2026-10-25)
+
+- Six new effects for FX A / B, each with next to no memory, so they sit beside any reverb or echo:
+  - **FILTER**: a resonant state-variable LP / BP / HP / NOTCH with a drive before it and an LFO on the cutoff, synced
+    1/16 to 8 bars, SINE / TRI / SAW / SQUARE / S&H.
+  - **PHASER**: 4, 6 or 8 allpass stages swept by a synced LFO, with feedback and STEREO (the sides' sweeps apart).
+    Its notches form where the wet meets the dry in the mix, so send plenty.
+  - **CHORUS**: CHORUS or FLANGE, a swept delay each side up to 20 ms, FEEDBACK for the flanger. 4 KB.
+  - **CRUSH**: bits 16 to 1, the sample rate down to 170 Hz, a drive, a tone after.
+  - **RING**: a ring modulator, 20 Hz to 5 kHz, swept by a synced LFO; sine or soft square.
+  - **DRIVE**: SOFT, HARD, FOLD, TUBE, RECT, a two-pole LOW CUT before it (the sub stays clean: parallel bass
+    distortion) and a TONE after.
+- They're send effects like the rest: their wet joins the dry sound at the slot's return.
+- **Web editor:** the FX lists and values know them.
+
+Tested: each one's golden render, a sound, silence after, a hot input kept sane; FILTER's LP / HP slopes and its LFO's
+sweep; the PHASER's notch at CENTER against the dry; FLANGE's delay to the sample; CRUSH's rate; RING's sum and
+difference with the input gone; DRIVE's RECT octave and LOW CUT; their names and texts the same in the editor as on
+the FM-1; host scenario `light_fx.txt` (from the panel, sounding, kept over a reboot). Not yet heard on the FM-1.
+

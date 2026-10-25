@@ -30,10 +30,10 @@ build/host/brk_test build/host
 $CC $W -D_DEFAULT_SOURCE tests/host/lfo_test.c src/dsp/dn_lfo.c src/dsp/dn_seq.c src/dsp/reese.c src/dsp/dn_breaks.c -o build/host/lfo_test -lm
 build/host/lfo_test
 # shellcheck disable=SC2086
-$CC $W -D_DEFAULT_SOURCE tests/host/fx_test.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_voice.c -o build/host/fx_test -lm
+$CC $W -D_DEFAULT_SOURCE tests/host/fx_test.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_voice.c -o build/host/fx_test -lm
 build/host/fx_test
 # shellcheck disable=SC2086
-$CC $W tests/host/fx2_test.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c -o build/host/fx2_test -lm
+$CC $W tests/host/fx2_test.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c -o build/host/fx2_test -lm
 build/host/fx2_test build/host tests/host/fx_golden.txt
 # shellcheck disable=SC2086
 $CC $W -D_DEFAULT_SOURCE tests/host/sub_test.c src/dsp/dn_sub.c -o build/host/sub_test -lm
@@ -75,7 +75,7 @@ build/host/store_test
 $CC $W tests/host/slices_xcheck.c src/dsp/dn_breaks.c -o build/host/slices_xcheck
 build/host/slices_xcheck | node tests/host/slices_xcheck.mjs
 # shellcheck disable=SC2086
-$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c src/dsp/dn_wt.c src/dsp/dn_ju.c -o build/host/dn_host
+$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c src/dsp/dn_wt.c src/dsp/dn_ju.c -o build/host/dn_host
 for s in tests/host/scenarios/*.txt; do
     build/host/dn_host "$s" build/host
 done

@@ -568,6 +568,12 @@ def body():
         ("TUMULUS", "A cavern: long and dark.", "as SPRING"),
         ("QUADRA", "Quadraverb-style chains: CHORUS, REVERB, 5EQ>REV, FLANGE, DETUNE, DLY>REV.", "CONFIG, DECAY, TIME, FEEDBACK, MOD, TONE, 16-BIT"),
         ("MASSIVE", "Super-Massive: ROOM, HALL, HALO, SWELL, ABYSS, ECHOVRB, ORBIT, PRISM, PONG, DUB.", "MODE, TIME, FEEDBACK, WARP, DENSITY, MOD, TONE"),
+        ("FILTER", "Resonant LP / BP / HP / NOTCH, a drive before it, an LFO on the cutoff synced 1/16 to 8 bars (SINE TRI SAW SQUARE S&H). No memory.", "MODE, CUTOFF, RES, LFO RATE, LFO AMT, DRIVE, LFO SHP"),
+        ("PHASER", "4, 6 or 8 stages swept by a synced LFO. Its notches form where it meets the dry sound: send plenty.", "RATE, DEPTH, FEEDBACK, STAGES, CENTER, STEREO"),
+        ("CHORUS", "CHORUS or FLANGE: a short swept delay each side. 4 KB.", "MODE, RATE, DEPTH, FEEDBACK, DELAY, STEREO"),
+        ("CRUSH", "Bits (16 to 1) and the sample rate down (44.1 kHz to 170 Hz), a drive, a tone after. Parallel crunch.", "BITS, RATE, DRIVE, TONE"),
+        ("RING", "Ring modulator, 20 Hz to 5 kHz, its pitch swept by a synced LFO; sine or soft square.", "FREQ, LFO RATE, LFO AMT, SHAPE"),
+        ("DRIVE", "SOFT, HARD, FOLD, TUBE, RECT (an octave up). LOW CUT before it keeps the sub clean: the parallel bass distortion.", "TYPE, DRIVE, TONE, LOW CUT"),
     ], head=["EFFECT", "WHAT IT IS", "VALUES"]))
 
     # ---- setup

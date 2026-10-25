@@ -164,6 +164,12 @@ beat.
 | TUMULUS | a cavern: long and dark | as SPRING |
 | QUADRA | Quadraverb-style chains, CONFIG: CHORUS (EQ › chorus › delay › plate), REVERB, 5EQ>REV, FLANGE, DETUNE, DLY>REV | CONFIG, DECAY, TIME (synced) / PREDELAY, FEEDBACK, MOD / DETUNE / REV LVL, TONE, 16-BIT (the 1989 grain); 5EQ>REV: LOW, LO MID, MID, HI MID, HIGH |
 | MASSIVE | your Super-Massive (Horizon): the 8-line network and its ten modes ROOM, HALL, HALO, SWELL, ABYSS, ECHOVRB, ORBIT, PRISM, PONG, DUB | MODE, TIME (0–12 synced 1/32 … 1/2D, then 10 ms … 1250 ms), FEEDBACK, WARP, DENSITY, MOD, TONE |
+| FILTER (0.41) | resonant LP / BP / HP / NOTCH with a drive before it and a synced LFO on the cutoff (1/16 … 8 bars; SINE, TRI, SAW, SQUARE, S&H). No memory | MODE, CUTOFF, RES, LFO RATE, LFO AMT, DRIVE, LFO SHP |
+| PHASER (0.41) | 4 / 6 / 8 allpass stages swept by a synced LFO, feedback, the sides apart by STEREO. The notches form where its wet meets the dry: send plenty. No memory | RATE, DEPTH, FEEDBACK, STAGES, CENTER, STEREO |
+| CHORUS (0.41) | CHORUS or FLANGE: a swept delay each side (up to 20 ms), FEEDBACK for the flanger's ring. 4 KB | MODE, RATE, DEPTH, FEEDBACK, DELAY, STEREO |
+| CRUSH (0.41) | bits (16 … 1) and the sample rate down (44.1 kHz … 170 Hz), a drive before, a tone after: parallel crunch. No memory | BITS, RATE, DRIVE, TONE |
+| RING (0.41) | ring modulator, 20 Hz … 5 kHz, its pitch swept by a synced LFO; sine or soft square. No memory | FREQ, LFO RATE, LFO AMT, SHAPE |
+| DRIVE (0.41) | SOFT, HARD, FOLD, TUBE or RECT (an octave up); LOW CUT (two poles) before it keeps the sub out of the dirt; a TONE after. No memory | TYPE, DRIVE, TONE, LOW CUT |
 
 LOW CUT keeps a reverb's tail off the sub (off, 30 Hz … 800 Hz). MASSIVE runs at half rate and takes the FX memory the
 other slot leaves: beside DELAY it has 80 KB (HALL holds ~320 ms, the echo modes ~450 ms), alone 176 KB (about twice

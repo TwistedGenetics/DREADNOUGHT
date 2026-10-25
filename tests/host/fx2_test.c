@@ -136,7 +136,7 @@ int main(int argc, char **argv)
 {
     const char *dir = argc > 1 ? argv[1] : ".";
     const char *gold = argc > 2 ? argv[2] : "tests/host/fx_golden.txt";
-    static const uint32_t TAIL_S[DN_FX_N] = {0, 15, 25, 25, 30, 30, 40, 50, 30, 50, 40, 65};
+    static const uint32_t TAIL_S[DN_FX_N] = {0, 15, 25, 25, 30, 30, 40, 50, 30, 50, 40, 65, 3, 3, 3, 3, 3, 3};
     FILE *gf = fopen(gold, "r");
     char gline[DN_FX_N][64];
     int gwrite = !gf;
@@ -210,6 +210,16 @@ int main(int argc, char **argv)
         snprintf(what, sizeof what, "%s: silent %u s after one stab (the last second's peak, LSB)", DN_FX_NAME[t],
                  TAIL_S[t]);
         check(what, last <= 1.0, last, 0);
+        if (t >= DN_FX_FILTER) {                    /* (0.41: the light ones have no tail: hot, the wet stays sane) */
+            dn_fx_init(&s, t, mem, bytes);
+            silence(0, FS);
+            stab(0, FS, 8, 32000.0);
+            run(&s, &p, 0, FS, 172);
+            snprintf(what, sizeof what, "%s: 8 saws far over full scale: the wet within 1.5x full scale (peak)",
+                     DN_FX_NAME[t]);
+            check(what, peak(0, FS) <= 49152.0, peak(0, FS), 49152);
+            continue;
+        }
         /* 3: hot: 8 saws far over full scale against the same 12 dB down: the tail no brighter (+3 dB at most) */
         dn_fx_init(&s, t, mem, bytes);
         end = FS * 4u;
@@ -347,6 +357,133 @@ int main(int argc, char **argv)
         rm = goertzel(FS * 2u, FS * 4u, 880.0) / goertzel(FS * 2u, FS * 4u, 220.0);
         check("CELESTIAL: two octaves up in its tail, against MOD's (dB)", 10.0 * log10(rc / rm) > 10.0,
               10.0 * log10(rc / rm), 10.0);
+    }
+    /* (0.41) the light ones, each doing its job */
+    {
+#define SINE(f, a) for (i = 0; i < FS * 2u; i++) in[2u * i] = in[2u * i + 1u] = (int32_t)((a) * sin(2.0 * M_PI * (f) * i / FS))
+        double lo, hi, e1, e2, e3;
+        /* FILTER: LP, no LFO, cutoff ~500 Hz: 5 kHz 30 dB under 100 Hz */
+        dn_fx_default(&p, DN_FX_FILTER);
+        p.p[1] = 60, p.p[2] = 0, p.p[4] = 64, p.p[5] = 0;
+        dn_fx_init(&s, DN_FX_FILTER, mem, 16);
+        SINE(100.0, 8000.0);
+        run(&s, &p, 0, FS * 2u, 172);
+        lo = goertzel(FS, FS * 2u, 100.0);
+        dn_fx_init(&s, DN_FX_FILTER, mem, 16);
+        SINE(5000.0, 8000.0);
+        run(&s, &p, 0, FS * 2u, 172);
+        hi = goertzel(FS, FS * 2u, 5000.0);
+        check("FILTER LP at ~500 Hz: 5 kHz at least 30 dB under 100 Hz", 10.0 * log10(lo / hi) > 30.0,
+              10.0 * log10(lo / hi), 30);
+        p.p[0] = 2;                                 /* HP */
+        dn_fx_init(&s, DN_FX_FILTER, mem, 16);
+        SINE(5000.0, 8000.0);
+        run(&s, &p, 0, FS * 2u, 172);
+        hi = goertzel(FS, FS * 2u, 5000.0);
+        dn_fx_init(&s, DN_FX_FILTER, mem, 16);
+        SINE(100.0, 8000.0);
+        run(&s, &p, 0, FS * 2u, 172);
+        lo = goertzel(FS, FS * 2u, 100.0);
+        check("FILTER HP at ~500 Hz: 100 Hz at least 25 dB under 5 kHz (12 dB an octave)", 10.0 * log10(hi / lo) > 25.0, 10.0 * log10(hi / lo), 25);
+        /* ... its LFO (a bar at 172 BPM: 1.4 s) sweeps an LP over a 1 kHz sine: loud and quiet quarters */
+        dn_fx_default(&p, DN_FX_FILTER);
+        p.p[2] = 0, p.p[5] = 0, p.p[4] = 127, p.p[1] = 64;
+        dn_fx_init(&s, DN_FX_FILTER, mem, 16);
+        SINE(1000.0, 8000.0);
+        run(&s, &p, 0, FS * 2u, 172);
+        {
+            double mx = 0, mn = 1e30;
+            for (i = 0; i < 8u; i++) {
+                double r = rms(i * FS / 6u, (i + 1u) * FS / 6u);
+                mx = r > mx ? r : mx, mn = r < mn ? r : mn;
+            }
+            check("FILTER's LFO: the swept LP's level swings over the bar (loudest / quietest 1/6 s, dB)",
+                  20.0 * log10(mx / (mn + 1e-9)) > 12.0, 20.0 * log10(mx / (mn + 1e-9)), 12);
+        }
+        /* PHASER: 6 stages still (DEPTH 0, no feedback): at CENTER the wet is the dry upside down: they cancel in
+         * the mix */
+        dn_fx_default(&p, DN_FX_PHASER);
+        p.p[1] = 0, p.p[2] = 0, p.p[3] = 1, p.p[4] = 64;
+        {
+            char tx[8];
+            float f0 = 20.f * powf(2.f, (40.f + 64.f * 0.6f) * 9.9658f / 127.f);
+            dn_fx_init(&s, DN_FX_PHASER, mem, 16);
+            SINE(f0, 8000.0);
+            run(&s, &p, 0, FS * 2u, 172);
+            for (i = 0; i < FS * 2u; i++)
+                out[2u * i] += in[2u * i];
+            e1 = goertzel(FS, FS * 2u, f0);
+            dn_fx_init(&s, DN_FX_PHASER, mem, 16);
+            SINE(f0 * 3.0, 8000.0);
+            run(&s, &p, 0, FS * 2u, 172);
+            for (i = 0; i < FS * 2u; i++)
+                out[2u * i] += in[2u * i];
+            e2 = goertzel(FS, FS * 2u, f0 * 3.0);
+            dn_fx_ptext(0, &p, 4, 172, tx);
+            printf("     PHASER's CENTER at 64: %.0f Hz ('%s')\n", f0, tx);
+            check("PHASER (6 stages): with the dry, a notch at CENTER (vs 3x CENTER, dB)", 10.0 * log10(e2 / e1) > 20.0,
+                  10.0 * log10(e2 / e1), 20);
+        }
+        /* CHORUS, FLANGE, no sweep: the wet is the send DELAY later (0.5 + 19.5 x 64/127 ms: 11 ms, 487 samples) */
+        dn_fx_default(&p, DN_FX_CHORUS);
+        p.p[0] = 1, p.p[2] = 0, p.p[3] = 64, p.p[4] = 64;
+        dn_fx_init(&s, DN_FX_CHORUS, mem, dn_fx_ram(DN_FX_CHORUS));
+        silence(0, FS);
+        for (i = 0; i < 4u; i++)
+            in[2u * i] = in[2u * i + 1u] = 20000;
+        run(&s, &p, 0, FS, 172);
+        {
+            int32_t at = onset(0, FS, 0, 3000.0), want = (int32_t)((0.5 + 19.5 * 64 / 127.0) * 44.1);
+            check("CHORUS FLANGE: the wet is the send DELAY later (samples)", abs(at - want) <= 2, at, want);
+        }
+        /* CRUSH: 4 bits, held at ~1 kHz: the wet takes few levels and changes ~1000 times a second */
+        dn_fx_default(&p, DN_FX_CRUSH);
+        p.p[0] = 12, p.p[1] = 85, p.p[2] = 0, p.p[3] = 127;
+        dn_fx_init(&s, DN_FX_CRUSH, mem, 16);
+        SINE(110.0, 20000.0);
+        run(&s, &p, 0, FS, 172);
+        {
+            uint32_t ch = 0;
+            char tx[8];
+            for (i = FS / 2u + 1u; i < FS; i++)
+                ch += abs(out[2u * i] - out[2u * i - 2u]) > 1000;
+            dn_fx_ptext(0, &p, 1, 172, tx);
+            check("CRUSH: 4 bits held at RATE (steps a second, of RATE's)", ch > 0, ch * 2.0, 0);
+            printf("     CRUSH RATE 85: '%s'\n", tx);
+            check("... about 1 kHz (half a second's big steps x2, within 25 %)", fabs(ch * 2.0 / 1000.0 - 1.0) < 0.25 ||
+                  fabs(ch * 2.0 / (44100.0 * pow(2.0, -85 * 8.0 / 127)) - 1.0) < 0.25, ch * 2.0, 44100.0 * pow(2.0, -85 * 8.0 / 127));
+        }
+        /* RING: 1 kHz times 300 Hz: 700 and 1300 Hz, the 1 kHz gone */
+        dn_fx_default(&p, DN_FX_RING);
+        p.p[2] = 0;
+        {
+            double fc = 20.0 * pow(2.0, p.p[0] * 8.0 / 127.0);
+            dn_fx_init(&s, DN_FX_RING, mem, 16);
+            SINE(1000.0, 8000.0);
+            run(&s, &p, 0, FS * 2u, 172);
+            e1 = goertzel(FS, FS * 2u, 1000.0 - fc), e2 = goertzel(FS, FS * 2u, 1000.0 + fc), e3 = goertzel(FS, FS * 2u, 1000.0);
+            check("RING: the sum and difference, the input gone (dB under them)", 10.0 * log10(e1 / e3) > 30.0 &&
+                  10.0 * log10(e2 / e3) > 30.0, 10.0 * log10(e1 / e3), 30);
+        }
+        /* DRIVE: RECT: a 220 Hz sine comes out an octave up; LOW CUT at ~1 kHz keeps a 60 Hz sine out */
+        dn_fx_default(&p, DN_FX_DRIVE);
+        p.p[0] = 4, p.p[1] = 0, p.p[2] = 127, p.p[3] = 0;
+        dn_fx_init(&s, DN_FX_DRIVE, mem, 16);
+        SINE(220.0, 16000.0);
+        run(&s, &p, 0, FS * 2u, 172);
+        e1 = goertzel(FS, FS * 2u, 440.0), e2 = goertzel(FS, FS * 2u, 220.0);
+        check("DRIVE RECT: an octave up (440 Hz over 220 Hz, dB)", 10.0 * log10(e1 / e2) > 20.0, 10.0 * log10(e1 / e2), 20);
+        p.p[0] = 0, p.p[1] = 60, p.p[3] = 127;
+        dn_fx_init(&s, DN_FX_DRIVE, mem, 16);
+        SINE(60.0, 16000.0);
+        run(&s, &p, 0, FS * 2u, 172);
+        e1 = rms(FS, FS * 2u);
+        p.p[3] = 0;
+        dn_fx_init(&s, DN_FX_DRIVE, mem, 16);
+        run(&s, &p, 0, FS * 2u, 172);
+        e2 = rms(FS, FS * 2u);
+        check("DRIVE's LOW CUT at 1 kHz (two poles): a 60 Hz sub stays out of it (dB under LOW CUT off)", 20.0 * log10(e2 / e1) > 20.0,
+              20.0 * log10(e2 / e1), 20);
     }
     /* the values: every effect's names and tops make sense */
     for (t = 1; t < DN_FX_N; t++) {
