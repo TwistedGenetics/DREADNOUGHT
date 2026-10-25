@@ -21,8 +21,8 @@
 #define DN_LEN_MAX 255u                             /* 63 3/4 steps */
 
 enum { DN_ST_ON = 1u, DN_ST_SLIDE = 2u, DN_ST_ACC = 4u, DN_ST_RTRG = 8u };
-/* (0.27) a chord: flags' top 4 bits, one of the project's 15 chord shapes (0: none). The shapes are the app's: up to 5
- * notes more, each a distance in semitones from the step's note, so moving the note moves the chord */
+/* (0.27) a chord: flags' top 4 bits, one of 15 chords (0: none; dn_app.c DN_CHORD_*: MIN, MAJ, MIN7 ...), built on the
+ * step's note, so moving the note moves the chord */
 #define DN_ST_CHORD 0xF0u
 #define DN_ST_CHORD_OF(f) ((uint32_t)(f) >> 4)
 #define DN_CHORDS 15u

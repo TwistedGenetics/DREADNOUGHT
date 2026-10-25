@@ -549,3 +549,23 @@ and undone on a MIDI track).
   status line says `REC: KEYS`; the key lights show what's played, not the steps.
 
 Tested: `chords.txt` (a chord held on ROLL with REC on; REC off, a key a step again).
+
+## 0.28 — chords from a list (2026-10-25)
+
+- **Chords are now a fixed set of 15:** MIN, MAJ, MIN7, MAJ7, 7, MIN9, MAJ9, ADD9, SUS2, SUS4, 5, DIM, AUG, MIN6, 6,
+  built on the step's note (Jamie's idea, in place of each project recording its own shapes). Hold a step on ROLL
+  (FM, SAMPLER's keys, MIDI) and turn **PRESETS** to pick its chord, or press FX twice and turn **KNOB 3 (CHORD)**. The
+  held step reads `F3m7` by its note and `MIN7` under CHORD.
+- Recording still works: with REC on, keys held together go into one step as the chord they make, in any order or
+  inversion (A C F: F MAJ on F). When two fit, the lowest note is the root (A C E G: A MIN7). Notes that aren't one of
+  the 15 record the first key alone.
+- Gone: the project's 15 recorded shapes and "CHORDS FULL". Patterns get that room back for notes.
+- **Editor:** a **Chord** list beside Velocity for the selected note (FM, SAMPLER-keys and MIDI tracks); the step's line
+  under the roll names its chord. Clicking another pitch on a step no longer adds it to a chord.
+- Patterns and project files from 0.27 keep their chords: each recorded shape becomes the chord it was (an inversion
+  moves the step's note to the root), and one that isn't in the list plays its note alone.
+
+Tested: host `chords.txt` (recorded chords, an inversion, A MIN7, two notes that aren't a chord, KNOB 3 and PRESETS on a
+held step, OFF and 6 at the ends, ROLL's KEYS mode, REC on ROLL, the editor's frame), `upgrade.txt` (a 0.27 save with
+recorded chords), the editor's table against the FM-1's, `chordMatch` and the 0.27 project upgrade in the editor's unit
+tests, and the editor end to end (MIN7 picked, the chord dragged, None, no list on REESE).

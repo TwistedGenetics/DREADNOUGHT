@@ -1,7 +1,8 @@
-# DREADNOUGHT host scenario (0.27): chords in the sequencer. On FM (and SAMPLER's keys, and MIDI), keys pressed while
-# another is held go into its step as a chord: the lowest note the step's, the others a shape of distances (one of the
-# project's 15). The chord plays back, moves with the step's note, and is kept with the patterns.
-# White keys (tracks 1..8): 0 2 4 6 7 9 11 12. Keys from 0 (F3 = 53): 0 F3, 4 A3, 7 C4, 11 E4.
+# DREADNOUGHT host scenario (0.28): chords in the sequencer. On FM (and SAMPLER's keys, and MIDI) a step can carry one
+# of 15 chords (1 MIN, 2 MAJ, 3 MIN7, 4 MAJ7, 5 7, 6 MIN9, 7 MAJ9, 8 ADD9, 9 SUS2, 10 SUS4, 11 5, 12 DIM, 13 AUG,
+# 14 MIN6, 15 6) on the step's note: chosen with a step held (KNOB 3 on FX's third page, or PRESETS), or recorded:
+# keys held together under REC go into one step as the chord they make (any order or inversion; none: the first key).
+# Keys from 0 are semitones from F3 (53): 0 F3, 1 F#3, 4 A3, 7 C4, 11 E4, 12 F4, 14 G4.
 sysex 76 6 7 0
 press SEQ
 tapkey 11 40
@@ -15,7 +16,7 @@ key 20 up
 expect on.7 0
 tap SEQ
 expect page 0
-# stopped, REC: F3 held, then A3 and C4: one step, F major (F3 + 4, + 7)
+# stopped, REC: F3 held, then A3 and C4: one step, F major
 tap REC
 expect rec 1
 key 0 down
@@ -30,16 +31,13 @@ key 0 up
 wait 30
 expect on.7 1
 expect nt.7.1 53
-expect chordof.7.1 1
-expect chord.1.0 4
-expect chord.1.1 7
-expect chord.1.2 0
+expect chordof.7.1 2
 # the next step: a single note (all keys were up)
 tapkey 11 40
 expect on.7 2
 expect nt.7.2 64
 expect chordof.7.2 0
-# a chord whose lowest key comes second: the step's note moves down to it (C4 then F3 + A3: F major again, shape 1)
+# the lowest key second: F major again on F3
 key 7 down
 wait 30
 key 0 down
@@ -52,7 +50,49 @@ key 7 up
 wait 30
 expect on.7 3
 expect nt.7.3 53
-expect chordof.7.3 1
+expect chordof.7.3 2
+# an inversion (A3 C4 F4): F major, its root F3 under the lowest key
+key 4 down
+wait 30
+key 7 down
+wait 30
+key 12 down
+wait 30
+key 4 up
+key 7 up
+key 12 up
+wait 30
+expect on.7 4
+expect nt.7.4 53
+expect chordof.7.4 2
+# A3 C4 E4 G4: A minor 7 (not C 6: the lowest note is the root when both fit)
+key 4 down
+wait 30
+key 7 down
+wait 30
+key 11 down
+wait 30
+key 14 down
+wait 30
+key 4 up
+key 7 up
+key 11 up
+key 14 up
+wait 30
+expect on.7 5
+expect nt.7.5 57
+expect chordof.7.5 3
+# F3 + F#3: none of the 15, the first key alone
+key 0 down
+wait 30
+key 1 down
+wait 30
+key 0 up
+key 1 up
+wait 30
+expect on.7 6
+expect nt.7.6 53
+expect chordof.7.6 0
 tap REC
 expect rec 0
 tap SEQ
@@ -69,15 +109,37 @@ tap PLAY
 tap SAVE
 wait 300
 reboot
-expect chordof.7.1 1
-expect chord.1.1 7
-expect nt.7.3 53
-# ROLL's KEYS mode (FX): a key under a held one, a chord at the cursor (not a slide)
+expect chordof.7.1 2
+expect chordof.7.5 3
+expect nt.7.5 57
 press SEQ
 tapkey 11 40
 release SEQ
 tap SEQ
 expect page 7
+# on the roll, a step held (step 1): FX twice, KNOB 3 its CHORD: F major -> F minor 7; PRESETS too, OFF at the bottom, 6 at the top
+key 0 down
+wait 30
+tap FX
+tap FX
+turn K3 1
+expect chordof.7.1 3
+shot chords-02-held.png
+turn PRESET -2
+expect chordof.7.1 1
+tap FX
+shot chords-02b-held-note.png
+tap FX
+tap FX
+turn PRESET -5
+expect chordof.7.1 0
+turn PRESET 20
+expect chordof.7.1 15
+turn PRESET -13
+expect chordof.7.1 2
+key 0 up
+wait 30
+# ROLL's KEYS mode (FX): a key under a held one, a chord at the cursor (not a slide)
 tap FX
 expect rollkeys 1
 key 0 down
@@ -88,17 +150,14 @@ key 0 up
 key 7 up
 wait 30
 expect nt.7.1 53
-expect chordof.7.1 >0
-expect st.7.1 33
-# the editor's frame (CHORDS, 89): the shapes read; shape 3 set to a minor triad (3, 7)
+expect chordof.7.1 11
+expect st.7.1 177
+# the editor's frame (CHORDS, 89): the 15 chords, fixed (MIN first: 3, 7)
 sysex 89
 expect replylen 75
-expect reply.0 68
+expect reply.0 67
 expect reply.1 71
-sysex 89 3 67 71 64 64 64
-expect reply.0 0
-expect chord.3.0 3
-expect chord.3.1 7
+expect chord.3.2 10
 # (0.27.1) the sequencer page itself: REC on, the keys play and record (a chord held: a chord); REC off: steps again
 tap FX
 expect rollkeys 0
@@ -120,8 +179,8 @@ key 7 up
 wait 30
 expect on.7 1
 expect nt.7.1 53
-expect chordof.7.1 >0
-shot chords-02-roll-rec.png
+expect chordof.7.1 2
+shot chords-03-roll-rec.png
 tap REC
 expect rec 0
 tapkey 2 60

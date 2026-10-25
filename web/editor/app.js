@@ -5,7 +5,7 @@ import {
   noteName, parsePattern, serializePattern, overlapCut, setOverlapCut, overlapSlide, HIDDEN, NLFO, LFO_PTS, lfoParams,
   lfoIndex, NPARAM, lfoShapeAt, COND_NAMES, RTIM_DEN, ST_RTRG, NPAT, PAT_BYTES, ENG_NAMES, setEngines, brkOf, midiNo,
   PF, FX_NAMES, fxParams, E, SUB, subIndex, NPARAM_13, nLfos, FENV, NPARAM_19, feIndex,
-  ST_CHORD, chordOf, chordNotes, shapeOf, chordSlot,
+  ST_CHORD, chordOf, chordNotes, CHORD_NAMES,
   SMP_PAD, SMP_ZONE, SMP_KEYS, SMP_NPADS, SMP_NZONES, readSampler, smpNote, FM_MACROS,
 } from "./protocol.js";
 import {
@@ -155,7 +155,6 @@ async function poll() {
     if (st.loops !== S.loops.length) { S.loops = await S.link.names(1); buildBreaks(); }
     S.params = await S.link.params();
     S.pat = await S.link.readPattern(st.patSize);
-    if (S.chords) S.chords = (await S.link.chords().catch(() => null)) || S.chords;
     if (!S.lfoDraw) S.lfo = await readLfos();
     if (S.proj) { S.proj = await S.link.proj().catch(() => S.proj); setEngines(S.proj.eng); }
     refreshValues();
@@ -333,7 +332,7 @@ function drawRoll() {
     if (st.len < LEN_STEP && end === i + 1) x1 = g.x(i) + g.cw * st.len / LEN_STEP - 1;
     const y = r * g.rh + 1;
     if (chordable() && chordOf(st)) {                // (0.27) its chord's other notes, alike, a line joining them
-      const ns = chordNotes(st, S.chords).slice(1);
+      const ns = chordNotes(st).slice(1);
       ns.forEach((n) => {
         const cr = rowOf(n), cy = cr * g.rh + 1;
         if (cr < 0 || cr >= rows()) return;
@@ -398,35 +397,16 @@ function noteAt(step, val) {
   return -1;
 }
 function posOf(ev) { const r = $("roll").getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; }
-// (0.27) chords: the tracks that play them, a chord's note under (step, row), and adding / taking a note from a chord
+// (0.27) chords: the tracks that play them (an FM-1 that has them), a chord's note under (step, row)
 const chordable = () => !!S.chords && (KIND(S.sel) === "FM" || KIND(S.sel) === "MIDI" || (KIND(S.sel) === "SAMPLER" && !!S.smp && S.smp.mode === 1));
 function chordAt(step, val) {
   if (!chordable()) return -1;
   const tr = S.pat.tracks[S.sel];
   for (let i = 0; i < tr.len; i++) {
     const st = tr.steps[i];
-    if ((st.flags & ST_ON) && chordOf(st) && i <= step && step < Math.max(i + 1, noteEnd(tr, i)) && chordNotes(st, S.chords).slice(1).includes(val)) return i;
+    if ((st.flags & ST_ON) && chordOf(st) && i <= step && step < Math.max(i + 1, noteEnd(tr, i)) && chordNotes(st).slice(1).includes(val)) return i;
   }
   return -1;
-}
-async function setChord(i, notes) {                  // step i plays these notes (one: no chord)
-  const st = S.pat.tracks[S.sel].steps[i];
-  if (notes.length < 2) { st.note = notes[0]; st.flags &= ~ST_CHORD; return patternChanged(); }
-  const { root, shape } = shapeOf(notes.slice(0, 6));
-  const was = st.flags;
-  st.flags &= ~ST_CHORD;
-  let c = chordSlot(S.chords, shape);
-  if (c < 0) {                                       // all 15 taken: the FM-1 frees the ones no step uses, then again
-    clearTimeout(patTimer);
-    S.writing++;
-    try { await S.link.writePattern(S.pat); S.chords = await S.link.chords(true); } finally { S.writing--; }
-    c = chordSlot(S.chords, shape);
-    if (c < 0) { st.flags = was; render(); return say("All 15 chord shapes are in use in this project.", "bad"); }
-  }
-  await S.link.chordSet(c, S.chords[c - 1]);
-  st.note = root;
-  st.flags = (st.flags & ~ST_CHORD) | (c << 4);
-  patternChanged();
 }
 
 $("roll").oncontextmenu = (ev) => ev.preventDefault();
@@ -434,16 +414,8 @@ $("roll").onpointerdown = (ev) => {
   if (!S.pat) return;
   const g = geom(), { x, y } = posOf(ev), step = g.step(x), val = valOf(g.row(y)), tr = S.pat.tracks[S.sel];
   if (step < g.x0 || step >= Math.min(g.len, g.x0 + g.n) || x < GUT) return;
-  const ca = chordAt(step, val);
-  if (ca >= 0 && (ev.button === 2 || ev.altKey)) {   // a chord's note: out of the chord
-    const ns = chordNotes(tr.steps[ca], S.chords).filter((n) => n !== val);
-    return guard(() => setChord(ca, ns));
-  }
+  const ca = chordAt(step, val);                     // (a chord's note: its step, as the root's)
   const at = ca >= 0 ? ca : noteAt(step, val);
-  if (at < 0 && chordable() && (tr.steps[step].flags & ST_ON) && ev.button === 0 && !ev.altKey) {
-    S.selNote = step;                                // a pitch more on a step with a note: into its chord
-    return guard(() => setChord(step, [...chordNotes(tr.steps[step], S.chords), val]));
-  }
   if (at >= 0 && (ev.button === 2 || ev.altKey)) {   // delete
     tr.steps[at].flags = 0;
     S.selNote = -1;
@@ -942,6 +914,8 @@ function renderInsp() {
   if (box.contains(document.activeElement)) return;  // (not the control in your hand)
   $("i-vel").value = st.flags & ST_ACC ? 127 : st.vel; $("i-velv").textContent = st.flags & ST_ACC ? "accent" : st.vel;
   $("i-cond").value = st.cond;
+  $("i-chordl").hidden = !chordable();
+  $("i-chord").value = chordOf(st);
   $("i-rtrg").checked = !!(st.flags & ST_RTRG);
   $("i-rtim").value = st.rtim;
   $("i-rlen").value = st.rlen;
@@ -956,6 +930,8 @@ function buildInsp() {
   const step = () => S.pat.tracks[S.sel].steps[S.selNote];
   $("i-vel").oninput = () => { const st = step(); st.vel = +$("i-vel").value; st.flags &= ~ST_ACC; $("i-velv").textContent = st.vel; patternChanged(); };
   c.onchange = () => { step().cond = +c.value; patternChanged(); };
+  CHORD_NAMES.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = i ? `${n}` : "None"; $("i-chord").appendChild(o); });
+  $("i-chord").onchange = () => { const st = step(); st.flags = (st.flags & ~ST_CHORD) | (+$("i-chord").value << 4); patternChanged(); };
   $("i-rtrg").onchange = () => { const st = step(); st.flags = $("i-rtrg").checked ? st.flags | ST_RTRG : st.flags & ~ST_RTRG; patternChanged(); renderInsp(); };
   r.onchange = () => { step().rtim = +r.value; patternChanged(); };
   l.onchange = () => { step().rlen = +l.value; patternChanged(); };
@@ -1539,7 +1515,7 @@ function render() {
   $("overlap").value = overlapCut(S.pat, S.sel) ? "cut" : "slide";
   $("hint").textContent = isBrk()
     ? "Click a slice's row to play it on that step, drag to move it, drag its right end to hold it longer. Shift-click: accent. Double-click: reverse. Right-click or Alt-click: delete."
-    : "Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent. Double-click: slide. A note that reaches past the next one slides into it (Overlap: Slide). Right-click or Alt-click: delete. On FM, SAMPLER's keys and MIDI, click another pitch on a step to make a chord (right-click one of its notes to take it out). Arrow keys move the selected note (up / down, along the steps). Below: the selected note's velocity, condition and retrig; shift-drag the velocity lane for a ramp. Scroll for higher or lower notes; drag past an edge and the roll follows.";
+    : "Click to add a note, drag to move it, drag its right end to make it longer. Shift-click: accent. Double-click: slide. A note that reaches past the next one slides into it (Overlap: Slide). Right-click or Alt-click: delete. On FM, SAMPLER's keys and MIDI, select a note and pick a chord below; a chord moves with its root. Arrow keys move the selected note (up / down, along the steps). Below: the selected note's velocity, condition and retrig; shift-drag the velocity lane for a ramp. Scroll for higher or lower notes; drag past an edge and the roll follows.";
   if ($("pattern").classList.contains("on")) { drawRoll(); drawVel(); }
   if ($("lfos").classList.contains("on")) drawLfos();
   if ($("smptab").classList.contains("on")) drawZoneMap();
@@ -1547,7 +1523,7 @@ function render() {
   renderInsp();
   if (S.selNote >= 0 && tr.steps[S.selNote] && (tr.steps[S.selNote].flags & ST_ON)) {
     const st = tr.steps[S.selNote];
-    $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `${KIND(S.sel) === "SAMPLER" ? "pad" : "slice"} ${st.note + 1}` : noteName(st.note + trans())}, `
+    $("hint").textContent = `Step ${S.selNote + 1}: ${isBrk() ? `${KIND(S.sel) === "SAMPLER" ? "pad" : "slice"} ${st.note + 1}` : noteName(st.note + trans())}${chordable() && chordOf(st) ? ` ${CHORD_NAMES[chordOf(st)]}` : ""}, `
       + `${lenText(st.len)} step${st.len === 4 ? "" : "s"}, velocity ${st.flags & ST_ACC ? "accent" : st.vel}`
       + `${st.flags & ST_SLIDE ? (isBrk() ? ", reversed" : ", slides in") : !isBrk() && overlapSlide(S.pat, S.sel, S.selNote) ? ", slides in (the note before overlaps it)" : ""}.`;
   }

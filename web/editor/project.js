@@ -9,7 +9,7 @@
 //
 // The file is JSON (binary parts in base64). The FM-1 must be stopped to read or write one: its patterns are reached by
 // selecting each in turn, which while playing would only queue.
-import { NLFO_ALL, nLfos, NPAT, TRACKS, parsePattern, serializePattern, PF, setEngines, readSampler, writeSampler, readFm, writeFm } from "./protocol.js";
+import { NLFO_ALL, nLfos, NPAT, TRACKS, parsePattern, serializePattern, PF, setEngines, readSampler, writeSampler, readFm, writeFm, ST_CHORD, chordMatch } from "./protocol.js";
 import { zoneVoices } from "./dx7.js";
 import { readSlots, writeSlots, slotSamples, sameImage } from "./media.js";
 import { sliceKey, key7, pos7 } from "../breaks/slices.js";
@@ -39,7 +39,6 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   for (let k = 0; k < nLfos(params.length); k++) lfo.push(await link.lfoPts(k));   // (0.15: SUB's too)
   const smp = await readSampler(link);                 // (0.23; null before)
   const fm = await readFm(link);                       // (0.25; null before)
-  const chords = await link.chords().catch(() => null);   // (0.27; null before)
   say("Reading the patterns…");
   const pats = await link.pats(), cur = pats.tracks.map((t) => t.cur), patterns = [];
   try {
@@ -60,11 +59,26 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   onPart(1);
   return {
     format: FORMAT, version: VERSION, saved: new Date().toISOString(), firmware: link.name || "",
-    name: proj.name, params, lfo, smp, fm, chords, proj: { eng: proj.eng, send: proj.send, ret: proj.ret, fx: proj.fx },
+    name: proj.name, params, lfo, smp, fm, proj: { eng: proj.eng, send: proj.send, ret: proj.ret, fx: proj.fx },
     patterns, current: cur, patSize: st.patSize,
     slots: dev.map((im) => (im ? { hdr: b64(im.hdr), data: b64(im.data) } : null)), slices,
     media: media.map((m) => ({ name: m.name, set: m.set, lock: !!m.lock, file: m.orig ? b64(m.orig) : undefined })),
   };
+}
+
+// (0.28) a 0.27 project's chords were its own shapes (o.chords: distances over the step's note); each step's becomes
+// the chord of the 15 it is (none: the note alone), its note the chord's root
+export function upChords(pat, shapes) {
+  if (!Array.isArray(shapes)) return pat;
+  for (const tr of pat.tracks)
+    for (const st of tr.steps) {
+      const c = (st.flags & ST_CHORD) >> 4;
+      if (!c) continue;
+      const m = chordMatch([60, ...(shapes[c - 1] || []).filter((d) => d > 0 && d < 60).map((d) => 60 + d)]);
+      st.flags = (st.flags & ~ST_CHORD) | (m.c << 4);
+      if (m.c) st.note = Math.max(0, Math.min(127, st.note + m.root - 60));
+    }
+  return pat;
 }
 
 export function checkProject(o) {
@@ -104,13 +118,11 @@ export async function writeProject(link, o, { onPart = () => {}, say = () => {} 
   for (let k = 0; k < Math.min(NLFO_ALL, nl) && o.lfo && o.lfo[k]; k++) await link.setLfoPts(k, o.lfo[k].npts, o.lfo[k].pts);
   if (o.smp && (await readSampler(link))) await writeSampler(link, o.smp);   // (an FM-1 before 0.23: no SAMPLER)
   if (o.fm && (await readFm(link))) await writeFm(link, o.fm);   // (before 0.25: no FM)
-  if (o.chords && (await link.chords().catch(() => null)))   // (0.27: the chord shapes before the patterns that use them)
-    for (let c = 0; c < o.chords.length; c++) await link.chordSet(c + 1, o.chords[c]);
   onPart(0.1);
   say("Sending the patterns…");
   for (let p = 0; p < NPAT; p++) {
     for (let t = 0; t < TRACKS; t++) await link.patSel(t, p);
-    const pat = parsePattern([...unb64(o.patterns[p])]);
+    const pat = upChords(parsePattern([...unb64(o.patterns[p])]), o.chords);
     if (st.patSize && serializePattern(pat).length !== st.patSize) pat.stepBytes = st.patSize > 3000 ? 8 : 4;
     await link.writePattern(pat);
     onPart(0.1 + ((p + 1) / NPAT) * 0.3);

@@ -3,7 +3,7 @@
 // parameters, the pattern, names.
 import { readFileSync } from "node:fs";
 import { unpack as fmUnpack, pack as fmPack, vname as fmName, vmax as fmMax, vtext as fmText, isCarrier } from "../../web/editor/dx7.js";
-import { parseUi } from "../../web/editor/protocol.js";
+import { parseUi, parseChords, CHORDS } from "../../web/editor/protocol.js";
 import { renderNote } from "../../web/editor/fmsynth.js";
 import { parseSmp, SMP_PAD, SMP_ZONE, SMP_KEYS, parseState, parseParams, parsePattern, parseNames, serializePattern, REESE, NPARAM_15, parseLfoPts, parseLfoNow, COND_NAMES,
   parseProj, fxParams, FX_DEFAULTS, FX_NAMES } from "../../web/editor/protocol.js";
@@ -70,6 +70,9 @@ check("UI_STATE: REESE's OSC page, track 1, tabs with OSC lit, knob 1 and 4 name
   ui.page === 0 && ui.trk === 0 && ui.eng === 1 && ui.tag === "REESE" && ui.tabs[ui.tabSel] === "OSC" && ui.knobs[0].name === g.uiknob[0] &&
   ui.knobs[0].value === g.uiknob[1] && ui.knobs[3].name === g.uiknob[2] && ui.name === g.uiknob[3],
   `${ui.tag} ${ui.name} ${ui.tabs.join("/")} ${ui.knobs.map((k) => k && k.name).join(",")}`, `REESE ${g.uiknob[3]} OSC ${g.uiknob[0]}`);
+// 0.28: the 15 chords: the editor's table is the FM-1's
+check("chords: the editor's 15 (MIN .. 6) are the FM-1's", JSON.stringify(parseChords(g.chords)) === JSON.stringify(CHORDS),
+  JSON.stringify(parseChords(g.chords)[0]), JSON.stringify(CHORDS[0]));
 // 0.26: the editor's own FM (to hear a voice before it's sent) against the FM-1's renders: the same samples
 {
   const names = ["DUB FM BS", "FM REESE", "GROWL BASS (AMS)", "DARK BELL"];

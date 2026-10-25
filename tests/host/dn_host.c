@@ -506,6 +506,9 @@ int main(int argc, char **argv)
                             dn_sound_name(0, dn.preset));
                     dn_goto(pg);
                 }
+                fprintf(g, "],\"chords\":[");    /* 0.28: the 15 chords, as the editor's CHORDS frame sends them */
+                ed(89, 0, 0);
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
                 fprintf(g, "],\"fmdefs\":[");    /* 0.25: FM: every value's name, top, texts; a voice packed and not */
                 for (uint32_t k = 0; k < 145u; k++) {
                     fprintf(g, "%s[%u,\"%s\",%d,[", k ? "," : "", k, dn_fm_vname(k), dn_fm_vmax(k));
@@ -699,7 +702,7 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "dly")) {           /* the delay's output now, both sides */
                 got = labs((long)dn_fxs[0].u.d.o_l) + labs((long)dn_fxs[0].u.d.o_r);
             } else if (!strcmp(b, "legato")) got = dn_sq.legato;
-            else if (!strncmp(b, "chordof.", 8)) {   /* chordof.T.I: track T's step I's chord shape (0.27) */
+            else if (!strncmp(b, "chordof.", 8)) {   /* chordof.T.I: track T's step I's chord (0.27; 0.28: one of the fixed 15) */
                 const dn_step_t *st = &dn_sq.pat.tr[(atoi(b + 8) - 1) & 7].st[(atoi(strchr(b + 8, '.') + 1) - 1) & 63];
                 got = (long)DN_ST_CHORD_OF(st->flags);
             } else if (!strncmp(b, "chord.", 6)) got = dn_chord[(atoi(b + 6) - 1) % DN_CHORDS][atoi(strchr(b + 6, '.') + 1) % DN_CHORD_N];

@@ -58,9 +58,7 @@
  *                                 the one lit (127 none), names), the 4 knobs (1 there / 0; then id (2), name, value,
  *                                 min, max (2 each, + 8192), text), the message, the left of the status line, the lit
  *                                 buttons (2) and keys (4), the name editor's cursor. Strings: up to 24 chars, 0 after
- *   89 CHORDS                  -> the 15 chord shapes, 5 distances each (+64) (0.27)
- *      CHORDS c d1..d5         -> rc                                 shape c (1..15) to these distances (+64; 64: none)
- *      CHORDS 0                -> the 15 shapes, those no step uses now emptied first
+ *   89 CHORDS                  -> the 15 chords (MIN .. 6), 5 notes over the root each (+64; 0: none) (0.28: fixed)
  *   88 UI_INPUT kind id v      -> rc                                 as if on the panel: kind 0 button down, 1 up, 2 key
  *                                                                    down, 3 up (id: B_* / key 0..26), 4 an encoder
  *                                                                    turned (id EN_*, v + 64 detents), 5 all let go
@@ -602,33 +600,10 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         put(0);
         return 1;
     }
-    case ED_CHORDS:
-        if (!na) {
-            for (i = 0; i < DN_CHORDS; i++)
-                for (j = 0; j < DN_CHORD_N; j++)
-                    put((uint32_t)(dn_chord[i][j] + 64));
-            return 1;
-        }
-        if (na == 1u && a[0] == 0u) {               /* (free the shapes no step uses, then the table) */
-            for (i = 0; i < DN_CHORDS; i++)
-                if (!dn_chord_used(i + 1u))
-                    for (j = 0; j < DN_CHORD_N; j++)
-                        dn_chord[i][j] = 0;
-            for (i = 0; i < DN_CHORDS; i++)
-                for (j = 0; j < DN_CHORD_N; j++)
-                    put((uint32_t)(dn_chord[i][j] + 64));
-            return 1;
-        }
-        if (na < 1u + DN_CHORD_N || a[0] < 1u || a[0] > DN_CHORDS) {
-            put(1);
-            return 1;
-        }
-        dn_lock();
-        for (j = 0; j < DN_CHORD_N; j++)
-            dn_chord[a[0] - 1u][j] = (int8_t)dn_clamp((int32_t)a[1u + j] - 64, -63, 63);
-        dn_unlock();
-        dn_mark();
-        put(0);
+    case ED_CHORDS:                                 /* (0.28) the 15 chords, fixed: each its notes over the root */
+        for (i = 0; i < DN_CHORDS; i++)
+            for (j = 0; j < DN_CHORD_N; j++)
+                put((uint32_t)(dn_chord[i][j] + 64));
         return 1;
     case ED_SUB_PRESET:
         if (na < 1u || a[0] >= dn_sub_preset_count() + DN_NUSER)

@@ -393,8 +393,7 @@ export class Link {
   async smpGet(kind, i) { return parseSmp(await this.req(CMD.SMP_GET, [kind, i])); }
   async smpSet(kind, i, k, v) { return (await this.req(CMD.SMP_SET, [kind, i, k, ...digits(v + 8192, 2)]))[0]; }
   async smpPlay(note, on) { return (await this.req(CMD.SMP_PLAY, [note & 127, on ? 1 : 0]))[0]; }
-  async chords(free = false) { return parseChords(await this.req(CMD.CHORDS, free ? [0] : [])); }
-  async chordSet(c, d) { return (await this.req(CMD.CHORDS, [c, ...[0, 1, 2, 3, 4].map((k) => (d[k] || 0) + 64)]))[0]; }
+  async chords() { return parseChords(await this.req(CMD.CHORDS, [])); }   // (0.27+: the FM-1 plays chords)
   async ui() { return parseUi(await this.req(CMD.UI_STATE, [], 800)); }
   async uiInput(kind, id, v = 64) { return (await this.req(CMD.UI_INPUT, [kind, id, v]))[0]; }
   async fmGet() { return parseFm(await this.req(CMD.FM_GET)); }
@@ -544,33 +543,36 @@ export function parseUi(r) {
   return o;
 }
 
-// ---- chords (0.27): a step's flags' top 4 bits pick one of the project's 15 shapes (up to 5 more notes, distances
-// from the step's note); FM, SAMPLER's keys and MIDI play them --------------------------------------------------------
+// ---- chords (0.28): a step's flags' top 4 bits pick one of 15 chords (0: none), its notes above the step's; FM,
+// SAMPLER's keys and MIDI play them (the same table as the FM-1's: tests/host/editor_golden.mjs) ----------------------
 export const ST_CHORD = 0xf0, NCHORDS = 15, CHORD_N = 5;
+export const CHORD_NAMES = ["OFF", "MIN", "MAJ", "MIN7", "MAJ7", "7", "MIN9", "MAJ9", "ADD9", "SUS2", "SUS4", "5", "DIM", "AUG", "MIN6", "6"];
+export const CHORDS = [[3, 7], [4, 7], [3, 7, 10], [4, 7, 11], [4, 7, 10], [3, 7, 10, 14], [4, 7, 11, 14], [4, 7, 14], [2, 7], [5, 7],
+  [7, 12], [3, 6], [4, 8], [3, 7, 9], [4, 7, 9]].map((c) => [...c, 0, 0, 0, 0, 0].slice(0, CHORD_N));
 export const chordOf = (st) => (st.flags & ST_CHORD) >> 4;
 export function parseChords(r) {
   const out = [];
   for (let c = 0; c < NCHORDS; c++) out.push(r.slice(c * CHORD_N, c * CHORD_N + CHORD_N).map((v) => v - 64));
   return out;
 }
+// (0.28) the chord these notes make, in any order or inversion: {c (1..15; 0: none of them), root (at or below the
+// lowest note; none: the lowest)}; the lowest note is the root when two fit, as on the FM-1
+export function chordMatch(notes) {
+  const s = [...notes].sort((a, b) => a - b), lo = s[0];
+  for (const r of s) {
+    let have = 0;
+    for (const n of s) have |= 1 << (((n - r) % 12) + 12) % 12;
+    for (let c = 0; c < NCHORDS; c++) {
+      let want = 1;
+      for (const d of CHORDS[c]) if (d) want |= 1 << (d % 12);
+      if (have === want) { let root = r; while (root > lo) root -= 12; return { c: c + 1, root: root < 0 ? root + 12 : root }; }
+    }
+  }
+  return { c: 0, root: lo };
+}
 // a step's notes, its own first (the chord's when it has one)
-export function chordNotes(st, chords) {
+export function chordNotes(st, chords = CHORDS) {
   const c = chordOf(st), out = [st.note];
   if (c && chords && chords[c - 1]) for (const d of chords[c - 1]) if (d && st.note + d >= 0 && st.note + d <= 127) out.push(st.note + d);
   return out;
-}
-// the shape for these notes: {root, shape (sorted distances, 5)}
-export function shapeOf(notes) {
-  const root = Math.min(...notes), ds = [...new Set(notes.map((n) => n - root).filter((d) => d))].sort((a, b) => a - b).slice(0, CHORD_N);
-  while (ds.length < CHORD_N) ds.push(0);
-  return { root, shape: ds };
-}
-// its index in the table (1..15): one alike, or an empty one (-1: none free); chords is changed in place for a new one
-export function chordSlot(chords, shape) {
-  const same = chords.findIndex((c) => c.every((d, k) => d === shape[k]));
-  if (same >= 0) return same + 1;
-  const free = chords.findIndex((c) => c.every((d) => !d));
-  if (free < 0) return -1;
-  chords[free] = [...shape];
-  return free + 1;
 }

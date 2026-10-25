@@ -4,7 +4,7 @@
 // (TwistedGenetics).
 import { parseSlot, SLOT_HDR_LEN, SLOT_DATA_OFF } from "./media.js";
 import { zoneVoices, unpack as fmUnpack } from "./dx7.js";
-import { REESE } from "./protocol.js";
+import { REESE, CHORDS } from "./protocol.js";
 import { SMP_PAD, SMP_ZONE, SMP_KEYS, HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
 
 const PRESETS = ["CLASSIC RS", "OG REESE", "HOLLOW RS", "TECHSTEP", "NEURO RS", "SYNC RS", "DARK RS", "SUB REESE", "HOOVER RS", "INIT"];
@@ -235,17 +235,7 @@ export class MockFM1 {
         this.rev++; this.dirty = 1;
         return [0];
       }
-      case CMD.CHORDS: {                            // (0.27) the chord shapes; 0: free the unused ones
-        this.chords = this.chords || Array.from({ length: 15 }, () => [0, 0, 0, 0, 0]);
-        if (a.length >= 6) { this.chords[a[0] - 1] = a.slice(1, 6).map((v) => v - 64); this.rev++; return [0]; }
-        if (a.length === 1 && a[0] === 0) {
-          const used = new Set();
-          const p = parsePattern([...this.pattern]);
-          p.tracks.forEach((t) => t.steps.forEach((st) => { if ((st.flags & 1) && st.flags >> 4) used.add(st.flags >> 4); }));
-          this.chords = this.chords.map((c, i) => (used.has(i + 1) ? c : [0, 0, 0, 0, 0]));
-        }
-        return this.chords.flat().map((v) => v + 64);
-      }
+      case CMD.CHORDS: return CHORDS.flat().map((v) => v + 64);   // (0.28) the 15 chords, fixed
       case CMD.UI_STATE: return this.uiState();
       case CMD.UI_INPUT: return this.uiInput(a);
       case CMD.FM_PLAY: this.fmPlayed += a[1] ? 1 : 0; return [0];

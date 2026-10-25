@@ -61,3 +61,14 @@ test("a project file is checked before it's sent", () => {
   assert.throws(() => checkProject({ format: "x" }), /not a DREADNOUGHT project/);
   assert.throws(() => checkProject({ format: "dreadnought-project", version: 1, patterns: Array(8).fill(""), proj: { eng: [1, 1, 2, 3, 4, 4, 4, 4] } }), /twice/);
 });
+
+test("a 0.27 project's own chord shapes become the 15 chords (0.28)", async () => {
+  const { upChords } = await import("../project.js");
+  const { newPattern } = await import("../protocol.js").then((m) => ({ newPattern: () => m.parsePattern([...m.serializePattern({ swing: 0, tracks: Array.from({ length: 8 }, () => ({ len: 16, steps: Array.from({ length: 64 }, () => m.newStep()) })) })]) }));
+  const pat = newPattern(), st = pat.tracks[7].steps;
+  st[0] = { ...st[0], note: 53, flags: ST_ON | (1 << 4) };       // shape 1: +4 +7 (major)
+  st[1] = { ...st[1], note: 57, flags: ST_ON | (2 << 4) };       // shape 2: +3 +8 (major, first inversion)
+  st[2] = { ...st[2], note: 53, flags: ST_ON | (3 << 4) };       // shape 3: +1 (none of the 15)
+  upChords(pat, [[4, 7, 0, 0, 0], [3, 8, 0, 0, 0], [1, 0, 0, 0, 0]]);
+  assert.deepEqual([st[0].note, st[0].flags >> 4, st[1].note, st[1].flags >> 4, st[2].note, st[2].flags >> 4], [53, 2, 53, 2, 53, 0]);
+});

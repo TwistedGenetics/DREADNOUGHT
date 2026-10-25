@@ -221,7 +221,7 @@ with sync_playwright() as pw:
     p.wait_for_timeout(500)
     check("pattern 1 again: its notes back", p.evaluate("() => window.__dn.pat.tracks[0].steps.filter((s) => s.flags & 1).length") == 7)
 
-    # chords (0.27): on a MIDI track, a note then another pitch on the same step: a chord (shape: +4)
+    # chords (0.28): on a MIDI track, a note, then MIN7 from the Chord list under the roll: the step plays it
     p.locator(".trk").nth(4).click()
     p.wait_for_timeout(200)
     g5 = p.evaluate("""() => { const S = window.__dn, cv = document.getElementById('roll');
@@ -231,17 +231,29 @@ with sync_playwright() as pw:
     Y5 = lambda note: rb["y"] + ((g5["lo"] + 35) - note) * 14 + 7
     p.mouse.click(X5(2), Y5(g5["lo"] + 10))
     p.wait_for_timeout(400)
-    p.mouse.click(X5(2), Y5(g5["lo"] + 14))
+    check("chords: the Chord list shows for a MIDI track's note", p.locator("#i-chordl").is_visible())
+    p.select_option("#i-chord", label="MIN7")
     p.wait_for_timeout(900)
     st5 = p.evaluate(DEV, [4, 2])
-    ch = p.evaluate("() => window.__dn.mock.chords")
-    check("chords: two pitches on one step of a MIDI track: the step's note the lower, a chord shape +4 on the FM-1",
-          st5["note"] == g5["lo"] + 10 and (st5["flags"] >> 4) > 0 and ch and ch[(st5["flags"] >> 4) - 1][0] == 4, (st5, ch and ch[:2]))
+    check("chords: MIN7 picked: the FM-1's step has chord 3 on its note", st5["note"] == g5["lo"] + 10 and (st5["flags"] >> 4) == 3, st5)
     p.screenshot(path=str(shots / "editor-chord.png"), full_page=False)
-    p.mouse.click(X5(2), Y5(g5["lo"] + 14), button="right")
+    # a chord's upper note dragged up 2: the whole chord moves (its root with it)
+    p.mouse.move(X5(2), Y5(g5["lo"] + 17))
+    p.mouse.down()
+    p.mouse.move(X5(2), Y5(g5["lo"] + 19), steps=4)
+    p.mouse.up()
     p.wait_for_timeout(900)
     st5 = p.evaluate(DEV, [4, 2])
-    check("chords: right-click the chord's note: out of it (a single note again)", st5["flags"] >> 4 == 0 and st5["flags"] & 1 == 1, st5)
+    check("chords: dragging one of its notes moves the chord", st5["note"] == g5["lo"] + 12 and (st5["flags"] >> 4) == 3, st5)
+    p.select_option("#i-chord", label="None")
+    p.wait_for_timeout(900)
+    st5 = p.evaluate(DEV, [4, 2])
+    check("chords: None: a single note again", st5["flags"] >> 4 == 0 and st5["flags"] & 1 == 1, st5)
+    p.locator(".trk").nth(0).click()
+    p.wait_for_timeout(200)
+    p.mouse.click(X5(0), Y5(g5["lo"] + 2))
+    p.wait_for_timeout(300)
+    check("chords: no Chord list on a track that plays one note (REESE)", not p.locator("#i-chordl").is_visible())
 
     # BREAKS A: a slice on a step, reversed
     p.locator(".trk").nth(1).click()

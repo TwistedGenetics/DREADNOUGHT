@@ -115,3 +115,19 @@ test("LFO points: the frame's bytes round trip; DRAW's picture holds and slopes 
   p.smooth = 127;
   assert.ok(Math.abs(lfoShapeAt(p, 1 / 32)) < 0.01);
 });
+
+test("chords (0.28): the 15, matched in any order or inversion as the FM-1 does", async () => {
+  const { CHORDS, CHORD_NAMES, chordMatch, chordNotes, ST_ON } = await import("../protocol.js");
+  assert.equal(CHORDS.length, 15);
+  assert.equal(CHORD_NAMES.length, 16);
+  assert.deepEqual(chordMatch([53, 57, 60]), { c: 2, root: 53 });          // F A C: F MAJ
+  assert.deepEqual(chordMatch([60, 53, 57]), { c: 2, root: 53 });          // (any order)
+  assert.deepEqual(chordMatch([57, 60, 65]), { c: 2, root: 53 });          // A C F: F MAJ, its root under A
+  assert.deepEqual(chordMatch([57, 60, 64, 67]), { c: 3, root: 57 });      // A C E G: A MIN7 (not C 6)
+  assert.deepEqual(chordMatch([53, 54]), { c: 0, root: 53 });              // none of the 15
+  assert.deepEqual(chordMatch([48, 55]), { c: 11, root: 48 });             // C G: a power chord
+  CHORDS.forEach((ch, i) => {                                              // each chord's notes match itself
+    const st = { note: 50, flags: ST_ON | ((i + 1) << 4) };
+    assert.deepEqual(chordMatch(chordNotes(st)), { c: i + 1, root: 50 }, CHORD_NAMES[i + 1]);
+  });
+});
