@@ -21,6 +21,12 @@
 #define DN_LEN_MAX 255u                             /* 63 3/4 steps */
 
 enum { DN_ST_ON = 1u, DN_ST_SLIDE = 2u, DN_ST_ACC = 4u, DN_ST_RTRG = 8u };
+/* (0.27) a chord: flags' top 4 bits, one of the project's 15 chord shapes (0: none). The shapes are the app's: up to 5
+ * notes more, each a distance in semitones from the step's note, so moving the note moves the chord */
+#define DN_ST_CHORD 0xF0u
+#define DN_ST_CHORD_OF(f) ((uint32_t)(f) >> 4)
+#define DN_CHORDS 15u
+#define DN_CHORD_N 5u
 
 typedef struct {
     uint8_t note;                                   /* MIDI note */

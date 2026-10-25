@@ -39,6 +39,7 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   for (let k = 0; k < nLfos(params.length); k++) lfo.push(await link.lfoPts(k));   // (0.15: SUB's too)
   const smp = await readSampler(link);                 // (0.23; null before)
   const fm = await readFm(link);                       // (0.25; null before)
+  const chords = await link.chords().catch(() => null);   // (0.27; null before)
   say("Reading the patterns…");
   const pats = await link.pats(), cur = pats.tracks.map((t) => t.cur), patterns = [];
   try {
@@ -59,7 +60,7 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   onPart(1);
   return {
     format: FORMAT, version: VERSION, saved: new Date().toISOString(), firmware: link.name || "",
-    name: proj.name, params, lfo, smp, fm, proj: { eng: proj.eng, send: proj.send, ret: proj.ret, fx: proj.fx },
+    name: proj.name, params, lfo, smp, fm, chords, proj: { eng: proj.eng, send: proj.send, ret: proj.ret, fx: proj.fx },
     patterns, current: cur, patSize: st.patSize,
     slots: dev.map((im) => (im ? { hdr: b64(im.hdr), data: b64(im.data) } : null)), slices,
     media: media.map((m) => ({ name: m.name, set: m.set, lock: !!m.lock, file: m.orig ? b64(m.orig) : undefined })),
@@ -103,6 +104,8 @@ export async function writeProject(link, o, { onPart = () => {}, say = () => {} 
   for (let k = 0; k < Math.min(NLFO_ALL, nl) && o.lfo && o.lfo[k]; k++) await link.setLfoPts(k, o.lfo[k].npts, o.lfo[k].pts);
   if (o.smp && (await readSampler(link))) await writeSampler(link, o.smp);   // (an FM-1 before 0.23: no SAMPLER)
   if (o.fm && (await readFm(link))) await writeFm(link, o.fm);   // (before 0.25: no FM)
+  if (o.chords && (await link.chords().catch(() => null)))   // (0.27: the chord shapes before the patterns that use them)
+    for (let c = 0; c < o.chords.length; c++) await link.chordSet(c + 1, o.chords[c]);
   onPart(0.1);
   say("Sending the patterns…");
   for (let p = 0; p < NPAT; p++) {

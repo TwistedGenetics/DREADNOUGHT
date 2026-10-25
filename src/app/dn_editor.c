@@ -58,6 +58,9 @@
  *                                 the one lit (127 none), names), the 4 knobs (1 there / 0; then id (2), name, value,
  *                                 min, max (2 each, + 8192), text), the message, the left of the status line, the lit
  *                                 buttons (2) and keys (4), the name editor's cursor. Strings: up to 24 chars, 0 after
+ *   89 CHORDS                  -> the 15 chord shapes, 5 distances each (+64) (0.27)
+ *      CHORDS c d1..d5         -> rc                                 shape c (1..15) to these distances (+64; 64: none)
+ *      CHORDS 0                -> the 15 shapes, those no step uses now emptied first
  *   88 UI_INPUT kind id v      -> rc                                 as if on the panel: kind 0 button down, 1 up, 2 key
  *                                                                    down, 3 up (id: B_* / key 0..26), 4 an encoder
  *                                                                    turned (id EN_*, v + 64 detents), 5 all let go
@@ -69,7 +72,7 @@
 enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT_COMMIT, ED_TRANSPORT, ED_SAVE,
        ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL, ED_PROJ, ED_PROJ_SET,
        ED_PROJ_NAME, ED_SUB_PRESET, ED_PARAMS_HI, ED_SMP_GET, ED_SMP_SET, ED_SMP_PLAY, ED_FM_GET, ED_FM_SET,
-       ED_FM_LOAD, ED_FM_PLAY, ED_UI_STATE, ED_UI_INPUT };
+       ED_FM_LOAD, ED_FM_PLAY, ED_UI_STATE, ED_UI_INPUT, ED_CHORDS };
 #define DN_ED_NHI 8u
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
@@ -81,7 +84,7 @@ static const uint8_t DN_ED_LFO[8] = {DN_PX_LSHAPE, DN_PX_LSYNC, DN_PX_LRATE, DN_
 #define DN_ED_NPARAM_13 (DN_ED_NPARAM_09 + SP_COUNT) /* (0.13: SUB's after the LFOs) */
 #define DN_ED_NPARAM (DN_ED_NPARAM_13 + DN_NLFO * 8u) /* (0.15: SUB's own LFOs; those before are REESE's) */
 /* the editor frames the device glue must take whole (not into its 64-byte copy) */
-static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 88u; }
+static int dn_ed_long(uint32_t cmd) { return cmd >= 60u && cmd <= 89u; }
 static void dn_ed_str(void (*put)(uint32_t), const char *t, uint32_t max)
 {
     uint32_t i;
@@ -599,6 +602,34 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         put(0);
         return 1;
     }
+    case ED_CHORDS:
+        if (!na) {
+            for (i = 0; i < DN_CHORDS; i++)
+                for (j = 0; j < DN_CHORD_N; j++)
+                    put((uint32_t)(dn_chord[i][j] + 64));
+            return 1;
+        }
+        if (na == 1u && a[0] == 0u) {               /* (free the shapes no step uses, then the table) */
+            for (i = 0; i < DN_CHORDS; i++)
+                if (!dn_chord_used(i + 1u))
+                    for (j = 0; j < DN_CHORD_N; j++)
+                        dn_chord[i][j] = 0;
+            for (i = 0; i < DN_CHORDS; i++)
+                for (j = 0; j < DN_CHORD_N; j++)
+                    put((uint32_t)(dn_chord[i][j] + 64));
+            return 1;
+        }
+        if (na < 1u + DN_CHORD_N || a[0] < 1u || a[0] > DN_CHORDS) {
+            put(1);
+            return 1;
+        }
+        dn_lock();
+        for (j = 0; j < DN_CHORD_N; j++)
+            dn_chord[a[0] - 1u][j] = (int8_t)dn_clamp((int32_t)a[1u + j] - 64, -63, 63);
+        dn_unlock();
+        dn_mark();
+        put(0);
+        return 1;
     case ED_SUB_PRESET:
         if (na < 1u || a[0] >= dn_sub_preset_count() + DN_NUSER)
             return 0;

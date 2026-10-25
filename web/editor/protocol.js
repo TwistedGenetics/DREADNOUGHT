@@ -10,7 +10,7 @@ export const HDR = [0x7D, 0x46, 0x4C];
 export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, PATS: 73, PAT_SEL: 74, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
   TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77, SUB_PRESET: 78, PARAMS_HI: 79,
   SMP_GET: 80, SMP_SET: 81, SMP_PLAY: 82, FM_GET: 83, FM_SET: 84, FM_LOAD: 85, FM_PLAY: 86,
-  UI_STATE: 87, UI_INPUT: 88 };
+  UI_STATE: 87, UI_INPUT: 88, CHORDS: 89 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
 export const digits = (v, n) => { const o = []; for (let i = 0; i < n; i++) { o.push(v & 127); v = Math.floor(v / 128); } return o; };
@@ -227,7 +227,7 @@ export function serializePattern(p) {
   for (let t = 0; t < TRACKS; t++) {
     const o = 8 + t * TB, tr = p.tracks[t];
     tr.steps.forEach((s, i) => {
-      b.set(sb === 8 ? [s.note, s.flags & 15, s.len, s.vel, s.cond || 0, s.rtim ?? 12, s.rlen || 0, (s.rvel || 0) & 255]
+      b.set(sb === 8 ? [s.note, s.flags & 255, s.len, s.vel, s.cond || 0, s.rtim ?? 12, s.rlen || 0, (s.rvel || 0) & 255]
         : [s.note, s.flags & 7, s.len, s.vel], o + sb * i);
     });
     b.set([tr.len, tr.mute, tr.chan, tr.lastNote], o + STEPS * sb);
@@ -393,6 +393,8 @@ export class Link {
   async smpGet(kind, i) { return parseSmp(await this.req(CMD.SMP_GET, [kind, i])); }
   async smpSet(kind, i, k, v) { return (await this.req(CMD.SMP_SET, [kind, i, k, ...digits(v + 8192, 2)]))[0]; }
   async smpPlay(note, on) { return (await this.req(CMD.SMP_PLAY, [note & 127, on ? 1 : 0]))[0]; }
+  async chords(free = false) { return parseChords(await this.req(CMD.CHORDS, free ? [0] : [])); }
+  async chordSet(c, d) { return (await this.req(CMD.CHORDS, [c, ...[0, 1, 2, 3, 4].map((k) => (d[k] || 0) + 64)]))[0]; }
   async ui() { return parseUi(await this.req(CMD.UI_STATE, [], 800)); }
   async uiInput(kind, id, v = 64) { return (await this.req(CMD.UI_INPUT, [kind, id, v]))[0]; }
   async fmGet() { return parseFm(await this.req(CMD.FM_GET)); }
@@ -540,4 +542,35 @@ export function parseUi(r) {
   o.litBtn = n2(); o.litKeys = num(r, i, 4); i += 4;
   o.nameCur = r[i++];
   return o;
+}
+
+// ---- chords (0.27): a step's flags' top 4 bits pick one of the project's 15 shapes (up to 5 more notes, distances
+// from the step's note); FM, SAMPLER's keys and MIDI play them --------------------------------------------------------
+export const ST_CHORD = 0xf0, NCHORDS = 15, CHORD_N = 5;
+export const chordOf = (st) => (st.flags & ST_CHORD) >> 4;
+export function parseChords(r) {
+  const out = [];
+  for (let c = 0; c < NCHORDS; c++) out.push(r.slice(c * CHORD_N, c * CHORD_N + CHORD_N).map((v) => v - 64));
+  return out;
+}
+// a step's notes, its own first (the chord's when it has one)
+export function chordNotes(st, chords) {
+  const c = chordOf(st), out = [st.note];
+  if (c && chords && chords[c - 1]) for (const d of chords[c - 1]) if (d && st.note + d >= 0 && st.note + d <= 127) out.push(st.note + d);
+  return out;
+}
+// the shape for these notes: {root, shape (sorted distances, 5)}
+export function shapeOf(notes) {
+  const root = Math.min(...notes), ds = [...new Set(notes.map((n) => n - root).filter((d) => d))].sort((a, b) => a - b).slice(0, CHORD_N);
+  while (ds.length < CHORD_N) ds.push(0);
+  return { root, shape: ds };
+}
+// its index in the table (1..15): one alike, or an empty one (-1: none free); chords is changed in place for a new one
+export function chordSlot(chords, shape) {
+  const same = chords.findIndex((c) => c.every((d, k) => d === shape[k]));
+  if (same >= 0) return same + 1;
+  const free = chords.findIndex((c) => c.every((d) => !d));
+  if (free < 0) return -1;
+  chords[free] = [...shape];
+  return free + 1;
 }

@@ -699,6 +699,10 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "dly")) {           /* the delay's output now, both sides */
                 got = labs((long)dn_fxs[0].u.d.o_l) + labs((long)dn_fxs[0].u.d.o_r);
             } else if (!strcmp(b, "legato")) got = dn_sq.legato;
+            else if (!strncmp(b, "chordof.", 8)) {   /* chordof.T.I: track T's step I's chord shape (0.27) */
+                const dn_step_t *st = &dn_sq.pat.tr[(atoi(b + 8) - 1) & 7].st[(atoi(strchr(b + 8, '.') + 1) - 1) & 63];
+                got = (long)DN_ST_CHORD_OF(st->flags);
+            } else if (!strncmp(b, "chord.", 6)) got = dn_chord[(atoi(b + 6) - 1) % DN_CHORDS][atoi(strchr(b + 6, '.') + 1) % DN_CHORD_N];
             else if (!strcmp(b, "fmv")) got = (long)dn_fm_sounding(&dn_fmx);   /* FM (0.25): voices sounding */
             else if (!strcmp(b, "fmpreset")) got = dn.fm_preset;
             else if (!strcmp(b, "fmop")) got = dn.fm_op + 1;

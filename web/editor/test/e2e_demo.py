@@ -221,6 +221,28 @@ with sync_playwright() as pw:
     p.wait_for_timeout(500)
     check("pattern 1 again: its notes back", p.evaluate("() => window.__dn.pat.tracks[0].steps.filter((s) => s.flags & 1).length") == 7)
 
+    # chords (0.27): on a MIDI track, a note then another pitch on the same step: a chord (shape: +4)
+    p.locator(".trk").nth(4).click()
+    p.wait_for_timeout(200)
+    g5 = p.evaluate("""() => { const S = window.__dn, cv = document.getElementById('roll');
+      return {cw: (cv.clientWidth - 46) / S.pat.tracks[S.sel].len, lo: S.lo}; }""")
+    rb = p.locator("#roll").bounding_box()
+    X5 = lambda step: rb["x"] + 46 + (step + 0.5) * g5["cw"]
+    Y5 = lambda note: rb["y"] + ((g5["lo"] + 35) - note) * 14 + 7
+    p.mouse.click(X5(2), Y5(g5["lo"] + 10))
+    p.wait_for_timeout(400)
+    p.mouse.click(X5(2), Y5(g5["lo"] + 14))
+    p.wait_for_timeout(900)
+    st5 = p.evaluate(DEV, [4, 2])
+    ch = p.evaluate("() => window.__dn.mock.chords")
+    check("chords: two pitches on one step of a MIDI track: the step's note the lower, a chord shape +4 on the FM-1",
+          st5["note"] == g5["lo"] + 10 and (st5["flags"] >> 4) > 0 and ch and ch[(st5["flags"] >> 4) - 1][0] == 4, (st5, ch and ch[:2]))
+    p.screenshot(path=str(shots / "editor-chord.png"), full_page=False)
+    p.mouse.click(X5(2), Y5(g5["lo"] + 14), button="right")
+    p.wait_for_timeout(900)
+    st5 = p.evaluate(DEV, [4, 2])
+    check("chords: right-click the chord's note: out of it (a single note again)", st5["flags"] >> 4 == 0 and st5["flags"] & 1 == 1, st5)
+
     # BREAKS A: a slice on a step, reversed
     p.locator(".trk").nth(1).click()
     p.wait_for_timeout(200)

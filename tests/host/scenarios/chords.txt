@@ -1,0 +1,101 @@
+# DREADNOUGHT host scenario (0.27): chords in the sequencer. On FM (and SAMPLER's keys, and MIDI), keys pressed while
+# another is held go into its step as a chord: the lowest note the step's, the others a shape of distances (one of the
+# project's 15). The chord plays back, moves with the step's note, and is kept with the patterns.
+# White keys (tracks 1..8): 0 2 4 6 7 9 11 12. Keys from 0 (F3 = 53): 0 F3, 4 A3, 7 C4, 11 E4.
+sysex 76 6 7 0
+press SEQ
+tapkey 11 40
+release SEQ
+tap SEQ
+expect page 7
+expect trk 7
+key 20 down
+wait 1200
+key 20 up
+expect on.7 0
+tap SEQ
+expect page 0
+# stopped, REC: F3 held, then A3 and C4: one step, F major (F3 + 4, + 7)
+tap REC
+expect rec 1
+key 0 down
+wait 30
+key 4 down
+wait 30
+key 7 down
+wait 30
+key 7 up
+key 4 up
+key 0 up
+wait 30
+expect on.7 1
+expect nt.7.1 53
+expect chordof.7.1 1
+expect chord.1.0 4
+expect chord.1.1 7
+expect chord.1.2 0
+# the next step: a single note (all keys were up)
+tapkey 11 40
+expect on.7 2
+expect nt.7.2 64
+expect chordof.7.2 0
+# a chord whose lowest key comes second: the step's note moves down to it (C4 then F3 + A3: F major again, shape 1)
+key 7 down
+wait 30
+key 0 down
+wait 30
+key 4 down
+wait 30
+key 0 up
+key 4 up
+key 7 up
+wait 30
+expect on.7 3
+expect nt.7.3 53
+expect chordof.7.3 1
+tap REC
+expect rec 0
+tap SEQ
+expect page 7
+shot chords-01-roll.png
+tap SEQ
+# played back: three FM voices at once on step 1
+tap PLAY
+wait 2900
+expect playing 1
+expect fmv >2
+tap PLAY
+# kept over a reboot
+tap SAVE
+wait 300
+reboot
+expect chordof.7.1 1
+expect chord.1.1 7
+expect nt.7.3 53
+# ROLL's KEYS mode (FX): a key under a held one, a chord at the cursor (not a slide)
+press SEQ
+tapkey 11 40
+release SEQ
+tap SEQ
+expect page 7
+tap FX
+expect rollkeys 1
+key 0 down
+wait 30
+key 7 down
+wait 30
+key 0 up
+key 7 up
+wait 30
+expect nt.7.1 53
+expect chordof.7.1 >0
+expect st.7.1 33
+# the editor's frame (CHORDS, 89): the shapes read; shape 3 set to a minor triad (3, 7)
+sysex 89
+expect replylen 75
+expect reply.0 68
+expect reply.1 71
+sysex 89 3 67 71 64 64 64
+expect reply.0 0
+expect chord.3.0 3
+expect chord.3.1 7

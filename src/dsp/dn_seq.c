@@ -168,7 +168,7 @@ int dn_pattern_valid(const dn_pattern_t *cp)
         for (i = 0; i < DN_SEQ_STEPS; i++) {
             dn_step_t *st = &tr->st[i];
             st->note &= 127u;
-            st->flags &= DN_ST_ON | DN_ST_SLIDE | DN_ST_ACC | DN_ST_RTRG;
+            st->flags &= DN_ST_ON | DN_ST_SLIDE | DN_ST_ACC | DN_ST_RTRG | DN_ST_CHORD;
             st->len = (uint8_t)clampi(st->len, 1, DN_LEN_MAX);
             st->vel = (uint8_t)clampi(st->vel, 1, 127);
             if (st->cond >= DN_CO_N)

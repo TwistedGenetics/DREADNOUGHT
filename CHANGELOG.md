@@ -521,3 +521,22 @@ Tested: host scenario `panel.txt` (the screen read, buttons, an encoder, a key, 
 the panel's reading of UI_STATE against the firmware's own; the editor's FM against the FM-1's renders: four voices
 (detune, amp mod, feedback), every sample identical; the editor end to end (the panel: a page, a knob dragged, a key,
 a held button, the computer's keys, a tab, SEQ; ▶ on a bank's voice plays it with nothing sent).
+
+## 0.27 — chords in the sequencer (2026-10-25)
+
+- **Chords.** On FM, SAMPLER's keys and MIDI tracks a step can be a chord of up to 6 notes. Record one by holding a
+  key and pressing others: REC on the sound page (stopped: at the cursor; playing: on the step), or ROLL's KEYS mode
+  (a key under a held one, where a synth gets a slide). The step keeps the lowest note; the others are a chord shape,
+  distances from it, so moving the step's note (KNOB 1 on a held step, or dragging in the editor) moves the whole
+  chord. A project has up to 15 different shapes, each usable on any note as often as you like; a shape no step uses
+  any more is freed for a new one ("CHORDS FULL: 15 SHAPES" when none is free). The notes of a chord share its length,
+  velocity, condition and retrigs. REESE, SUB and the breaks play a chord step's lowest note.
+- On the FM-1's roll a chord's notes all show; a held chord step reads `F3+2`.
+- **Editor:** the Pattern view shows chords (their notes joined); on an FM, SAMPLER-keys or MIDI track, click another
+  pitch on a step to add it to the chord, right-click one of its notes to take it out. Projects saved from the editor
+  keep the chord shapes.
+- (The shapes are kept with the patterns; patterns from 0.26 load as they were.)
+
+Tested: host scenario `chords.txt` (a chord recorded stopped, its lowest key second, a single note after, played back
+on FM's voices, ROLL's KEYS mode, the editor's CHORDS frame, kept over a reboot); the editor end to end (a chord made
+and undone on a MIDI track).

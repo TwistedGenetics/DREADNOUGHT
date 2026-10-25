@@ -325,6 +325,10 @@ typedef char dn_save_fits[sizeof(dn_save_t) <= PLAT_STORE_MAX ? 1 : -1];
 static dn_sub_t dn_sb;                              /* SUB (0.13) */
 static dn_smp_t dn_sm;                              /* SAMPLER (0.23) */
 static dn_fm_t dn_fmx;                              /* FM (0.25) */
+/* chords (0.27): the project's 15 shapes (a step's flags pick one: DN_ST_CHORD), and the shape each sounding note of
+ * each track started with (so its note-off lets go of the whole chord) */
+static int8_t dn_chord[DN_CHORDS][DN_CHORD_N];
+static uint8_t dn_chord_on[DN_SEQ_TRACKS][128];
 static uint8_t dn_fm_base[DN_FM_PATCH];             /* FM's voice as loaded and edited (the macros go on top) */
 static dn_fm_macro_t dn_fm_mac;
 #define DN_SMCK 1536u                               /* its samples' decoder checkpoints (one per 256 samples) */
@@ -412,6 +416,7 @@ static struct {
     uint8_t rec_step[NKEYS];                        /* REC: where each key's note went, and when it went down */
     uint32_t rec_tick[NKEYS];
     uint8_t rec_last;                               /* the step the last held note was written to (the host test) */
+    uint8_t rec_grp;                                /* (0.27) REC: the step the keys held now went to (their chord) */
     uint32_t clear_t0;                              /* black key 9 went down (0: not held) */
     int8_t oct;
     uint8_t held[NKEYS], nheld;                     /* the keys down, oldest first */
@@ -663,7 +668,7 @@ static void dn_lfo_tick(uint32_t n)
 
 /* the sequencer's notes: track 1 plays REESE, 2 and 3 BREAKS A / B (the note: the slice; the step's slide: reverse),
  * the others MIDI out on their channel (USB-MIDI event packets) */
-static void dn_sq_on(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t flags)
+static void dn_sq_on1(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t flags)
 {
     if (DN_IS_RS(t))
         dn_rs_on(note, vel, slide);
@@ -681,7 +686,7 @@ static void dn_sq_on(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t f
     } else if (DN_IS_MIDI(t))
         plat_midi_out(0x09u | (0x90u | dn_sq.pat.tr[t].chan) << 8 | (uint32_t)note << 16 | (uint32_t)vel << 24);
 }
-static void dn_sq_off(uint32_t t, uint8_t note)
+static void dn_sq_off1(uint32_t t, uint8_t note)
 {
     if (DN_IS_BRK(t))
         dn_brk_release(&dn_bk[DN_BK(t)]);
@@ -698,6 +703,106 @@ static void dn_sq_off(uint32_t t, uint8_t note)
     } else if (DN_IS_RS(t) && dn_rs.note == note && dn.sounding == 0xFF && dn.midi_note == 0xFF)
         reese_note_off(&dn_rs);                     /* (not a note the keys or MIDI in play now) */
 }
+/* (0.27) chords: the instruments that play several notes at once (FM, SAMPLER's keys, MIDI) play a step's chord too;
+ * the others its own note */
+#define DN_CHORDABLE(t) (DN_IS_POLY(t) || DN_IS_MIDI(t))
+static void dn_sq_on(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t flags)
+{
+    uint32_t c = DN_CHORDABLE(t) ? DN_ST_CHORD_OF(flags) : 0u, k;
+    dn_sq_on1(t, note, vel, slide, flags);
+    dn_chord_on[t][note & 127u] = (uint8_t)c;
+    for (k = 0; c && k < DN_CHORD_N; k++) {
+        int32_t n = (int32_t)note + dn_chord[c - 1u][k];
+        if (dn_chord[c - 1u][k] && n >= 0 && n <= 127)
+            dn_sq_on1(t, (uint8_t)n, vel, 0, (uint8_t)(flags & ~DN_ST_CHORD));
+    }
+}
+static void dn_sq_off(uint32_t t, uint8_t note)
+{
+    uint32_t c = dn_chord_on[t][note & 127u], k;
+    dn_sq_off1(t, note);
+    dn_chord_on[t][note & 127u] = 0;
+    for (k = 0; c && k < DN_CHORD_N; k++) {
+        int32_t n = (int32_t)note + dn_chord[c - 1u][k];
+        if (dn_chord[c - 1u][k] && n >= 0 && n <= 127)
+            dn_sq_off1(t, (uint8_t)n);
+    }
+}
+/* a chord's notes, the step's own first: how many (into out) */
+static uint32_t dn_chord_notes(const dn_step_t *st, uint8_t out[1u + DN_CHORD_N])
+{
+    uint32_t c = DN_ST_CHORD_OF(st->flags), n = 0, k;
+    out[n++] = st->note;
+    for (k = 0; c && k < DN_CHORD_N; k++) {
+        int32_t v = (int32_t)st->note + dn_chord[c - 1u][k];
+        if (dn_chord[c - 1u][k] && v >= 0 && v <= 127)
+            out[n++] = (uint8_t)v;
+    }
+    return n;
+}
+static int dn_chord_used(uint32_t c);
+/* a shape for these notes (the lowest the root, the others its distances): one already there, or a free one (a shape
+ * no step uses any more is free); 0 when all 15 are in use. Sets *root */
+static uint32_t dn_chord_find(const uint8_t *notes, uint32_t n, uint8_t *root)
+{
+    int8_t sh[DN_CHORD_N] = {0};
+    uint32_t i, j, m = 0, c;
+    uint8_t lo = 127;
+    for (i = 0; i < n; i++)
+        lo = notes[i] < lo ? notes[i] : lo;
+    for (i = 0; i < n && m < DN_CHORD_N; i++) {     /* the distances, small to large, none twice */
+        int8_t d = (int8_t)(notes[i] - lo);
+        if (!d)
+            continue;
+        for (j = 0; j < m && sh[j] != d; j++)
+            ;
+        if (j < m)
+            continue;
+        for (j = m++; j > 0 && sh[j - 1u] > d; j--)
+            sh[j] = sh[j - 1u];
+        sh[j] = d;
+    }
+    *root = lo;
+    if (!m)
+        return 0;
+    for (c = 0; c < DN_CHORDS; c++) {
+        for (j = 0; j < DN_CHORD_N && dn_chord[c][j] == sh[j]; j++)
+            ;
+        if (j == DN_CHORD_N)
+            return c + 1u;
+    }
+    for (c = 0; c < DN_CHORDS; c++)
+        if (!dn_chord[c][0] || !dn_chord_used(c + 1u)) {
+            for (j = 0; j < DN_CHORD_N; j++)
+                dn_chord[c][j] = sh[j];
+            return c + 1u;
+        }
+    return 0;
+}
+/* a note more for step st's chord (REC: keys down together); 0 when no shape was free */
+static int dn_chord_add(dn_step_t *st, uint8_t note)
+{
+    uint8_t ns[2u + DN_CHORD_N], root;
+    uint32_t n = dn_chord_notes(st, ns), c, i;
+    for (i = 0; i < n; i++)
+        if (ns[i] == note)
+            return 1;
+    if (n >= 1u + DN_CHORD_N)
+        return 1;                                   /* (6 notes: the rest are left out) */
+    ns[n++] = note;
+    {
+        uint8_t was = st->flags;
+        st->flags &= (uint8_t)~DN_ST_CHORD;        /* (its old shape free if only this step had it: reused) */
+        c = dn_chord_find(ns, n, &root);
+        if (!c) {
+            st->flags = was;
+            return 0;
+        }
+    }
+    st->note = root;
+    st->flags = (uint8_t)((st->flags & ~DN_ST_CHORD) | c << 4);
+    return 1;
+}
 static void dn_sq_clock(uint8_t st) { plat_midi_out(0x0Fu | (uint32_t)st << 8); }
 /* ---- patterns: 8 an instrument (a track), the playing one in dn_sq.pat, the others here ------------------------
  * dn_bank[t][n] holds track t's pattern n; the one playing (dn_pcur[t]) lives in dn_sq.pat.tr[t] while it plays
@@ -707,6 +812,18 @@ static void dn_sq_clock(uint8_t st) { plat_midi_out(0x0Fu | (uint32_t)st << 8); 
 #define DN_NPAT 8u
 static dn_track_t dn_bank[DN_SEQ_TRACKS][DN_NPAT] X0X_POOL;
 static uint8_t dn_pcur[DN_SEQ_TRACKS], dn_pq[DN_SEQ_TRACKS];   /* playing; queued (0xFF: none) */
+static int dn_chord_used(uint32_t c)                /* (0.27) a step anywhere uses shape c */
+{
+    uint32_t t, n, i;
+    for (t = 0; t < DN_SEQ_TRACKS; t++)
+        for (n = 0; n <= DN_NPAT; n++) {            /* (the banks, then the patterns playing) */
+            const dn_track_t *tr = n < DN_NPAT ? &dn_bank[t][n] : &dn_sq.pat.tr[t];
+            for (i = 0; i < DN_SEQ_STEPS; i++)
+                if ((tr->st[i].flags & DN_ST_ON) && DN_ST_CHORD_OF(tr->st[i].flags) == c)
+                    return 1;
+        }
+    return 0;
+}
 static void dn_pat_switch(uint32_t t, uint32_t n)   /* (the lock held, or in the audio interrupt) */
 {
     dn_track_t *live = &dn_sq.pat.tr[t];
@@ -2375,7 +2492,8 @@ static uint32_t dn_pat_notes(void)                  /* the notes on, all pattern
         }
     return c;
 }
-static uint32_t dn_pat_room(void) { return (DN_PB_MAX - DN_PB_HEAD) / 9u; }   /* notes that fit */
+#define DN_PB_CHORDS (2u + DN_CHORDS * DN_CHORD_N)  /* (0.27) the chord shapes, after the notes */
+static uint32_t dn_pat_room(void) { return (DN_PB_MAX - DN_PB_HEAD - DN_PB_CHORDS) / 9u; }   /* notes that fit */
 static uint32_t dn_pat_used(uint32_t t)             /* which of track t's patterns have notes (a bit each) */
 {
     uint32_t n, i, m = 0;
@@ -2416,6 +2534,9 @@ static uint32_t dn_pat_pack(void)                   /* into dn_pbuf; its length 
             }
             b[at] = (uint8_t)c;
         }
+    b[o++] = 'C', b[o++] = DN_CHORDS;               /* (0.27) the chord shapes */
+    for (i = 0; i < DN_CHORDS * DN_CHORD_N; i++)
+        b[o++] = (uint8_t)dn_chord[i / DN_CHORD_N][i % DN_CHORD_N];
     return o;
 }
 static int dn_pat_unpack(uint32_t len)              /* from dn_pbuf; 0: not ours (the patterns stay as they are) */
@@ -2455,6 +2576,9 @@ static int dn_pat_unpack(uint32_t len)              /* from dn_pbuf; 0: not ours
                 return 0;
             dn_bank[t][n] = *tr;
         }
+    for (i = 0; i < DN_CHORDS * DN_CHORD_N; i++)   /* (0.27) the chord shapes (none before) */
+        dn_chord[i / DN_CHORD_N][i % DN_CHORD_N] = o + DN_PB_CHORDS <= len && b[o] == 'C' && b[o + 1u] == DN_CHORDS
+                                                 ? (int8_t)b[o + 2u + i] : 0;
     for (t = 0; t < DN_SEQ_TRACKS; t++) {           /* the playing ones into the sequencer */
         uint8_t mute = p.tr[t].mute, chan = p.tr[t].chan;
         p.tr[t] = dn_bank[t][dn_pcur[t]];
@@ -2637,6 +2761,7 @@ void dn_app_init(void)
     dn.cin = 1;
     for (k = 0; k < NKEYS; k++)
         dn.rec_step[k] = 0xFF;
+    dn.rec_grp = 0xFF;
     dn_pat_load();
     dn.redraw = DN_RD_ALL;
     got = plat_store_load(OBJ_SONG, &dn_man, sizeof dn_man);
@@ -2984,6 +3109,8 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
                 if (dn.held[i] != k)
                     dn.held[j++] = dn.held[i];
             dn.nheld = (uint8_t)j;
+            if (!j)
+                dn.rec_grp = 0xFF;                  /* (all up: the next key a new step) */
             if (DN_IS_POLY(dn.trk)) {               /* (SAMPLER's keys, FM: each key its own note) */
                 dn_lock();
                 if (DN_IS_FM(dn.trk))
@@ -3031,7 +3158,20 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
             }
             dn.rec_step[k] = 0xFF;
             if (dn.rec && !dn.cin_left) {           /* (during the count-in the keys only play) */
-                uint32_t at = dn_rec_note(dn_key_note(k), legato);
+                uint32_t at;
+                if (DN_CHORDABLE(dn.trk) && dn.nheld > 0u && dn.rec_grp < DN_SEQ_STEPS) {
+                    int ok;                         /* (0.27) a key down under one held: into its step's chord */
+                    at = dn.rec_grp;
+                    dn_lock();
+                    ok = dn_chord_add(&dn_sq.pat.tr[dn.trk].st[at], dn_key_note(k));
+                    dn_unlock();
+                    if (!ok)
+                        dn_say("CHORDS FULL: 15 SHAPES");
+                    dn_mark();
+                } else {
+                    at = dn_rec_note(dn_key_note(k), legato);
+                    dn.rec_grp = (uint8_t)at;
+                }
                 if (dn_sq.playing) {                /* (its length: when the key comes up) */
                     dn.rec_step[k] = (uint8_t)at;
                     dn_lock();
@@ -3173,6 +3313,18 @@ static void dn_keys_entry(uint32_t keys)
             uint32_t i = dn.roll_cur % tr->len, adv = (dn.entry_len + DN_LEN_STEP - 1u) / DN_LEN_STEP;
             uint8_t note = dn_key_note(k);
             int legato = (dn.keys_prev & ~(1u << k)) != 0u || (keys & ~down) != 0u;
+            if (legato && DN_CHORDABLE(dn.trk) && dn.rec_grp < DN_SEQ_STEPS) {
+                int ok;                             /* (0.27) under a held key, on FM / SAMPLER's keys / MIDI: a chord */
+                dn_lock();
+                ok = dn_chord_add(&tr->st[dn.rec_grp], note);
+                dn_unlock();
+                if (!ok)
+                    dn_say("CHORDS FULL: 15 SHAPES");
+                dn_play(note, 1);
+                dn_mark();
+                continue;
+            }
+            dn.rec_grp = (uint8_t)i;
             dn_lock();
             tr->st[i].note = note;
             tr->st[i].len = dn.entry_len;
@@ -3186,8 +3338,20 @@ static void dn_keys_entry(uint32_t keys)
             dn_mark();
         }
     }
-    if (up && !(keys & ((1u << NKEYS) - 1u)))
+    if (up && !(keys & ((1u << NKEYS) - 1u))) {
         dn_stop();
+        dn.rec_grp = 0xFF;
+        if (DN_CHORDABLE(dn.trk))                   /* (poly: every key held lets go) */
+            for (k = 0; k < NKEYS; k++)
+                if ((up >> k) & 1u) {
+                    dn_lock();
+                    if (DN_IS_FM(dn.trk))
+                        dn_fm_note_off(&dn_fmx, dn_key_note(k));
+                    else if (DN_IS_SMP(dn.trk))
+                        dn_smp_note_off(&dn_sm, dn_key_note(k));
+                    dn_unlock();
+                }
+    }
 }
 
 /* the LFO page's DRAW: the white keys are the points in view (1-16, or 17-32: black keys 10 / 11). A key sets its
@@ -5134,6 +5298,12 @@ static void dn_step_status(const dn_track_t *tr, int drum, int32_t trans)
             dn_cat(v[0], t);
         } else {
             dn_note_name(v[0], st->note + trans);
+            if (DN_ST_CHORD_OF(st->flags) && DN_CHORDABLE(dn.trk)) {   /* (0.27) a chord: its root + how many more */
+                uint8_t cn[1u + DN_CHORD_N];
+                char p2[4] = {'+', 0, 0, 0};
+                p2[1] = (char)('0' + dn_chord_notes(st, cn) - 1u);
+                dn_cat(v[0], p2);
+            }
         }
         dn_len_text(v[1], st->len);
         dn_num(v[2], (st->flags & DN_ST_ACC) ? 127 : st->vel);
@@ -5215,6 +5385,17 @@ static void dn_draw_roll(void)
         if (row < 0 || row >= DN_ROLL_ROWS) {       /* out of view: a tick at the edge says which way */
             cv_rect(x0, y, x1 - x0 + 1, 2, DN_C_BLUE_D);
             continue;
+        }
+        if (DN_ST_CHORD_OF(st->flags) && DN_CHORDABLE(dn.trk)) {   /* (0.27) its chord's other notes, alike */
+            uint8_t cn[1u + DN_CHORD_N];
+            uint32_t m = dn_chord_notes(st, cn), q;
+            for (q = 1; q < m; q++) {
+                int32_t cr = (int32_t)cn[q] - (int32_t)dn.roll_lo, cy = 113 - 8 * cr;
+                if (cr < 0 || cr >= DN_ROLL_ROWS)
+                    continue;
+                cv_rect(x0, cy, x1 - x0 + 1, 6, dn_vel_col(st));
+                cv_rect(x0, cy, 2, 6, DN_C_BLUE);
+            }
         }
         cv_rect(x0, y, x1 - x0 + 1, 6, dn_vel_col(st));   /* (brighter: louder) */
         cv_rect(x0, y, 2, 6, DN_C_BLUE);            /* its start */
