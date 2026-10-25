@@ -4779,6 +4779,32 @@ static uint16_t dn_pal[DN_P_N];
  * K3 green, K4 blue: the knob's colour wherever it is); HOME's tracks tiles of their instrument's colour */
 static const uint16_t DN_KCOL[4] = {RGB(255, 106, 43), RGB(255, 194, 26), RGB(61, 220, 151), RGB(91, 155, 255)};
 static const uint16_t DN_KTINT[4] = {RGB(255, 195, 170), RGB(255, 229, 158), RGB(172, 239, 210), RGB(184, 211, 255)};
+/* (0.31.1) a BLOCKS tile's text: the font a name / a value fits in (the tile's width less its margins), or none
+ * (-1). Names: TINY when TINY is all that fits; values: the big digits, else 24 px, else 16 px, else 12 px */
+#define DN_TILE_TXT 50
+static int dn_tile_fit_name(const char *s)
+{
+    return text_w(&FONT_T, s) <= DN_TILE_TXT ? 0 : -1;
+}
+static const felucca_font_t *dn_tile_font(const char *t)
+{
+    uint32_t i;
+    int digits = 1;
+    for (i = 0; t[i]; i++)
+        if ((uint8_t)t[i] > 57u)
+            digits = 0;
+    if (digits && text_w(&FONT_L, t) <= DN_TILE_TXT)
+        return &FONT_L;
+    if (text_w(&FONT_M, t) <= DN_TILE_TXT)
+        return &FONT_M;
+    if (text_w(&FONT_S, t) <= DN_TILE_TXT)
+        return &FONT_S;
+    return &FONT_T;
+}
+static int dn_tile_fit_value(const char *t)
+{
+    return text_w(dn_tile_font(t), t) <= DN_TILE_TXT ? 0 : -1;
+}
 static void dn_skin(int skin)
 {
     static const uint16_t B[DN_P_N] = {
@@ -4865,14 +4891,11 @@ static void dn_knob(int32_t cx, int32_t cy, uint32_t id, int focus)
             f = (int32_t)((pos - lo) * h / span);
             cv_rect(x0, y0 + h - f, w, f, DN_KCOL[k]);
         }
-        cv_text(x0 + 4, y0 + 3, &FONT_T, dn_name(id), DN_C_ONACC);
+        cv_text(x0 + 3, y0 + 3, &FONT_T, dn_name(id), DN_C_ONACC);
         dn_text(id, v, t);
-        for (i = 0; t[i]; i++)
-            if ((uint8_t)t[i] > 57u)
-                fn = &FONT_M;
-        if (text_w(fn, t) > w - 6)
-            fn = text_w(&FONT_M, t) <= w - 6 ? &FONT_M : &FONT_S;
-        cv_text(x0 + 3, cy - (fn == &FONT_L ? 14 : fn == &FONT_M ? 10 : 6), fn, t, DN_C_ONACC);
+        fn = dn_tile_font(t);                       /* (0.31.1: the biggest that fits the tile) */
+        (void)i;
+        cv_text(x0 + 3, cy - (fn == &FONT_L ? 14 : fn == &FONT_M ? 10 : fn == &FONT_S ? 6 : 4), fn, t, DN_C_ONACC);
         if (id < RP_COUNT || DN_IS_SPX(id)) {       /* an LFO on it: its reach, a dark line down the right */
             uint32_t j;
             for (j = 0; j < DN_NLFO_ALL; j++) {
@@ -5180,7 +5203,17 @@ static void dn_draw_top(void)
         const char *tag = dn_top_names(&pn);
         cv_text(29 - text_w(&FONT_T, tag) / 2, 28, &FONT_T, tag, DN_C_ONACC);
     }
-    x = cv_text(60, 26, &FONT_S, pn, DN_C_FG);
+    {   /* (0.31.1) the name, as much as fits before the right-hand word */
+        static char nm[32];
+        uint32_t i;
+        int32_t room = (dn_sq.playing || dn.rec) ? 120 : 234 - text_w(&FONT_T, "PRESETS") - 70;
+        for (i = 0; pn[i] && i < sizeof nm - 1u; i++)
+            nm[i] = pn[i];
+        nm[i] = 0;
+        while (i > 0u && text_w(&FONT_S, nm) > room)
+            nm[--i] = 0;
+        x = cv_text(60, 26, &FONT_S, nm, DN_C_FG);
+    }
     if (dn.dirty)
         cv_text(x + 2, 26, &FONT_S, "*", DN_C_BLUE);
     if (dn_sq.playing || dn.rec) {                  /* the transport: bar . beat, and REC */
@@ -5497,44 +5530,87 @@ static void dn_step_marks(const dn_step_t *st, int32_t x0, int32_t y, int32_t w,
 }
 
 /* a held step's values on the status line: four, as the knobs have them (FX: the next four); a ramp: its ends */
+/* (0.31.1) a tile of the held step's pop-up: the name, the value as big as fits, how far (q8: 0..256; -1: no bar;
+ * bip: either way of the middle), in knob k's colour (BLOCKS) or the skin's panel */
+static void dn_tile(int32_t x0, int32_t y0, int32_t w, int32_t h, uint32_t k, const char *name, const char *val,
+                    int32_t q8, int bip, const char *sub)
+{
+    const felucca_font_t *fn = dn_tile_font(val);
+    int blocks = dn.skin == DN_SK_BLOCKS;
+    uint16_t ink = blocks ? DN_C_ONACC : DN_C_FG, bar = dn.skin == DN_SK_DARK ? DN_C_BLUE : DN_C_ACC;
+    int32_t fy = fn == &FONT_L ? 32 : fn == &FONT_M ? 24 : fn == &FONT_S ? 16 : 12;
+    k &= 3u;
+    if (blocks) {
+        cv_rect(x0, y0, w, h, *name ? DN_KTINT[k] : DN_C_PANEL);
+        if (q8 >= 0 && !bip) {
+            int32_t f = q8 * h / 256;
+            cv_rect(x0, y0 + h - f, w, f, DN_KCOL[k]);
+        } else if (q8 >= 0) {
+            int32_t m = y0 + h / 2, e = y0 + h - q8 * h / 256;
+            cv_rect(x0, e < m ? e : m, w, e < m ? m - e : e - m, DN_KCOL[k]);
+            cv_rect(x0, m - 1, w, 2, ink);           /* (the middle: under the value, clear of it) */
+        }
+    } else {
+        cv_rect(x0, y0, w, h, DN_C_EDGE);
+        cv_rect(x0 + 1, y0 + 1, w - 2, h - 2, DN_C_PANEL);
+        if (q8 >= 0) {
+            cv_rect(x0 + 4, y0 + h - 9, w - 8, 5, DN_C_KNOB);
+            if (bip) {
+                int32_t m = x0 + w / 2, e = x0 + 4 + q8 * (w - 8) / 256;
+                cv_rect(e < m ? e : m, y0 + h - 9, e < m ? m - e : e - m, 5, bar);
+                cv_rect(m - 1, y0 + h - 12, 2, 11, DN_C_FG);
+            } else {
+                cv_rect(x0 + 4, y0 + h - 9, q8 * (w - 8) / 256, 5, bar);
+            }
+        }
+    }
+    cv_text(x0 + 3, y0 + 3, &FONT_T, name, blocks ? ink : DN_C_LABEL);
+    cv_text(x0 + 3, y0 + 20 + (32 - fy) / 2, fn, val, blocks ? ink : dn.skin == DN_SK_DARK ? DN_C_BLUE : DN_C_FG);
+    if (sub && *sub)                                /* (a second line: the chord on the note) */
+        cv_text(x0 + 3, y0 + 56, &FONT_S, sub, blocks ? ink : DN_C_LABEL);
+}
+
+/* a step held: its values big, in a pop-up over the roll (0.31.1: the line at the bottom was too small to read) -
+ * four tiles, one a knob (KNOB 1..4 as they sit), the page of three (FX: the next) on top; a velocity ramp: its two
+ * steps and its two ends */
 static void dn_step_status(const dn_track_t *tr, int drum, int32_t trans)
 {
-    static const char *const L[3][4] = {{"NOTE", "LEN", "VEL", "COND"}, {"SLIDE", "ACC", "RETRIG", "RATE"},
+    static const char *const L[3][4] = {{"NOTE", "LENGTH", "VEL", "COND"}, {"SLIDE", "ACCENT", "RETRIG", "RATE"},
                                         {"RT LEN", "RT VEL", "CHORD", ""}};
     const dn_step_t *st = &tr->st[dn.step_held];
-    char v[4][12], t[8];
+    char v[4][12], t[8], hd[24];
+    const char *nm[4];
+    int32_t q[4] = {-1, -1, -1, -1};
+    int bip[4] = {0, 0, 0, 0};
+    const char *sub0 = 0;
     uint32_t k, pg = dn.step_pg % 3u;
-    cv_rect(0, 121, 240, 23, DN_C_BAR);
-    if (dn.ramp_b >= 0) {                           /* a velocity ramp */
-        char line[40];
-        line[0] = 0;
-        dn_cat(line, "RAMP ");
-        dn_num(t, dn.ramp_a + 1); dn_cat(line, t); dn_cat(line, "-");
-        dn_num(t, dn.ramp_b + 1); dn_cat(line, t); dn_cat(line, "  VEL ");
-        dn_num(t, dn.ramp_v0); dn_cat(line, t); dn_cat(line, " > ");
-        dn_num(t, dn.ramp_v1); dn_cat(line, t);
-        cv_text(8, 127, &FONT_T, line, DN_C_BLUE);
-        return;
-    }
     for (k = 0; k < 4u; k++)
-        v[k][0] = 0;
-    if (pg == 0u) {
+        v[k][0] = 0, nm[k] = L[pg][k];
+    cv_rect(0, 17, 240, 127, DN_C_BG);              /* (over the roll: its top canvas still shows the pattern) */
+    hd[0] = 0;
+    if (dn.ramp_b >= 0) {                           /* a velocity ramp: from, to, K3 its start, K4 its end */
+        dn_cat(hd, "VELOCITY RAMP");
+        nm[0] = "FROM", nm[1] = "TO", nm[2] = "START", nm[3] = "END";
+        dn_num(v[0], dn.ramp_a + 1);
+        dn_num(v[1], dn.ramp_b + 1);
+        dn_num(v[2], dn.ramp_v0);
+        dn_num(v[3], dn.ramp_v1);
+        q[2] = dn.ramp_v0 * 256 / 127, q[3] = dn.ramp_v1 * 256 / 127;
+    } else if (pg == 0u) {
         if (drum) {
             dn_cat(v[0], DN_IS_SMP(dn.trk) ? "PAD " : "SL ");
             dn_num(t, st->note + 1);
             dn_cat(v[0], t);
         } else {
             dn_note_name(v[0], st->note + trans);
-            if (DN_ST_CHORD_OF(st->flags) && DN_CHORDABLE(dn.trk)) {   /* (0.27) a chord: root and name, F3m7 */
-                static const char *const SH[DN_CHORDS] = {"m", "", "m7", "M7", "7", "m9", "M9", "a9", "s2", "s4", "5",
-                                                          "o", "+", "m6", "6"};
-                const char *n = SH[DN_ST_CHORD_OF(st->flags) - 1u];
-                dn_cat(v[0], *n ? n : "M");
-            }
+            if (DN_ST_CHORD_OF(st->flags) && DN_CHORDABLE(dn.trk))   /* (a chord: its name under the note) */
+                sub0 = DN_CHORD_NAME[DN_ST_CHORD_OF(st->flags)];
         }
         dn_len_text(v[1], st->len);
         dn_num(v[2], (st->flags & DN_ST_ACC) ? 127 : st->vel);
         dn_cond_text(st->cond, v[3]);
+        q[1] = (int32_t)st->len * 256 / DN_LEN_MAX;
+        q[2] = ((st->flags & DN_ST_ACC) ? 127 : st->vel) * 256 / 127;
     } else if (pg == 1u) {
         dn_cat(v[0], (st->flags & DN_ST_SLIDE) ? (drum ? "REV" : "ON") : "OFF");
         dn_cat(v[1], (st->flags & DN_ST_ACC) ? "ON" : "OFF");
@@ -5542,6 +5618,10 @@ static void dn_step_status(const dn_track_t *tr, int drum, int32_t trans)
         dn_cat(v[3], "1/");
         dn_num(t, DN_RTIM_DEN[st->rtim % DN_RTIM_N]);
         dn_cat(v[3], t);
+        q[0] = (st->flags & DN_ST_SLIDE) ? 256 : 0, q[1] = (st->flags & DN_ST_ACC) ? 256 : 0;
+        q[2] = (st->flags & DN_ST_RTRG) ? 256 : 0, q[3] = (int32_t)(st->rtim % DN_RTIM_N) * 256 / (DN_RTIM_N - 1);
+        if (drum)
+            nm[0] = "REVERSE";
     } else {
         if (st->rlen)
             dn_len_text(v[0], st->rlen);
@@ -5554,17 +5634,30 @@ static void dn_step_status(const dn_track_t *tr, int drum, int32_t trans)
             dn_num(t, st->rvel > 0 ? st->rvel : -st->rvel);
             dn_cat(v[1], t);
         }
-        if (DN_CHORDABLE(dn.trk))                   /* (0.28) the chord on it */
+        q[0] = st->rlen ? (int32_t)st->rlen * 256 / DN_LEN_MAX : -1;
+        q[1] = ((int32_t)st->rvel + 127) * 256 / 254, bip[1] = 1;
+        if (DN_CHORDABLE(dn.trk)) {                 /* (0.28) the chord on it */
             dn_cat(v[2], DN_CHORD_NAME[DN_ST_CHORD_OF(st->flags)]);
-        dn_cat(v[3], "FX: NEXT");
+            q[2] = (int32_t)DN_ST_CHORD_OF(st->flags) * 256 / DN_CHORDS;
+        } else {
+            nm[2] = "";
+        }
     }
-    for (k = 0; k < 4u; k++) {
-        int32_t cx = 30 + 60 * (int32_t)k;
-        if (pg == 2u && k == 2u && !DN_CHORDABLE(dn.trk))
-            continue;
-        cv_text(cx - text_w(&FONT_T, L[pg][k]) / 2, 122, &FONT_T, L[pg][k], DN_C_DIMTXT);
-        cv_text(cx - text_w(&FONT_T, v[k]) / 2, 132, &FONT_T, v[k], k == 3u && pg == 2u ? DN_C_LABEL : DN_C_BLUE);
+    if (!hd[0]) {                                   /* the step, the page of three */
+        dn_cat(hd, "STEP ");
+        dn_num(t, dn.step_held + 1);
+        dn_cat(hd, t);
     }
+    cv_text(6, 20, &FONT_S, hd, DN_C_FG);
+    if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0) {   /* a word (MOVED, ...): on the top line */
+        cv_text(234 - text_w(&FONT_T, dn.msg), 23, &FONT_T, dn.msg, DN_C_RED);
+    } else if (dn.ramp_b < 0) {
+        for (k = 0; k < 3u; k++)                    /* (which of the three pages: dots) */
+            cv_rect(150 + 10 * (int32_t)k, 26, 7, 7, k == pg ? DN_C_FG : DN_C_KNOB);
+        cv_text(234 - text_w(&FONT_T, "FX: MORE"), 23, &FONT_T, "FX: MORE", DN_C_LABEL);
+    }
+    for (k = 0; k < 4u; k++)
+        dn_tile(2 + 60 * (int32_t)k, 40, 56, 100, k, nm[k], v[k], *nm[k] ? q[k] : -1, bip[k], k ? 0 : sub0);
 }
 
 static void dn_draw_roll(void)
@@ -5971,7 +6064,8 @@ static void dn_draw_bottom(void)
             dn_draw_roll();
         else
             dn_draw_drum();
-        if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0) {   /* a word (MOVED, SWAPPED, ...) over the right end */
+        if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0 && dn.step_held < 0) {   /* a word (MOVED, SWAPPED, ...) over
+                                                     * the right end (a step held: in its pop-up's top line) */
             int32_t mw = text_w(&FONT_T, dn.msg);
             cv_rect(226 - mw, 123, mw + 12, 19, DN_C_BAR);
             cv_text(232 - mw, 127, &FONT_T, dn.msg, DN_C_RED);

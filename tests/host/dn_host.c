@@ -102,6 +102,7 @@ uint32_t plat_xruns(void) { return 0; }
  * built in before 0.29), as if sent from the editor; slot 2 DX7 voices when a scenario puts them there (fmbank) */
 #include "dn_breaks_builtin.h"
 static uint8_t sim_fmz[8 + 32 * 128];
+static uint32_t fit_bad;                            /* (0.31.1: fitcheck's count) */
 static uint32_t sim_fmz_n, sim_noloops;
 int plat_slot_zones(int k) { return k == 0 ? (sim_noloops ? 0 : DN_BRK_BUILTIN) : k == 1 && sim_fmz_n ? 1 : 0; }
 const uint8_t *plat_slot(int k, int z, uint32_t *n, uint32_t *rate, char name[9])
@@ -605,6 +606,82 @@ int main(int argc, char **argv)
             FILE *f = fopen(b, "rb");
             if (!f || fread(store_len, sizeof store_len, 1, f) != 1 || fread(store, sizeof store, 1, f) != 1) { printf("  FAIL storeload\n"); return 1; }
             fclose(f);
+        } else if (!strcmp(a, "fitcheck")) {   /* (0.31.1) every dial's name and every value (64 across its range) on
+                                                 * every page of every track's instrument: does it fit a BLOCKS tile? */
+            static const uint8_t PG[] = {0, 1, 2, 3, 4, DN_PG_SET, DN_PG_LFO, DN_PG_SOSC2, DN_PG_DIRT, DN_PG_FENV,
+                                         DN_PG_BRK, DN_PG_BRK2, DN_PG_SLICE, DN_PG_MIDI, DN_PG_PROJ};
+            uint8_t sp = dn.page, st = dn.trk, sa = dn.fm_alt, sl = dn.lfo_view, sm = dn_sm.p.mode;
+            fit_bad = 0;
+            for (uint32_t t = 0; t < 8u; t++)
+                for (uint32_t pi = 0; pi < sizeof PG; pi++)
+                    for (uint32_t alt = 0; alt < 4u; alt++) {
+                        dn.trk = (uint8_t)t, dn.page = PG[pi];
+                        dn.fm_alt = alt & 1u ? 0x1Fu : 0u, dn.lfo_view = (uint8_t)(alt & 1u);
+                        dn_sm.p.mode = (uint8_t)(alt >> 1);
+                        for (uint32_t k = 0; k < 4u; k++) {
+                            uint32_t id = dn_dial(k);
+                            int32_t lo, hi, step;
+                            if (id == DN_PX_NONE)
+                                continue;
+                            if (dn_tile_fit_name(dn_name(id)) < 0) {
+                                if (fit_bad < 40u) printf("  name too wide: page %u trk %u K%u \"%s\"\n", dn.page, t + 1, k + 1, dn_name(id));
+                                fit_bad++;
+                            }
+                            lo = dn_min(id), hi = dn_max(id), step = (hi - lo) / 64 > 0 ? (hi - lo) / 64 : 1;
+                            for (int32_t v = lo; v <= hi; v = v == hi ? hi + 1 : (v + step > hi ? hi : v + step)) {
+                                char tx[16];
+                                dn_text(id, v, tx);
+                                if (dn_tile_fit_value(tx) < 0) {
+                                    if (fit_bad < 40u) printf("  value too wide: page %u trk %u K%u %s = \"%s\"\n", dn.page, t + 1, k + 1, dn_name(id), tx);
+                                    fit_bad++;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+            {   /* the FX pages: every effect in either slot, every view */
+                uint8_t ft0 = dn_fxp[0].type, ft1 = dn_fxp[1].type, fv = dn.fx_view;
+                dn.page = DN_PG_FX;
+                for (uint32_t ty = 0; ty < DN_FX_N; ty++)
+                    for (uint32_t vw = 0; vw < 5u; vw++) {
+                        dn_fxp[0].type = dn_fxp[1].type = (uint8_t)ty, dn.fx_view = (uint8_t)vw;
+                        for (uint32_t k = 0; k < 4u; k++) {
+                            uint32_t id = dn_dial(k);
+                            int32_t lo, hi, step;
+                            if (id == DN_PX_NONE)
+                                continue;
+                            if (dn_tile_fit_name(dn_name(id)) < 0) {
+                                if (fit_bad < 60u) printf("  name too wide: FX %s view %u K%u \"%s\"\n", DN_FX_NAME[ty], vw, k + 1, dn_name(id));
+                                fit_bad++;
+                            }
+                            lo = dn_min(id), hi = dn_max(id), step = (hi - lo) / 64 > 0 ? (hi - lo) / 64 : 1;
+                            for (int32_t v = lo; v <= hi; v = v == hi ? hi + 1 : (v + step > hi ? hi : v + step)) {
+                                char tx[16];
+                                dn_text(id, v, tx);
+                                if (dn_tile_fit_value(tx) < 0) {
+                                    if (fit_bad < 60u) printf("  value too wide: FX %s view %u K%u %s = \"%s\"\n", DN_FX_NAME[ty], vw, k + 1, dn_name(id), tx);
+                                    fit_bad++;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                dn_fxp[0].type = ft0, dn_fxp[1].type = ft1, dn.fx_view = fv;
+            }
+            {   /* the tag at the top: every page's (it sits in a 46-pixel chip) */
+                for (uint32_t t = 0; t < 8u; t++)
+                    for (uint32_t pi = 0; pi < sizeof PG; pi++) {
+                        const char *pn, *tag;
+                        dn.trk = (uint8_t)t, dn.page = PG[pi];
+                        tag = dn_top_names(&pn);
+                        if (text_w(&FONT_T, tag) > 42) {
+                            if (fit_bad < 60u) printf("  tag too wide: page %u trk %u \"%s\"\n", dn.page, t + 1, tag);
+                            fit_bad++;
+                        }
+                    }
+            }
+            dn.page = sp, dn.trk = st, dn.fm_alt = sa, dn.lfo_view = sl, dn_sm.p.mode = sm;
+            printf("  fitcheck: %u too wide\n", fit_bad);
         } else if (!strcmp(a, "noloops") && n >= 2) {   /* (0.29) noloops 1: slot 1 empty (no loops at all) */
             sim_noloops = (uint32_t)atoi(b);
             dn_app_slots_changed(0);
@@ -640,6 +717,7 @@ int main(int argc, char **argv)
             long got;
             if (!strcmp(b, "preset")) got = dn.preset;
             else if (!strcmp(b, "page")) got = dn.page;
+            else if (!strcmp(b, "fitbad")) got = (long)fit_bad;
             else if (!strcmp(b, "dark")) got = dn.dark;   /* (0.30) the skin */
             else if (!strcmp(b, "skin")) got = dn.skin;   /* (0.31) 0 BLOCKS, 1 LIGHT, 2 DARK */
             else if (!strncmp(b, "srcmap.", 7)) got = dn_brk_src_of((uint8_t)atoi(b + 7));   /* (0.29) a saved loop number */

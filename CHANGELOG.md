@@ -657,3 +657,21 @@ port), the editor end to end, the flasher's.
 Tested: host `skin.txt` (BLOCKS from the start; round the three; each kept over a reboot; an older save BLOCKS); every
 page's screenshot looked at in BLOCKS.
 
+## 0.31.1 — big pop-up for a held step; text that fits (2026-10-25)
+
+- **A held step's values pop up big.** On ROLL and DRUM, holding a step shows four large tiles over the roll, one a
+  knob as they sit (KNOB 1–4), in place of the small line at the bottom. In BLOCKS they are in the knobs' colours and
+  fill as far as the value. On top: STEP n, three dots for which of the three pages (FX: the next), or a message.
+  - Page 1: NOTE (a chord's name under it), LENGTH, VEL, COND.
+  - Page 2: SLIDE (REVERSE on a break), ACCENT, RETRIG, RATE.
+  - Page 3: RT LEN, RT VEL, CHORD.
+  - A velocity ramp shows FROM, TO, START, END.
+- **Text fits its box.** A value in a BLOCKS tile takes the biggest font that fits (the big digits, then 24, 16, 12
+  px), never wider than the tile. A long sound name at the top is cut short before PRESETS rather than running over
+  it.
+- A host check walks every dial on every page of every instrument (FX: every effect, every view), every value across
+  its range, and every page's tag: all fit.
+
+Tested: host scenarios `fit.txt` (the walk: none too wide) and `skin.txt` (the pop-up in all three skins); the trigs,
+chords, long-notes and ramp screenshots looked at.
+

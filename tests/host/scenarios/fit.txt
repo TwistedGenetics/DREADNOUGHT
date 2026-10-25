@@ -1,0 +1,7 @@
+# DREADNOUGHT host scenario (0.31.1): every dial's name and value fits its BLOCKS tile, on every page of every
+# instrument (REESE, the breaks, SUB, SAMPLER pads and keys, FM and its second views, MIDI).
+sysex 76 3 5 0
+sysex 76 4 6 0
+sysex 76 5 7 0
+fitcheck
+expect fitbad 0

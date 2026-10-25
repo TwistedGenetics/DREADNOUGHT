@@ -15,12 +15,29 @@ shot skin-00-blocks-setup.png
 tap FX
 expect skin 1
 shot skin-01-light-setup.png
+tap SEQ
+key 0 down
+wait 40
+shot skin-01-light-held.png
+key 0 up
+wait 40
+tap SEL
+tap GLO
+tap GLO
+tap GLO
+expect page 11
 tap FX
 expect skin 2
 expect dark 1
 shot skin-02-dark-setup.png
 tap SEL
 shot skin-03-dark-osc.png
+tap SEQ
+key 0 down
+wait 40
+shot skin-03-dark-held.png
+key 0 up
+wait 40
 tap SAVE
 wait 300
 reboot
