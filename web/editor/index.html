@@ -33,6 +33,7 @@
   <button role="tab" data-tab="subtab" id="subTabBtn" hidden>SUB</button>
   <button role="tab" data-tab="smptab" id="smpTabBtn" hidden>SAMPLER</button>
   <button role="tab" data-tab="fmtab" id="fmTabBtn" hidden>FM</button>
+  <button role="tab" data-tab="wavetab" id="waveTabBtn" hidden>WAVE</button>
   <button role="tab" data-tab="lfos">LFOs</button>
   <button role="tab" data-tab="breaks">Breaks</button>
   <button role="tab" data-tab="files">Project</button>
@@ -168,6 +169,35 @@
       (above). The macros go on top of the voice without changing it: BRIGHT the modulators' levels, TIME every
       envelope, ATTACK and RELEASE the carriers'.</p>
     <div id="fmEd" class="groups"></div>
+  </section>
+
+  <section id="wavetab" class="tab">
+    <div class="row"><label>Sound <select id="wvpreset"></select></label>
+      <label>Table <select id="wvtable"></select></label>
+      <span class="small" id="wvwhere"></span></div>
+    <div class="row"><span class="small">On the FM-1 (hold):</span>
+      <button class="quiet small wvkey" data-n="36">C1</button><button class="quiet small wvkey" data-n="48">C2</button>
+      <button class="quiet small wvkey" data-n="60">C3</button><button class="quiet small wvkey" data-n="72">C4</button></div>
+    <div class="card wide" id="wvTables">
+      <h2>Wavetables</h2>
+      <p class="small">Load a Serum wavetable (.wav: cycles of 2048 samples one after another, as Serum, Vital and
+        Ableton's Wavetable save them) or a single-cycle WAV. Each is made into the FM-1's own format here (every frame
+        band-limited for every octave, so high notes don't alias): see its frames, move POS through them and hear it with
+        C1-C3. Send it and it goes into a sample slot with your samples, and comes up on WAVE's TABLE after the 8 factory
+        tables (★ here). A table takes about 2 KB a frame: 64 frames are 127 KB, so fewer frames leave more room for
+        samples.</p>
+      <div class="row"><button id="wvLoad">Load wavetables (.wav)…</button>
+        <label>Frames, at most <select id="wvFrames"><option>64</option><option>32</option><option selected>16</option>
+          <option>8</option><option>4</option></select></label>
+        <button id="wvSend">Send to the FM-1</button><span class="small" id="wvInfo"></span></div>
+      <div id="wvList"></div>
+      <input type="file" id="wvFile" accept=".wav,audio/wav,audio/x-wav" multiple hidden>
+    </div>
+    <p class="small">A wavetable synth: up to 6 voices (4 oscillators each in unison, 8 at most in all), a sine an octave
+      down, the phase warped before the table is read (SYNC, BEND, MIRROR, PWM, FM, CRUSH), a filter with drive, an amp
+      and a mod envelope, an LFO. POS ENV and POS LFO move through the table; CUT LFO the filter. On the FM-1: SEL again
+      for OSC (unison and sub), ENV again for the MOD ENV.</p>
+    <div id="wvEd" class="groups"></div>
   </section>
 
   <section id="lfos" class="tab">

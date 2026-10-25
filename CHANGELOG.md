@@ -690,3 +690,41 @@ Tested: editor unit tests (a sample added after another: only the new sectors wr
 simulated FM-1 now behaves as flash, erasing by 4 KB sector and checking each slot's CRC at the end) and end to end
 (read back by name; one more voice from a new bank sent with a few writes).
 
+## 0.32 — WAVE, the wavetable synth (2026-10-25)
+
+- **New instrument: WAVE.** Put it on a track from PROJECT (or the editor's Project tab). Up to 6 voices, each up to
+  4 oscillators in unison (DETUNE, SPREAD across the stereo field) and a sine an octave down (SUB). POS moves through
+  the table's frames, morphing smoothly between them; WARP bends the phase before the table is read: SYNC, BEND,
+  MIRROR, PWM, FM (by a sine at the note) or CRUSH (fewer samples and bits), with AMOUNT. Then a 12 dB filter with
+  DRIVE before it, an amp envelope, a mod envelope (on the cutoff with ENV, through the table with POS ENV), an LFO
+  (POS LFO, CUT LFO, its RATE). VOICES 1 is MONO, legato, with GLIDE. The keys and the sequencer play chords.
+- **Its pages** in the synths' places: **WAVE** (TABLE, POS, WARP, AMOUNT; SEL again: **OSC**, unison and sub),
+  **FILTER**, **AMP** (ENV again: **MOD ENV**), **MOD**, **OUT**. PRESETS: 12 factory sounds (SUPERSAW, REESE,
+  PPG BELL, VOX PAD, SYNC LEAD, PWM STRNG, GRIT BASS, ORGAN, FM GROWL, BENT KEYS, CRUSHER, INIT). SAVE keeps the sound
+  (in the settings space taken from slot 3 in 0.29). On HOME it's pink.
+- **8 factory tables:** ANALOG (sine to triangle to square to saw), REESE (a saw with moving notches), PPG (a band of
+  harmonics stepping up), VOCAL (A E I O U), SYNC, PWM (50 % down to 4 %), GRIT (a sine folded harder and harder),
+  HOLLOW (odd harmonics, drawbars moving). Also in `wavetables/` as Serum WAVs.
+- **No aliasing, no RAM:** each frame is kept as 7 versions, each band-limited to what can't alias an octave up
+  (Carnac OS's layout), read straight from flash with 4-point interpolation. Measured: a saw at 2.6 kHz aliases
+  55 dB down (12 dB down reading the full frame); at C5, 49.97 dB.
+- **CPU:** 8 oscillators in all (voices × unison): UNISON 2 plays 4 voices, 3 or 4 plays 2. At its heaviest
+  (2 voices × 4, BEND, SUB, DRIVE) WAVE measures about 2.1× FM's 6 voices on the host (the FM-1 will differ: watch
+  PROJECT's CPU figure). The filter runs once a voice when there's no stereo spread.
+- **Your own tables (editor, WAVE tab):** load a Serum wavetable or a single-cycle WAV; the editor makes it into the
+  FM-1's format (bit for bit what `tools/wt_convert.py` makes), draws its frames, plays it at POS, and sends it into
+  a sample slot with the samples (at most 64 frames; you pick 64 / 32 / 16 / 8 / 4). It comes up on TABLE after the
+  factory tables, in every project, and isn't taken for a loop. A sound on a table that's later removed falls back to
+  ANALOG. Projects keep WAVE's sound and find its table again by name.
+- The editor and the breaks page now start every zone of a sample slot on an even byte (WAVE reads its tables in
+  place); a slot sent before keeps working.
+
+Tested on the host: tuning (A4 440 Hz), aliasing at 2.6 kHz and C5, POS morphing, envelopes, 6 voices and stealing,
+mono legato and glide, every warp on every table, the 12 factory sounds in range and sounding, the cost against FM;
+the whole app from the panel (WAVE on track 8: PRESETS, the keys in poly, unison and mono, every page and its second
+view, a table sent to a slot, SAVE and a reboot, the slots changing under it, HOME, every dial fits its tile); the
+editor's replies decoded as the firmware sends them; the editor's converter against the tool on four WAVs (16-bit
+Serum, 24-bit stereo of 80 frames, 32-bit float single cycle, no clm chunk: identical); in Chromium, the WAVE tab
+(a sound picked, a value moved, a Serum table loaded, drawn, heard and sent, then picked). Not yet tested: on a
+real FM-1 — how it sounds and what it costs there.
+

@@ -7,6 +7,7 @@ cd "$(dirname "$0")/.."
 CC="${CC:-cc}"
 mkdir -p build/gen build/host
 python3 tools/gen_dn_tables.py build/gen/dn_tables.h >/dev/null
+python3 tools/gen_dn_wt.py build/gen/dn_wt_tables.h >/dev/null   # (0.32: the factory wavetables)
 python3 tools/gen_dn_breaks.py build/gen/dn_breaks_builtin.h --wav build/host >/dev/null
 mkdir -p build/gen/x0x
 [ -f build/gen/x0x/felucca_font.h ] || python3 x0x-firmware/tools/gen_font.py build/gen/x0x/felucca_font.h >/dev/null
@@ -56,6 +57,12 @@ build/host/fm_test build/host tests/host/fm_golden.txt
 # shellcheck disable=SC2086
 $CC $W -D_DEFAULT_SOURCE tests/host/smp_test.c src/dsp/dn_smp.c -o build/host/smp_test -lm
 build/host/smp_test
+# (0.32) WAVE, the wavetable synth
+# shellcheck disable=SC2086
+$CC $W -D_DEFAULT_SOURCE tests/host/wt_test.c src/dsp/dn_wt.c src/dsp/dn_fm.c src/dsp/reese.c -o build/host/wt_test -lm
+build/host/wt_test build/host
+python3 tests/host/wt_xcheck.py build/host/wtx       # (the editor converts Serum tables as tools/wt_convert.py does)
+node tests/host/wt_xcheck.mjs build/host/wtx
 # (0.29) X0X's storage.c as built (tools/dn_patches.py): the settings objects in slot 3's top 16 KB
 python3 tools/dn_patches.py storage x0x-firmware/firmware/src build/gen/storage_dn.c
 # shellcheck disable=SC2086
@@ -65,7 +72,7 @@ build/host/store_test
 $CC $W tests/host/slices_xcheck.c src/dsp/dn_breaks.c -o build/host/slices_xcheck
 build/host/slices_xcheck | node tests/host/slices_xcheck.mjs
 # shellcheck disable=SC2086
-$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c -o build/host/dn_host
+$CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c src/dsp/dn_wt.c -o build/host/dn_host
 for s in tests/host/scenarios/*.txt; do
     build/host/dn_host "$s" build/host
 done

@@ -101,12 +101,22 @@ uint32_t plat_xruns(void) { return 0; }
 /* the simulator's sample slots: slot 1 holds ROLLER and STEPPER (tools/gen_dn_breaks.py, the loops the FM-1 had
  * built in before 0.29), as if sent from the editor; slot 2 DX7 voices when a scenario puts them there (fmbank) */
 #include "dn_breaks_builtin.h"
+#include "dn_wt.h"
 static uint8_t sim_fmz[8 + 32 * 128];
 static uint32_t fit_bad;                            /* (0.31.1: fitcheck's count) */
 static uint32_t sim_fmz_n, sim_noloops;
-int plat_slot_zones(int k) { return k == 0 ? (sim_noloops ? 0 : DN_BRK_BUILTIN) : k == 1 && sim_fmz_n ? 1 : 0; }
+/* (0.32) slot 3 a wavetable when a scenario puts one there (wtslot NAME: VOCAL's frames under that name) */
+static uint8_t sim_wt[16u + 8u * DN_WT_FRAME_BYTES] __attribute__((aligned(4)));
+static uint32_t sim_wt_n;
+int plat_slot_zones(int k) { return k == 0 ? (sim_noloops ? 0 : DN_BRK_BUILTIN) : k == 1 && sim_fmz_n ? 1 : k == 2 && sim_wt_n ? 1 : 0; }
 const uint8_t *plat_slot(int k, int z, uint32_t *n, uint32_t *rate, char name[9])
 {
+    if (k == 2 && z == 0 && sim_wt_n) {
+        *n = 2u * sim_wt_n;
+        *rate = 22050;
+        memcpy(name, "WAVES", 6);
+        return sim_wt;
+    }
     if (k == 0 && !sim_noloops && z >= 0 && z < DN_BRK_BUILTIN) {
         *n = DN_BRK_BUILTIN_LOOPS[z].n;
         *rate = DN_BRK_BUILTIN_LOOPS[z].rate;
@@ -563,6 +573,39 @@ int main(int argc, char **argv)
                         for (uint32_t op = 0; op < 6u; op++)
                             fprintf(g, "%s%u", al || op ? "," : "", dn_fm_is_carrier(al, op));
                 }
+                fprintf(g, "],\"wtget\":[");     /* 0.32: WAVE: WT_GET, every value's name, range, texts (TABLE by the
+                                                 * names), its tables' and factory sounds' names */
+                ed(90, 0, 0);
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                fprintf(g, "],\"wtdefs\":[");
+                for (uint32_t k = 0; k < WP_N; k++) {
+                    int32_t lo = dn_min(DN_W(k)), hi = dn_max(DN_W(k));
+                    fprintf(g, "%s[%u,\"%s\",%d,%d,[", k ? "," : "", k, dn_name(DN_W(k)), lo, hi);
+                    for (int32_t v = lo; v <= hi; v++) {
+                        char tx[8];
+                        dn_text(DN_W(k), v, tx);
+                        fprintf(g, "%s[%d,\"%s\"]", v > lo ? "," : "", v, tx);
+                    }
+                    fprintf(g, "]]");
+                }
+                {
+                    uint8_t q[2] = {7, 0};
+                    fprintf(g, "],\"wttables\":[");
+                    ed(69, q, 2);
+                    for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                    q[0] = 8;
+                    fprintf(g, "],\"wtpresets\":[");
+                    ed(69, q, 2);
+                    for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                    fprintf(g, "],\"wtpvals\":[");    /* each factory sound's values */
+                    for (uint32_t i = 0; i < dn_wt_preset_count(); i++) {
+                        int16_t pv[WP_N];
+                        dn_wt_preset(i, pv);
+                        fprintf(g, "%s[", i ? "," : "");
+                        for (uint32_t k = 0; k < WP_N; k++) fprintf(g, "%s%d", k ? "," : "", pv[k]);
+                        fprintf(g, "]");
+                    }
+                }
                 fprintf(g, "],\"smpget\":[");    /* 0.23: SAMPLER: pad 1's values, and every value's name, range, texts */
                 {
                     uint8_t q[2] = {0, 0};
@@ -610,13 +653,13 @@ int main(int argc, char **argv)
                                                  * every page of every track's instrument: does it fit a BLOCKS tile? */
             static const uint8_t PG[] = {0, 1, 2, 3, 4, DN_PG_SET, DN_PG_LFO, DN_PG_SOSC2, DN_PG_DIRT, DN_PG_FENV,
                                          DN_PG_BRK, DN_PG_BRK2, DN_PG_SLICE, DN_PG_MIDI, DN_PG_PROJ};
-            uint8_t sp = dn.page, st = dn.trk, sa = dn.fm_alt, sl = dn.lfo_view, sm = dn_sm.p.mode;
+            uint8_t sp = dn.page, st = dn.trk, sa = dn.fm_alt, swv = dn.wv_alt, sl = dn.lfo_view, sm = dn_sm.p.mode;
             fit_bad = 0;
             for (uint32_t t = 0; t < 8u; t++)
                 for (uint32_t pi = 0; pi < sizeof PG; pi++)
                     for (uint32_t alt = 0; alt < 4u; alt++) {
                         dn.trk = (uint8_t)t, dn.page = PG[pi];
-                        dn.fm_alt = alt & 1u ? 0x1Fu : 0u, dn.lfo_view = (uint8_t)(alt & 1u);
+                        dn.fm_alt = dn.wv_alt = alt & 1u ? 0x1Fu : 0u, dn.lfo_view = (uint8_t)(alt & 1u);
                         dn_sm.p.mode = (uint8_t)(alt >> 1);
                         for (uint32_t k = 0; k < 4u; k++) {
                             uint32_t id = dn_dial(k);
@@ -680,7 +723,7 @@ int main(int argc, char **argv)
                         }
                     }
             }
-            dn.page = sp, dn.trk = st, dn.fm_alt = sa, dn.lfo_view = sl, dn_sm.p.mode = sm;
+            dn.page = sp, dn.trk = st, dn.fm_alt = sa, dn.wv_alt = swv, dn.lfo_view = sl, dn_sm.p.mode = sm;
             printf("  fitcheck: %u too wide\n", fit_bad);
         } else if (!strcmp(a, "noloops") && n >= 2) {   /* (0.29) noloops 1: slot 1 empty (no loops at all) */
             sim_noloops = (uint32_t)atoi(b);
@@ -702,6 +745,18 @@ int main(int argc, char **argv)
                 for (j = 0; j < 10; j++)
                     pt[DN_FMV_NAME + j] = (uint8_t)nm[j];
                 dn_fm_pack(pt, sim_fmz + 8 + 128 * v);
+            }
+            dn_app_slots_changed(1);
+            run(5);
+        } else if (!strcmp(a, "wtslot") && n >= 2) {   /* wtslot NAME: a wavetable in slot 3 as the editor sends it
+                                                     * (VOCAL's 8 frames, named NAME); wtslot -: none */
+            dn_app_slots_changed(0);
+            sim_wt_n = 0;
+            if (strcmp(b, "-")) {
+                memcpy(sim_wt, DN_WT_FACTORY_TABLES[3], sizeof sim_wt);
+                memset(sim_wt + 8, 0, 8);
+                memcpy(sim_wt + 8, b, strlen(b) < 8 ? strlen(b) : 8);
+                sim_wt_n = sizeof sim_wt;
             }
             dn_app_slots_changed(1);
             run(5);
@@ -826,6 +881,12 @@ int main(int argc, char **argv)
             } else if (!strncmp(b, "chord.", 6)) got = dn_chord[(atoi(b + 6) - 1) % DN_CHORDS][atoi(strchr(b + 6, '.') + 1) % DN_CHORD_N];
             else if (!strcmp(b, "fmv")) got = (long)dn_fm_sounding(&dn_fmx);   /* FM (0.25): voices sounding */
             else if (!strcmp(b, "fmpreset")) got = dn.fm_preset;
+            else if (!strcmp(b, "wvv")) got = (long)dn_wt_sounding(&dn_wv);   /* WAVE (0.32): voices sounding */
+            else if (!strcmp(b, "wvpreset")) got = dn.wv_preset;
+            else if (!strcmp(b, "wvslot")) got = dn.wv_tslot;   /* its table is a slot's */
+            else if (!strcmp(b, "wvtab")) got = dn_wv.tab == sim_wt ? 99 : dn_wv.tab ? 1 : 0;   /* 99 the slot's */
+            else if (!strncmp(b, "wvtname.", 8)) got = (unsigned char)dn.wv_tname[atoi(b + 8) % 9];
+            else if (!strncmp(b, "wv.", 3)) got = dn_wv.p[atoi(b + 3) % WP_N];   /* wv.K: value WP_K */
             else if (!strcmp(b, "fmop")) got = dn.fm_op + 1;
             else if (!strncmp(b, "fmname.", 7)) got = dn_fm_base[DN_FMV_NAME + atoi(b + 7)];
             else if (!strncmp(b, "fmb.", 4)) got = dn_fm_base[atoi(b + 4)];   /* fmb.K: the voice's value K */

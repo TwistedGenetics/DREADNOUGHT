@@ -5,6 +5,9 @@ import { readFileSync } from "node:fs";
 import { unpack as fmUnpack, pack as fmPack, vname as fmName, vmax as fmMax, vtext as fmText, isCarrier } from "../../web/editor/dx7.js";
 import { parseUi, parseChords, CHORDS } from "../../web/editor/protocol.js";
 import { renderNote } from "../../web/editor/fmsynth.js";
+import { WT, wtMin, wtMax, wtText } from "../../web/editor/wavetable.js";
+import { WT_TABLES, WT_PRESETS } from "../../web/editor/mock-fm1.js";
+import { parseWt } from "../../web/editor/protocol.js";
 import { parseSmp, SMP_PAD, SMP_ZONE, SMP_KEYS, parseState, parseParams, parsePattern, parseNames, serializePattern, REESE, NPARAM_15, parseLfoPts, parseLfoNow, COND_NAMES,
   parseProj, fxParams, FX_DEFAULTS, FX_NAMES } from "../../web/editor/protocol.js";
 
@@ -89,6 +92,23 @@ check("chords: the editor's 15 (MIN .. 6) are the FM-1's", JSON.stringify(parseC
     const snr = e ? 10 * Math.log10(sg / e) : 999;
     check(`editor's FM vs the FM-1's: ${names[i]}, signal / difference (dB; ${same} of ${js.length} samples identical)`, snr > 60, snr, 60);
   });
+}
+// 0.32: WAVE: WT_GET read as sent; every value named, ranged and read as the FM-1 does; its tables' and factory sounds'
+// names and values as the demo FM-1's
+{
+  const w = parseWt(g.wtget), tabs = parseNames(g.wttables).names, pres = parseNames(g.wtpresets).names;
+  check("WT_GET: 28 values, SUPERSAW (the start), 12 sounds, 8 tables", w.p.length === 28 && w.preset === 1 && w.presets === 12 && w.tables === 8 && w.factory === 8,
+    `${w.p.length} ${w.preset} ${w.presets} ${w.tables} ${w.factory}`, "28 1 12 8 8");
+  let bad = [];
+  for (const [k, name, min, max, texts] of g.wtdefs) {
+    if (WT[k] !== name || wtMin(k) !== min || wtMax(k, tabs.length) !== max) { bad.push(`${k}: ${WT[k]} ${wtMin(k)}..${wtMax(k, tabs.length)} vs ${name} ${min}..${max}`); continue; }
+    for (const [v, t] of texts) if (wtText(k, v, tabs) !== t) { bad.push(`${name} ${v}: ${wtText(k, v, tabs)} vs ${t}`); break; }
+  }
+  check("WAVE's values: names, ranges and texts as the FM-1's", !bad.length, bad.slice(0, 3).join("; ") || "all", "all");
+  check("WAVE's factory tables: the demo's are the FM-1's", JSON.stringify(tabs) === JSON.stringify(WT_TABLES), tabs.join(","), WT_TABLES.join(","));
+  check("WAVE's factory sounds: the demo's names and values are the FM-1's",
+    JSON.stringify(pres) === JSON.stringify(WT_PRESETS.map((x) => x[0])) && JSON.stringify(g.wtpvals) === JSON.stringify(WT_PRESETS.map((x) => x[1])),
+    pres.slice(0, 3).join(","), WT_PRESETS.slice(0, 3).map((x) => x[0]).join(","));
 }
 console.log(fails ? `EDITOR (page): ${fails} FAILED` : "EDITOR (page): the page reads the firmware's replies");
 process.exit(fails ? 1 : 0);

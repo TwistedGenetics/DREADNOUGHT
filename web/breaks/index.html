@@ -256,7 +256,8 @@ function userSlot(name, loops) {
 
 // the same from loops already encoded ({adpcm, n}: the break page keeps a loop read back as it is)
 function userSlotRaw(name, parts, max = SLOT_MAX_DATA) {
-  const total = parts.reduce((a, p) => a + p.adpcm.length, 0);
+  const even = (n) => n + (n & 1);   // (0.32: each zone 2-byte aligned, as the editor packs them: WAVE's tables need it)
+  const total = parts.reduce((a, p, i) => a + (i < parts.length - 1 ? even(p.adpcm.length) : p.adpcm.length), 0);
   if (total > max) throw new Error(`too long: ${total} B of ADPCM, the slot holds ${max} B`);
   if (parts.length < 1 || parts.length > SLOT_ZONES) throw new Error(`1..${SLOT_ZONES} loops per slot`);
   const data = new Uint8Array(total);
@@ -265,7 +266,7 @@ function userSlotRaw(name, parts, max = SLOT_MAX_DATA) {
   parts.forEach((p, i) => {
     data.set(p.adpcm, off);
     zs.push({ off, n: p.n, root: ROOT_BASE + i });
-    off += p.adpcm.length;
+    off += even(p.adpcm.length);
   });
   const split = keySplit(zs.map((z) => z.root));
   const rate = Math.round(SLOT_RATE / 44100 * 65536);
@@ -298,7 +299,7 @@ function pack(loops, nslots) {
   const slots = [], skipped = [];
   let cur = [], used = 0;
   for (const l of loops) {
-    const need = (l.s.length + 1) >> 1;
+    const need = ((l.s.length + 1) >> 1) + (((l.s.length + 1) >> 1) & 1);
     if (need > SLOT_MAX_DATA) { skipped.push(l.label); continue; }
     if (used + need > slotMax(slots.length) || cur.length >= SLOT_ZONES) {
       if (cur.length) slots.push(cur);

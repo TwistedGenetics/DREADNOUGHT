@@ -4,6 +4,7 @@
 // (TwistedGenetics).
 import { parseSlot, SLOT_HDR_LEN, SLOT_DATA_OFF, crc32 } from "./media.js";
 import { zoneVoices, unpack as fmUnpack } from "./dx7.js";
+import { parseTable, wtMin, wtMax } from "./wavetable.js";
 import { REESE, CHORDS } from "./protocol.js";
 import { SMP_PAD, SMP_ZONE, SMP_KEYS, HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
 
@@ -37,6 +38,22 @@ const LIMITS = [[0, 5], [0, 127], [0, 7], [0, 127], [0, 127], [0, 127], [0, 127]
   [0, 127], [-36, 36], [0, 127],
   // SUB's LFOs (0.15)
   ...[0, 1, 2, 3].flatMap(() => [[0, 7], [0, 1], [0, 127], [0, 33], [-64, 63], [0, 127], [0, 2], [0, 127]])];
+// WAVE (0.32): the factory tables, the factory sounds (src/dsp/dn_wt.c WT_PRESET: the host tests compare)
+export const WT_TABLES = ["ANALOG", "REESE", "PPG", "VOCAL", "SYNC", "PWM", "GRIT", "HOLLOW"];
+export const WT_PRESETS = [
+  ["INIT", [0, 0, 0, 0, 1, 20, 64, 0, 100, 20, 0, 0, 2, 60, 110, 40, 2, 60, 0, 40, 0, 0, 40, 0, 100, 6, 0, 0]],
+  ["SUPERSAW", [0, 127, 0, 0, 4, 45, 110, 0, 112, 10, 0, 0, 2, 60, 115, 55, 2, 60, 0, 40, 0, 0, 40, 0, 90, 6, 0, 0]],
+  ["REESE", [1, 40, 0, 0, 2, 25, 60, 60, 62, 30, 18, 40, 0, 60, 127, 22, 0, 70, 0, 30, 0, 30, 18, 0, 100, 1, 18, 0]],
+  ["PPG BELL", [2, 0, 0, 0, 1, 0, 64, 0, 120, 10, 0, 0, 0, 82, 40, 70, 0, 72, 0, 60, 50, 0, 40, 0, 100, 6, 0, 0]],
+  ["VOX PAD", [3, 30, 0, 0, 2, 15, 90, 0, 92, 15, 0, 0, 62, 80, 110, 82, 2, 60, 0, 40, 0, 48, 14, 0, 100, 4, 0, 0]],
+  ["SYNC LEAD", [4, 10, 1, 50, 1, 0, 64, 30, 100, 30, 10, 20, 0, 60, 110, 30, 0, 62, 20, 40, 40, 0, 40, 0, 100, 1, 14, 0]],
+  ["PWM STRNG", [5, 40, 0, 0, 2, 20, 90, 0, 86, 10, 0, 0, 52, 70, 110, 70, 2, 60, 0, 40, 0, 40, 24, 0, 100, 4, 0, 0]],
+  ["GRIT BASS", [6, 20, 0, 0, 1, 0, 64, 50, 70, 40, 30, 70, 0, 64, 100, 28, 0, 52, 0, 30, 60, 0, 40, 0, 100, 1, 6, -12]],
+  ["ORGAN", [7, 60, 0, 0, 1, 0, 64, 20, 104, 10, 0, 10, 2, 70, 100, 40, 2, 60, 0, 40, 0, 0, 40, 0, 100, 6, 0, 0]],
+  ["FM GROWL", [0, 0, 5, 60, 1, 0, 64, 40, 80, 50, 20, 50, 0, 60, 120, 30, 0, 60, 0, 40, 0, 0, 40, 30, 100, 1, 10, -12]],
+  ["BENT KEYS", [7, 30, 2, 70, 2, 12, 70, 0, 96, 20, 15, 0, 0, 72, 70, 50, 0, 64, 0, 40, 0, 0, 40, 0, 100, 6, 0, 0]],
+  ["CRUSHER", [2, 50, 6, 64, 1, 0, 64, 30, 90, 30, 0, 40, 0, 60, 110, 30, 0, 60, 0, 40, 0, 40, 50, 0, 95, 1, 0, 0]],
+];
 const SUB_PRESETS = ["DREAD", "DONK", "ROLLER", "WOBBLE", "ACID 101", "808 SUB", "GROWL", "SQUARE SB", "PUNCH", "TECH SUB", "CRUSHED", "RAVE STAB", "INIT"];
 const SUB_DREAD = [40, 90, 110, 0, 30, 0, 0, 0, 48, 30, 20, 40, 70, 0, 0, 90, 0, 70, 110, 30, 40, 1, 60, 0, 100, -24, 70];
 const LFO0 = 18 + 1 + 16, SLFO0 = LFO0 + 32 + 27;
@@ -75,6 +92,8 @@ export class MockFM1 {
     // FM (0.25): its voice, LEVEL, VOICES, the macros, where PRESETS is
     this.fm = { voice: fmInit("DUB FM BS"), level: 100, voices: 6, macros: [0, 0, 0, 0], preset: 0 };
     this.fmPlayed = 0;
+    this.wave = { p: WT_PRESETS[1][1].slice(), preset: 1 };   // (0.32: SUPERSAW, as the FM-1 starts)
+    this.wtPlayed = 0;
     // the panel (0.26): a small FM-1 behind it: REESE's five sound pages and a sequencer page
     this.ui = { page: 0, back: 0, keys: 0, btn: 0, msg: "" };
     this.slots = [0x14000, 0x14000, 0x10000].map((n) => ({ buf: new Uint8Array(n).fill(0xFF), ok: false }));   // (0.29: slot 3 64 KB)
@@ -239,6 +258,26 @@ export class MockFM1 {
       case CMD.UI_STATE: return this.uiState();
       case CMD.UI_INPUT: return this.uiInput(a);
       case CMD.FM_PLAY: this.fmPlayed += a[1] ? 1 : 0; return [0];
+      case CMD.WT_GET: {
+        const w = this.wave;
+        return [w.p.length, ...w.p.flatMap((v) => digits(v + 8192, 2)), ...digits(w.preset, 2), ...digits(WT_PRESETS.length, 2),
+          ...digits(this.wtNames().length, 2), ...digits(WT_TABLES.length, 2)];
+      }
+      case CMD.WT_SET: {
+        const k = a[0], v = (a[1] | a[2] << 7) - 8192;
+        if (k >= 28) return [1];
+        this.wave.p[k] = Math.max(wtMin(k), Math.min(wtMax(k, this.wtNames().length), v));
+        this.rev++; this.dirty = 1;
+        return [0];
+      }
+      case CMD.WT_LOAD: {
+        const i = a[0] | a[1] << 7;
+        if (i >= WT_PRESETS.length) return [1];
+        this.wave = { p: WT_PRESETS[i][1].slice(), preset: i };
+        this.rev++; this.dirty = 1;
+        return [0];
+      }
+      case CMD.WT_PLAY: this.wtPlayed += a[1] ? 1 : 0; return [0];
       case CMD.SMP_PLAY: this.smpPlayed = (this.smpPlayed || 0) + (a[1] ? 1 : 0); return [0];
       case CMD.SUB_PRESET: this.subPreset = a[0]; this.rev++; return [0];
       case CMD.PROJ: {
@@ -322,9 +361,9 @@ export class MockFM1 {
         return [...a.slice(0, 5), 0];
       }
       case CMD.NAMES: {
-        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM"], FX_NAMES,
+        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE"], FX_NAMES,
           ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], [...SUB_PRESETS, ...USERS],
-          [...FM_FACTORY, ...this.fmVoices().map((v) => v.name)]][a[0]] || [];
+          [...FM_FACTORY, ...this.fmVoices().map((v) => v.name)], this.wtNames(), WT_PRESETS.map((x) => x[0])][a[0]] || [];
         const out = [list.length, a[1]];
         for (let i = a[1]; i < list.length; i++) out.push(...list[i].split("").map((c) => c.charCodeAt(0)), 0);
         return out;
@@ -384,6 +423,21 @@ export class MockFM1 {
       if (!sl.ok) continue;
       const h = parseSlot(sl.buf.subarray(0, SLOT_HDR_LEN));
       if (h) for (const z of h.zones) { const v = zoneVoices(sl.buf.subarray(SLOT_DATA_OFF + z.off, SLOT_DATA_OFF + z.off + ((z.n + 1) >> 1))); if (v) out.push(...v); }
+    }
+    return out;
+  }
+  // (0.32) WAVE's tables: the factory's, then the slots' zones that hold one (the FM-1 takes only those 2-byte aligned)
+  wtNames() {
+    const out = WT_TABLES.slice();
+    this.wtOdd = 0;
+    for (const sl of this.slots) {
+      if (!sl.ok) continue;
+      const h = parseSlot(sl.buf.subarray(0, SLOT_HDR_LEN));
+      if (h) for (const z of h.zones) {
+        const t = parseTable(sl.buf.subarray(SLOT_DATA_OFF + z.off, SLOT_DATA_OFF + z.off + ((z.n + 1) >> 1)));
+        if (t && z.off % 2) this.wtOdd++;
+        else if (t) out.push(t.name);
+      }
     }
     return out;
   }

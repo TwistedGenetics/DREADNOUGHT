@@ -52,6 +52,12 @@
  *      FM_LOAD 156 bytes       -> rc                                 this voice (the editor's: a bank's, auditioned)
  *   86 FM_PLAY note on         -> rc                                 FM plays a note (on / off): the audition
  * NAMES kind 6 (0.25): FM's voices, the factory's then the project's.
+ *   90 WT_GET                  -> WAVE (0.32): how many values (WP_N), each (2, +8192: dn_wt.h WP_*), the factory sound
+ *                                 PRESETS is on (2), how many (2), the tables (2), the factory's of them (2)
+ *   91 WT_SET k v(2)           -> rc (0 set)                         value WP_k (TABLE: the tables' order)
+ *   92 WT_LOAD i(2)            -> rc                                 factory sound i
+ *   93 WT_PLAY note on         -> rc                                 WAVE plays a note (on / off): the audition
+ * NAMES kind 7 (0.32): WAVE's tables, the factory's then the slots'; kind 8: its factory sounds.
  *   87 UI_STATE                -> what the screen shows (0.26, the editor's panel): page, track, its instrument, flags
  *                                 (1 playing, 2 rec, 4 changed, 8 naming, 16 HOLD, 32 a sequencer page, 64 a step held),
  *                                 OCT + 8, BPM (2), position (2), the tag and the sound's name (strings), the tabs (count,
@@ -70,7 +76,7 @@
 enum { ED_STATE = 60, ED_PARAMS, ED_PARAM_SET, ED_PAT_READ, ED_PAT_WRITE, ED_PAT_COMMIT, ED_TRANSPORT, ED_SAVE,
        ED_PRESETN, ED_NAMES, ED_LFO_PTS_GET, ED_LFO_PTS_SET, ED_LFO_NOW, ED_PATS, ED_PAT_SEL, ED_PROJ, ED_PROJ_SET,
        ED_PROJ_NAME, ED_SUB_PRESET, ED_PARAMS_HI, ED_SMP_GET, ED_SMP_SET, ED_SMP_PLAY, ED_FM_GET, ED_FM_SET,
-       ED_FM_LOAD, ED_FM_PLAY, ED_UI_STATE, ED_UI_INPUT, ED_CHORDS };
+       ED_FM_LOAD, ED_FM_PLAY, ED_UI_STATE, ED_UI_INPUT, ED_CHORDS, ED_WT_GET, ED_WT_SET, ED_WT_LOAD, ED_WT_PLAY };
 #define DN_ED_NHI 8u
 
 static const uint8_t DN_ED_BRK[8] = {DN_PX_BSRC, DN_PX_BPITCH, DN_PX_BDECAY, DN_PX_BCRUSH,
@@ -600,6 +606,48 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         put(0);
         return 1;
     }
+    case ED_WT_GET:                                 /* (0.32) WAVE */
+        put(WP_N);
+        for (i = 0; i < WP_N; i++)
+            dn_ed_num(put, (uint32_t)(dn_wv.p[i] + 8192), 2);
+        dn_ed_num(put, dn.wv_preset, 2);
+        dn_ed_num(put, dn_wt_preset_count(), 2);
+        dn_ed_num(put, dn_wv_ntab(), 2);
+        dn_ed_num(put, DN_WT_FACTORY, 2);
+        return 1;
+    case ED_WT_SET: {
+        int32_t v;
+        if (na < 3u)
+            return 0;
+        if (a[0] >= WP_N) {
+            put(1);
+            return 1;
+        }
+        v = (int32_t)(a[1] | a[2] << 7) - 8192;
+        dn_set(DN_W(a[0]), v);
+        put(dn_get(DN_W(a[0])) == dn_clamp(v, dn_min(DN_W(a[0])), dn_max(DN_W(a[0]))) ? 0u : 1u);
+        return 1;
+    }
+    case ED_WT_LOAD:
+        if (na < 2u || (uint32_t)(a[0] | a[1] << 7) >= dn_wt_preset_count()) {
+            put(1);
+            return 1;
+        }
+        dn_wv_load(a[0] | (uint32_t)a[1] << 7);
+        dn_rev++;
+        put(0);
+        return 1;
+    case ED_WT_PLAY:
+        if (na < 2u)
+            return 0;
+        dn_lock();
+        if (a[1])
+            dn_wt_note_on(&dn_wv, a[0], 100);
+        else
+            dn_wt_note_off(&dn_wv, a[0]);
+        dn_unlock();
+        put(0);
+        return 1;
     case ED_CHORDS:                                 /* (0.28) the 15 chords, fixed: each its notes over the root */
         for (i = 0; i < DN_CHORDS; i++)
             for (j = 0; j < DN_CHORD_N; j++)
@@ -639,13 +687,19 @@ int dn_ed_cmd(uint32_t cmd, const uint8_t *a, uint32_t na, void (*put)(uint32_t)
         from = a[1];
         count = kind == 1u ? dn_src_count() : kind == 2u ? DN_E_N : kind == 3u ? DN_FX_N : kind == 4u ? DN_FX_NDIV
               : kind == 5u ? dn_sub_preset_count() + DN_NUSER : kind == 6u ? dn_fm_presets()
+              : kind == 7u ? dn_wv_ntab() : kind == 8u ? dn_wt_preset_count()
               : reese_preset_count() + DN_NUSER;
         put(count);
         put(from);
         for (i = from; i < count && used < 180u; i++) {
             char nm[12];
             const char *s;
-            if (kind == 6u) {                       /* (FM: a factory voice's name, or a project voice's 10) */
+            if (kind == 7u) {                       /* (0.32: WAVE's tables, its factory sounds) */
+                dn_wt_name(dn_wv_tab(i), nm);
+                s = nm;
+            } else if (kind == 8u) {
+                s = dn_wt_preset_name(i);
+            } else if (kind == 6u) {                /* (FM: a factory voice's name, or a project voice's 10) */
                 if (i < dn_fm_factory_count()) {
                     s = dn_fm_factory_name(i);
                 } else {

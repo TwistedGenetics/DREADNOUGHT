@@ -104,7 +104,8 @@ def main():
         b.GEN.mkdir(parents=True, exist_ok=True)
         dngen.mkdir(parents=True, exist_ok=True)
         for cmd in ([sys.executable, str(b.SRC / "tools" / "gen_font.py"), str(b.GEN / "felucca_font.h")],
-                    [sys.executable, str(REPO / "tools" / "gen_dn_tables.py"), str(dngen / "dn_tables.h")]):
+                    [sys.executable, str(REPO / "tools" / "gen_dn_tables.py"), str(dngen / "dn_tables.h")],
+                    [sys.executable, str(REPO / "tools" / "gen_dn_wt.py"), str(dngen / "dn_wt_tables.h")]):
             # (0.29: no built-in breaks in the image; tools/gen_dn_breaks.py makes them for the host tests only)
             r = subprocess.run(cmd, capture_output=True, text=True)
             if r.returncode:

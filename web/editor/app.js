@@ -16,6 +16,7 @@ import { initPanel } from "./panel.js";
 import { sliceKey } from "../breaks/slices.js";
 import { audition as fmAudition } from "./fmsynth.js";
 import { readProject, writeProject, checkProject, mediaOf, FORMAT } from "./project.js";
+import { fromWav as wtFromWav, parseTable, render as wtRender, WT, wtMin, wtMax, wtText, WT_GROUPS, MAXF as WT_MAXF } from "./wavetable.js";
 import { parseSyx, zoneBytes, zoneVoices, unpack as fmUnpack, vname as fmVname, vmax as fmVmax, vtext as fmVtext, isCarrier, opFreq } from "./dx7.js";
 
 const $ = (id) => document.getElementById(id);
@@ -24,7 +25,7 @@ const S = {
   writing: 0, lastRev: -1, poll: null, dirtyPat: false, drag: null, selNote: -1, zoom: 0, x0: 0,
   lfo: null, lfoNow: null, lfoDraw: null, pats: null,
   proj: null, media: [], dev: null, mediaRead: false, dir: null,
-  smp: null, pad: 0, zone: 0, fm: null, fmNames: [],
+  smp: null, pad: 0, zone: 0, fm: null, fmNames: [], wave: null, wvTables: [], wvPresets: [],
 };
 const ROWS = 36, ROW_H = 14, GUT = 46;
 
@@ -75,6 +76,12 @@ async function start(link, label) {
       S.fm = f;
       S.fmNames = (await link.names(6).catch(() => [])) || [];
       buildFm();
+      return link.wtGet().then(async (w) => {      // (0.32: WAVE; none before)
+        if (S.link !== link) return;
+        S.wave = w;
+        await wvNames();
+        buildWave();
+      });
     });
   }).catch(() => {});
 }
@@ -166,6 +173,11 @@ async function poll() {
       const seq = S.fmSeq, f = await S.link.fmGet().catch(() => null);   // (changed on the FM-1: the tab follows,
       if (f && seq === S.fmSeq && !S.fmBusy) { S.fm = f; buildFm(); }      //  unless you changed it meanwhile)
     }
+    if (S.wave && $("wavetab").classList.contains("on") && !S.wvBusy &&
+        !(document.activeElement && document.activeElement.tagName === "INPUT" && document.activeElement.closest("#wavetab"))) {
+      const seq = S.wvSeq, w = await S.link.wtGet().catch(() => null);   // (WAVE: the same)
+      if (w && seq === S.wvSeq && !S.wvBusy) { S.wave = w; buildWave(); }
+    }
     if (S.smp && $("smptab").classList.contains("on") && !S.smpBusy &&
         !(document.activeElement && document.activeElement.closest && document.activeElement.closest("#smptab"))) {
       const seq = S.smpSeq, m = await readSampler(S.link);   // (changed on the FM-1: the tab follows, unless
@@ -220,7 +232,7 @@ $("save").onclick = () => guard(async () => { await S.link.save(); say("Kept on 
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", x === b));
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.id === b.dataset.tab));
-  if ((b.dataset.tab === "files" || b.dataset.tab === "fmtab") && S.link && S.proj && !S.mediaRead) guard(readMedia);   // (0.31.2: FM too)
+  if ((b.dataset.tab === "files" || b.dataset.tab === "fmtab" || b.dataset.tab === "wavetab") && S.link && S.proj && !S.mediaRead) guard(readMedia);   // (0.31.2: FM too; 0.32 WAVE)
   render();
 });
 
@@ -229,6 +241,7 @@ function trackLabel(t) {
   const k = KIND(t);
   return k === "REESE" ? ["REESE", "bass"] : k === "SUB" ? ["SUB", "bass"]
     : k === "SAMPLER" ? ["SAMPLER", S.smp && S.smp.mode === 1 ? "keys" : "pads"] : k === "BREAKS" ? [brkOf(t) ? "BREAKS B" : "BREAKS A", "slices"]
+    : k === "FM" ? ["FM", "6 voices"] : k === "WAVE" ? ["WAVE", "wavetables"]
     : k === "MIDI" ? [`MIDI ${midiNo(t)}`, `channel ${S.pat.tracks[t].chan + 1}`] : ["OFF", "plays nothing"];
 }
 function renderTracks() {
@@ -400,7 +413,7 @@ function noteAt(step, val) {
 }
 function posOf(ev) { const r = $("roll").getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; }
 // (0.27) chords: the tracks that play them (an FM-1 that has them), a chord's note under (step, row)
-const chordable = () => !!S.chords && (KIND(S.sel) === "FM" || KIND(S.sel) === "MIDI" || (KIND(S.sel) === "SAMPLER" && !!S.smp && S.smp.mode === 1));
+const chordable = () => !!S.chords && (KIND(S.sel) === "FM" || KIND(S.sel) === "WAVE" || KIND(S.sel) === "MIDI" || (KIND(S.sel) === "SAMPLER" && !!S.smp && S.smp.mode === 1));
 function chordAt(step, val) {
   if (!chordable()) return -1;
   const tr = S.pat.tracks[S.sel];
@@ -799,6 +812,149 @@ document.querySelectorAll(".fmkey").forEach((b) => {
   const n = +b.dataset.n;
   b.onpointerdown = () => { if (S.link) guard(() => S.link.fmPlay(n, true)); };
   b.onpointerup = b.onpointerleave = () => { if (S.link) guard(() => S.link.fmPlay(n, false)); };
+});
+
+// ---- WAVE (0.32): the wavetable synth's values; Serum wavetables loaded, seen, heard and sent -------------------
+async function wvNames() {
+  S.wvTables = (await S.link.names(7).catch(() => S.wvTables)) || [];
+  S.wvPresets = (await S.link.names(8).catch(() => S.wvPresets)) || [];
+}
+const wvTimers = {};
+function wvSet(k, v) {                               // (a drag: the last value goes, at most every 40 ms)
+  S.wave.p[k] = v;
+  S.wvSeq = (S.wvSeq || 0) + 1;
+  clearTimeout(wvTimers[k]);
+  S.wvBusy = (S.wvBusy || 0) + 1;
+  wvTimers[k] = setTimeout(() => guard(() => S.link.wtSet(k, v)).finally(() => { S.wvBusy--; }), 40);
+}
+function buildWave() {
+  $("waveTabBtn").hidden = !S.wave;
+  if (!S.wave) return;
+  renderWvTables();
+  const w = S.wave, ps = $("wvpreset"), ts = $("wvtable"), box = $("wvEd");
+  ps.textContent = "";
+  S.wvPresets.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = n; ps.appendChild(o); });
+  ps.value = w.preset;
+  ps.onchange = () => guard(async () => {
+    S.wvSeq = (S.wvSeq || 0) + 1;
+    await S.link.wtLoad(+ps.value);
+    const seq = S.wvSeq, nw = await S.link.wtGet();
+    if (seq === S.wvSeq) { S.wave = nw; buildWave(); }
+  });
+  ts.textContent = "";
+  S.wvTables.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `${i < w.factory ? "" : "★ "}${n}`; ts.appendChild(o); });
+  ts.value = w.p[0];
+  ts.onchange = () => { wvSet(0, +ts.value); };
+  const t = S.proj ? S.proj.eng.indexOf(E.WAVE) : -1;
+  $("wvwhere").textContent = t >= 0 ? `On track ${t + 1}.` : "On no track yet: put it on one on the Project tab.";
+  box.textContent = "";
+  for (const [title, ks] of WT_GROUPS) {
+    const g = fmGroup(box, title);
+    for (const k of ks) {
+      if (k === 0) continue;                         // (TABLE: the list above)
+      const el = document.createElement("div");
+      el.className = "prm";
+      el.innerHTML = `<span class="nm">${WT[k]}</span><input type="range" min="${wtMin(k)}" max="${wtMax(k, S.wvTables.length)}" step="1"><span class="v"></span>`;
+      const r = el.querySelector("input"), v = el.querySelector(".v"), show = () => { v.textContent = wtText(k, +r.value, S.wvTables); };
+      r.value = w.p[k];
+      show();
+      r.oninput = () => { show(); wvSet(k, +r.value); };
+      g.appendChild(el);
+    }
+  }
+}
+let wvPlaying = null;
+function wvHear(bytes, pos, note) {                 // a table played here (as the FM-1 reads it, plain: no filter)
+  if (wvPlaying) { try { wvPlaying.stop(); } catch (_) { /* (ended) */ } wvPlaying = null; }
+  const ctx = S.actx || (S.actx = new AudioContext()), s = wtRender(bytes, pos, note, 1.2, ctx.sampleRate);
+  const buf = ctx.createBuffer(1, s.length, ctx.sampleRate);
+  buf.getChannelData(0).set(s);
+  const src = ctx.createBufferSource();
+  src.buffer = buf; src.connect(ctx.destination); src.start();
+  wvPlaying = src;
+}
+// a table's frames drawn one behind the other, the one at POS lit
+function wvDraw(cv, bytes, pos) {
+  const t = parseTable(bytes), g = cv.getContext("2d"), W = cv.width, H = cv.height;
+  g.clearRect(0, 0, W, H);
+  if (!t) return;
+  const nf = t.frames, dx = nf > 1 ? (W * 0.25) / (nf - 1) : 0, dy = nf > 1 ? (H * 0.35) / (nf - 1) : 0, w = W * 0.75, h = H * 0.6;
+  const at = Math.round(pos * (nf - 1)), css = getComputedStyle(document.body);
+  const fg = css.getPropertyValue("--fg").trim() || "#222", acc = css.getPropertyValue("--blue").trim() || "#2f7fc1";
+  for (let f = nf - 1; f >= 0; f--) {
+    const fr = t.frame(f, 1), x0 = f * dx, y0 = H - h / 2 - 4 - f * dy;
+    g.beginPath();
+    for (let i = 0; i < fr.length; i++) { const x = x0 + (i / (fr.length - 1)) * w, y = y0 - (fr[i] / 32768) * (h / 2); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+    g.strokeStyle = f === at ? acc : fg;
+    g.globalAlpha = f === at ? 1 : 0.18;
+    g.lineWidth = f === at ? 2.5 : 1;
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+}
+function renderWvTables() {
+  const box = $("wvList");
+  if (!box) return;
+  box.textContent = "";
+  const tabs = S.media.filter((m) => m.wt);
+  let unsent = false, bytes = 0;
+  tabs.forEach((m) => {
+    const t = parseTable(m.wt), d = document.createElement("div");
+    unsent = unsent || !!m.stale;
+    bytes += m.wt.length;
+    d.className = "wvtab";
+    d.innerHTML = `<canvas width="360" height="150"></canvas><div class="wvside"><div class="row"><input type="text" maxlength="8" size="10" title="Its name on the FM-1 (8 letters)">`
+      + `<span class="small">${t.frames} frame${t.frames === 1 ? "" : "s"} · ${(m.wt.length / 1024).toFixed(1)} KB${m.sent && !m.stale ? " · on the FM-1" : " · not sent yet"}</span></div>`
+      + `<label class="prm"><span class="nm">POS</span><input type="range" min="0" max="1000" step="1"><span class="v"></span></label>`
+      + `<div class="row"><span class="small">Hear it here:</span><button class="quiet small" data-n="36">C1</button><button class="quiet small" data-n="48">C2</button>`
+      + `<button class="quiet small" data-n="60">C3</button>${m.sent ? "" : '<button class="quiet small" title="Remove it">✕</button>'}</div></div>`;
+    const cv = d.querySelector("canvas"), nm = d.querySelector("input[type=text]"), r = d.querySelector("input[type=range]"), v = d.querySelector(".v");
+    const show = () => { v.textContent = `${Math.round((m.pos || 0) * 127)}`; wvDraw(cv, m.wt, m.pos || 0); };
+    nm.value = m.name.toUpperCase().slice(0, 8);
+    nm.disabled = !!m.sent && !m.stale;
+    nm.onchange = () => {                            // (the name is in the table: changed, it's sent again)
+      const n = nm.value.toUpperCase().replace(/[^\x20-\x7E]/g, "").slice(0, 8);
+      m.wt = Uint8Array.from(m.wt);
+      for (let i = 0; i < 8; i++) m.wt[8 + i] = i < n.length ? n.charCodeAt(i) : 0;
+      m.name = n; m.stale = true; renderMedia();
+    };
+    r.value = Math.round((m.pos || 0) * 1000);
+    r.oninput = () => { m.pos = +r.value / 1000; show(); };
+    d.querySelectorAll("button[data-n]").forEach((b) => { b.onclick = () => wvHear(m.wt, m.pos || 0, +b.dataset.n); });
+    const rm = d.querySelector("button[title='Remove it']");
+    if (rm) rm.onclick = () => { S.media.splice(S.media.indexOf(m), 1); renderMedia(); };
+    box.appendChild(d);
+    show();
+  });
+  $("wvInfo").textContent = tabs.length ? `${tabs.length} table${tabs.length === 1 ? "" : "s"} (${(bytes / 1024).toFixed(0)} KB)${unsent ? ", not sent yet" : ", all on the FM-1"}.`
+    : "No wavetable loaded yet.";
+  $("wvSend").disabled = !S.link || !unsent;
+}
+$("wvLoad").onclick = () => $("wvFile").click();
+$("wvFile").onchange = (ev) => guard(async () => {
+  const frames = +$("wvFrames").value;
+  for (const f of [...ev.target.files]) {
+    try {
+      const name = f.name.replace(/\.[^.]+$/, "").toUpperCase().replace(/[^\x20-\x7E]/g, "").slice(0, 8);
+      say(`Converting ${f.name}…`);
+      await new Promise((r) => setTimeout(r, 0));   // (the message up before the work)
+      const wt = wtFromWav(new Uint8Array(await f.arrayBuffer()), { frames, name });
+      S.media.push({ name, wt, stale: true, pos: 0 });
+      say(`${f.name}: ${parseTable(wt).frames} frames, ${(wt.length / 1024).toFixed(1)} KB. Hear it, then send it.`, "ok");
+    } catch (e) { say(`Couldn't read ${f.name}: ${e.message}`, "bad"); }
+  }
+  ev.target.value = "";
+  renderMedia();
+});
+$("wvSend").onclick = () => guard(async () => {
+  if (!S.mediaRead) await readMedia();               // (what's on the FM-1 stays: the samples go back with the tables)
+  await $("msend").onclick();
+  renderWvTables();
+});
+document.querySelectorAll(".wvkey").forEach((b) => {
+  const n = +b.dataset.n;
+  b.onpointerdown = () => { if (S.link) guard(() => S.link.wtPlay(n, true)); };
+  b.onpointerup = b.onpointerleave = () => { if (S.link) guard(() => S.link.wtPlay(n, false)); };
 });
 
 // ---- SAMPLER (0.23): 16 pads, or a key map of 8 zones -------------------------------------------------------------
@@ -1344,8 +1500,8 @@ $("pname").onchange = () => guard(async () => {
 const isSrc = (m) => !!m.ch;                         // (converted here: its settings can change)
 const dx7Data = (m) => zoneBytes(m.dx7.filter((v) => v.on).map((v) => v.packed));   // (0.25: a DX7 bank's voices picked)
 const sendable = () => S.media.filter((m) => !m.dx7 || m.dx7.some((v) => v.on));   // (0.29: a bank none kept: not sent)
-const sizeOf = (m) => (m.dx7 ? dx7Data(m).length : isSrc(m) && (m.stale || !m.adpcm) ? costAt(m, m.set.rate) : m.adpcm.length);
-const proxy = (m) => (m.dx7 ? { rate: 22050, ch: [{ length: 2 * dx7Data(m).length }], set: { rate: 22050 }, lock: true }
+const sizeOf = (m) => (m.wt ? m.wt.length : m.dx7 ? dx7Data(m).length : isSrc(m) && (m.stale || !m.adpcm) ? costAt(m, m.set.rate) : m.adpcm.length);
+const proxy = (m) => (m.wt ? { rate: 22050, ch: [{ length: 2 * m.wt.length }], set: { rate: 22050 }, lock: true } : m.dx7 ? { rate: 22050, ch: [{ length: 2 * dx7Data(m).length }], set: { rate: 22050 }, lock: true }
   : isSrc(m) ? m : { rate: m.rate, ch: [{ length: m.n }], set: { rate: m.rate }, lock: true });
 async function decodeFile(bytes) {
   try { return readWav(bytes); } catch (_) { /* not a WAV the reader takes: the browser's decoder */ }
@@ -1362,7 +1518,8 @@ const nameKey = (adpcm, n) => String(sliceKey(adpcm, n));
 function keepNames(list) {
   const nm = mediaNames();
   for (const m of list) {
-    if (m.dx7) { const b = dx7Data(m); nm[nameKey(b, 2 * b.length)] = m.name; } else if (m.adpcm) nm[nameKey(m.adpcm, m.n)] = m.name;
+    if (m.wt) nm[nameKey(m.wt, 2 * m.wt.length)] = m.name;
+    else if (m.dx7) { const b = dx7Data(m); nm[nameKey(b, 2 * b.length)] = m.name; } else if (m.adpcm) nm[nameKey(m.adpcm, m.n)] = m.name;
   }
   try { localStorage.setItem(NAMES_KEY, JSON.stringify(nm)); } catch (_) { /* (private window) */ }
 }
@@ -1375,6 +1532,8 @@ async function readMedia() {
   const nm = mediaNames();
   S.media = slotSamples(S.dev).map((x, i) => {
     const dx = zoneVoices(x.adpcm), known = nm[nameKey(x.adpcm, x.n)];   // (0.25: DX7 voices, not a sample)
+    const wt = parseTable(x.adpcm);                  // (0.32: a wavetable)
+    if (wt) return { name: known || wt.name, wt: x.adpcm, adpcm: x.adpcm, n: x.n, rate: x.rate, sent: true, pos: 0 };
     return dx ? { name: known || "DX7 voices", dx7: dx.map((v) => ({ ...v, on: true })), adpcm: x.adpcm, n: x.n, rate: x.rate, sent: true }
       : { name: known || `Sample ${i + 1}`, adpcm: x.adpcm, n: x.n, rate: x.rate, set: { rate: x.rate, fold: "mix" }, sent: true };
   });
@@ -1416,6 +1575,17 @@ function renderMedia() {
   S.media.forEach((m, i) => {
     const tr = document.createElement("tr");
     tr.className = (m.stale ? "stale " : "") + (!plan ? "over" : "");
+    if (m.wt) {                                      // (0.32) a wavetable: WAVE's
+      const t = parseTable(m.wt);
+      tr.innerHTML = `<td class="name"></td><td>${t ? t.frames : "?"} frames</td><td colspan="2"><button class="quiet small">▶</button></td>
+        <td class="v">${(sizeOf(m) / 1024).toFixed(1)} KB</td><td><button class="quiet small" title="Remove">✕</button></td>`;
+      tr.querySelector(".name").textContent = `WAVE · ${m.name}`;
+      const [pl, rm] = tr.querySelectorAll("button");
+      pl.onclick = () => wvHear(m.wt, m.pos || 0, 48);
+      rm.onclick = () => { S.media.splice(i, 1); renderMedia(); };
+      tb.appendChild(tr);
+      return;
+    }
     if (m.dx7) {                                     // (0.25) a DX7 bank: its voices, each picked or not
       const on = m.dx7.filter((v) => v.on).length;
       tr.innerHTML = `<td class="name"></td><td>${on} of ${m.dx7.length} voices</td><td colspan="2"><button class="quiet small">${m.open ? "Hide" : "Pick voices"}</button></td>
@@ -1476,6 +1646,7 @@ function renderMedia() {
   $("mtotal").textContent = `${(total / 1024).toFixed(0)} of ${(CAP / 1024).toFixed(0)} KB${plan ? "" : " — too much: lower some rates, or Fit to space"}`;
   $("msend").disabled = !plan || !S.link || !S.media.some((m) => m.stale) && sm.length === slotSamples(S.dev || [null, null, null]).length;
   renderFmBanks();
+  renderWvTables();
 }
 $("madd").onclick = () => $("mfiles").click();
 $("mfiles").onchange = (ev) => { addMedia([...ev.target.files]); ev.target.value = ""; };
@@ -1492,6 +1663,7 @@ $("mfit").onclick = () => {
 $("msend").onclick = () => guard(async () => {
   if (S.st.playing) throw new Error("Stop the FM-1 first: writing its memory interrupts the sound.");
   const parts = sendable().map((m) => {
+    if (m.wt) return { adpcm: m.wt, n: 2 * m.wt.length, rate: 22050 };   // (0.32: a wavetable: a zone of its own)
     if (m.dx7) { const b = dx7Data(m); return { adpcm: b, n: 2 * b.length, rate: 22050 }; }   // (DX7 voices: a zone of their own)
     if (isSrc(m) && (m.stale || !m.adpcm)) { const c = convert(m); m.adpcm = imaEncode(c.s); m.n = c.s.length; }
     return { adpcm: m.adpcm, n: m.n, rate: isSrc(m) ? m.set.rate : m.rate };   // (a source's m.rate is its file's)
@@ -1509,8 +1681,10 @@ $("msend").onclick = () => guard(async () => {
     S.loops = await S.link.names(1);
     S.proj = await S.link.proj();
     if (S.fm) S.fmNames = await S.link.names(6).catch(() => S.fmNames);
+    if (S.wave) { await wvNames(); S.wave = await S.link.wtGet().catch(() => S.wave); }
   } finally { S.writing--; $("pprog").hidden = true; }
   if (S.fm) buildFm();
+  if (S.wave) buildWave();
   buildBreaks(); renderMedia(); refreshMeters();
   say("Samples on the FM-1. The breaks play them: ARP, then PRESETS for the loop.", "ok");
 });

@@ -136,8 +136,8 @@ expect reply.0 68
 expect reply.8 0
 expect reply.14 0
 expect reply.30 90
-# the names the editor shows: kind 2 the instruments (8, with SUB, SAMPLER and FM), 3 the effects (12, 0.16)
+# the names the editor shows: kind 2 the instruments (9, with SUB, SAMPLER, FM and WAVE), 3 the effects (12, 0.16)
 sysex 69 2 0
-expect reply.0 8
+expect reply.0 9
 sysex 69 3 0
 expect reply.0 12

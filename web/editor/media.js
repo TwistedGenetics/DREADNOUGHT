@@ -173,11 +173,12 @@ export function imaDecode(b, n) {
 // ---- fitting ------------------------------------------------------------------------------------------------
 // the samples, in order, into the three slots (a slot filled before the next; 16 zones, 80 KB a slot, slot 3 64 KB): the slot of
 // each sample, or null if they don't fit. bytes(i): sample i's ADPCM bytes
+export const even = (n) => n + (n & 1);              // (0.32) each zone starts 2-byte aligned (WAVE reads its tables in place)
 export function packPlan(n, bytes) {
   const slotOf = [];
   let k = 0, used = 0, zones = 0;
   for (let i = 0; i < n; i++) {
-    const b = bytes(i);
+    const b = even(bytes(i));
     if (b > SLOT_MAX_DATA) return null;
     if (used + b > slotMax(k) || zones >= SLOT_ZONES) { k++; used = 0; zones = 0; }
     if (k >= NSLOT || b > slotMax(k)) return null;
@@ -224,12 +225,12 @@ const keySplit = (roots) => roots.map((r, j) => [j === 0 ? 0 : ((roots[j - 1] + 
 
 // a slot image from encoded parts [{adpcm, n, rate}] (each zone at its own rate) -> {hdr, data}
 export function slotImage(name, parts, max = SLOT_MAX_DATA) {
-  const total = parts.reduce((a, p) => a + p.adpcm.length, 0);
+  const total = parts.reduce((a, p, i) => a + (i < parts.length - 1 ? even(p.adpcm.length) : p.adpcm.length), 0);
   if (total > max) throw new Error(`too long: ${total} B, the slot holds ${max} B`);
   if (parts.length < 1 || parts.length > SLOT_ZONES) throw new Error(`1..${SLOT_ZONES} samples a slot`);
   const data = new Uint8Array(total), zs = [];
   let off = 0;
-  parts.forEach((p, i) => { data.set(p.adpcm, off); zs.push({ off, n: p.n, rate: p.rate || 22050, root: ROOT_BASE + i }); off += p.adpcm.length; });
+  parts.forEach((p, i) => { data.set(p.adpcm, off); zs.push({ off, n: p.n, rate: p.rate || 22050, root: ROOT_BASE + i }); off += even(p.adpcm.length); });
   const split = keySplit(zs.map((z) => z.root)), hdr = new Uint8Array(SLOT_HDR_LEN), v = new DataView(hdr.buffer);
   v.setUint32(0, 0x504D5346, true);
   v.setUint16(4, 1, true);

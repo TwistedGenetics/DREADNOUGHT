@@ -16,6 +16,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 site, shots = Path(sys.argv[1]), Path(sys.argv[2] if len(sys.argv) > 2 else ".")
+ROOT = Path(__file__).resolve().parents[3]
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -516,6 +517,42 @@ with sync_playwright() as pw:
     w1 = p.evaluate("() => window.__dn.mock.writes || 0")
     check("one more voice kept: sent with only what changed (a few writes, not the whole slot)", 0 < w1 - w0 < 30 and len(p.evaluate("() => window.__dn.fmNames")) == 18,
           (w1 - w0, len(p.evaluate("() => window.__dn.fmNames"))))
+    # (0.32) WAVE: its tab (12 factory sounds, 8 tables), a sound picked, POS moved; a Serum wavetable loaded, seen and
+    # heard here (nothing sent), sent: a table of the FM-1's after the factory's, its zone 2-byte aligned, then picked
+    p.click("#waveTabBtn")
+    p.wait_for_timeout(300)
+    check("WAVE: the 12 factory sounds and 8 tables", p.locator("#wvpreset option").count() == 12 and p.locator("#wvtable option").count() == 8,
+          (p.locator("#wvpreset option").count(), p.locator("#wvtable option").count()))
+    p.select_option("#wvpreset", "3")
+    p.wait_for_timeout(400)
+    check("WAVE: PPG BELL on the FM-1 (its table PPG)", p.evaluate("() => window.__dn.mock.wave.preset") == 3 and p.evaluate("() => window.__dn.mock.wave.p[0]") == 2,
+          p.evaluate("() => window.__dn.mock.wave"))
+    pos = p.locator("#wvEd .prm").filter(has_text="POS ENV").locator("input")
+    pos.evaluate("(e) => { e.value = 20; e.dispatchEvent(new Event('input')); }")
+    p.wait_for_timeout(300)
+    check("WAVE: POS ENV +20 on the FM-1", p.evaluate("() => window.__dn.mock.wave.p[20]") == 20, p.evaluate("() => window.__dn.mock.wave.p[20]"))
+    wav = (ROOT / "wavetables" / "reese.wav").read_bytes()
+    p.evaluate("() => { window.__played = 0; }")
+    p.set_input_files("#wvFile", files=[{"name": "myreese.wav", "mimeType": "audio/wav", "buffer": wav}])
+    p.wait_for_function("window.__dn.media.some((m) => m.wt)", timeout=20000)
+    p.wait_for_timeout(200)
+    check("WAVE: the table converted: 8 frames, its frames drawn", p.locator("#wvList .wvtab").count() == 1 and "8 frames" in p.locator("#wvList .wvtab").inner_text(),
+          p.locator("#wvList").inner_text()[:100])
+    p.locator("#wvList .wvtab input[type=range]").evaluate("(e) => { e.value = 700; e.dispatchEvent(new Event('input')); }")
+    p.locator("#wvList .wvtab button[data-n='48']").click()
+    p.wait_for_timeout(300)
+    check("WAVE: C2 plays it here (nothing sent)", p.evaluate("() => window.__played") == 1 and p.evaluate("() => window.__dn.mock.wtPlayed") == 0)
+    p.screenshot(path=str(shots / "editor-wave.png"), full_page=True)
+    p.click("#wvSend")
+    p.wait_for_timeout(4000)
+    tabs = p.evaluate("() => window.__dn.wvTables")
+    check("WAVE: sent: the tables 8 + 1, MYREESE after the factory's", len(tabs) == 9 and tabs[8] == "MYREESE", tabs)
+    check("WAVE: its zone 2-byte aligned (the FM-1 reads it in place)", p.evaluate("() => window.__dn.mock.wtOdd") == 0)
+    check("WAVE: not taken for a loop (the breaks' list as it was)", p.evaluate("() => window.__dn.loops.length") == 2)
+    p.select_option("#wvtable", "8")
+    p.wait_for_timeout(400)
+    check("WAVE: TABLE MYREESE on the FM-1", p.evaluate("() => window.__dn.mock.wave.p[0]") == 8, p.evaluate("() => window.__dn.mock.wave.p[0]"))
+    p.screenshot(path=str(shots / "editor-wave-sent.png"), full_page=True)
     check("no page errors", not errs, errs)
     b.close()
 srv.shutdown()
