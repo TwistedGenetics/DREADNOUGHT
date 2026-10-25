@@ -11,6 +11,7 @@ can show it and check it before writing.
 """
 import hashlib
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -31,6 +32,24 @@ def product_of(data: bytes) -> str:
     return out
 
 
+def stamp(d):
+    """(0.32) the editor's files fetched by their content: every link and import gets ?v=<hash of the editor>, so a
+    browser holding last version's style.css or app.js (GitHub Pages lets them be kept 10 minutes) takes the new ones"""
+    import hashlib
+    h = hashlib.sha256()
+    for f in sorted(d.rglob("*")):
+        if f.is_file():
+            h.update(f.name.encode() + f.read_bytes())
+    v = h.hexdigest()[:10]
+    imp = re.compile(r'''((?:from\s+|import\s*\(\s*)["'])(\.{1,2}/[^"'?]+\.js)(["'])''')
+    for f in d.glob("*.js"):
+        f.write_text(imp.sub(lambda m: f"{m[1]}{m[2]}?v={v}{m[3]}", f.read_text()))
+    ix = d / "index.html"
+    t = ix.read_text()
+    t = re.sub(r'(href|src)="((?:style\.css|app\.js))"', lambda m: f'{m[1]}="{m[2]}?v={v}"', t)
+    ix.write_text(t)
+
+
 def main(rel_dir: Path, site: Path) -> None:
     if site.exists():
         shutil.rmtree(site)
@@ -41,6 +60,7 @@ def main(rel_dir: Path, site: Path) -> None:
     shutil.copytree(ROOT / "web" / "flasher", site / "flasher", ignore=shutil.ignore_patterns("test"))
     shutil.copytree(ROOT / "web" / "breaks", site / "breaks")   # the break loops upload page (X0X's, adapted)
     shutil.copytree(ROOT / "web" / "editor", site / "editor", ignore=shutil.ignore_patterns("test"))   # the editor
+    stamp(site / "editor")
     listing = []
     meta = rel_dir / "releases.json"
     releases = json.loads(meta.read_text()) if meta.exists() else []
