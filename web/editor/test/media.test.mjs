@@ -137,3 +137,22 @@ test("(0.30) read back right though stray copies of earlier replies arrive; a sl
   await assert.rejects(readSlots(link), /read back wrong/);
   m.close();
 });
+
+test("(0.31.2) adding a sample sends only what changed: the slot's first sector and the new sectors", async () => {
+  const m = new MockFM1(), link = await connect(m.access);
+  const mk = (len, seed) => ({ adpcm: Uint8Array.from({ length: len }, (_, i) => (i * seed + (i >> 5)) & 255), n: 2 * len, rate: 22050 });
+  const a = mk(40000, 7), b = mk(5500, 13);           // 40 KB, then 5.5 KB more
+  try {
+  let dev = await readSlots(link);
+  await writeSlots(link, imagesOf([a]), dev);
+  const full = m.writes;
+  dev = await readSlots(link);
+  m.writes = 0;
+  await writeSlots(link, imagesOf([a, b]), dev);
+  const back = slotSamples(await readSlots(link));
+  assert.equal(back.length, 2);
+  assert.deepEqual([...back[0].adpcm], [...a.adpcm], "the first sample as it was");
+  assert.deepEqual([...back[1].adpcm], [...b.adpcm], "the new one after it");
+  assert.ok(m.writes < full / 2, `only the new part sent: ${m.writes} writes against ${full} for the first`);
+  } finally { m.close(); }
+});

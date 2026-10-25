@@ -353,12 +353,21 @@ export async function writeSlots(link, images, dev, onPart = () => {}, say = () 
       sent += 1;
       continue;
     }
+    // (0.31.2) only what changed: the slot's first 4 KB sector always (BEGIN erases it: the header is in it), then the
+    // sectors whose bytes differ from what's there. Adding samples or voices at the end sends only the new part
+    const old = dev[k] && dev[k].data, same = (s) => {
+      const a = Math.max(0, s * 4096 - SLOT_DATA_OFF), e = Math.min(im.data.length, (s + 1) * 4096 - SLOT_DATA_OFF);
+      if (!old || old.length < e) return false;
+      for (let i = a; i < e; i++) if (old[i] !== im.data[i]) return false;
+      return true;
+    };
     say(`Erasing slot ${k + 1}…`);
     const b = await link.req(11, [k], 10000);
     if (b[1]) throw new Error("The FM-1 couldn't erase its sample memory.");
-    say(`Sending slot ${k + 1}…`);
+    say(`Sending slot ${k + 1}${old ? " (what changed)" : ""}…`);
     for (let off = 0; off < im.data.length; off += 256) {
-      const adr = SLOT_DATA_OFF + off;
+      const adr = SLOT_DATA_OFF + off, sec = adr >> 12;
+      if (sec > 0 && same(sec)) { sent += Math.min(256, im.data.length - off); continue; }   // (as it is: left)
       const a7 = [adr & 0x7F, (adr >> 7) & 0x7F, (adr >> 14) & 0x7F];
       const r = await retry(link, 12, [k, ...a7, ...p7(im.data.subarray(off, off + 256))], 3000, 3,
         (x) => x[0] === k && x[1] === a7[0] && x[2] === a7[1] && x[3] === a7[2]);

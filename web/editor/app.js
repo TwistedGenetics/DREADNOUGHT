@@ -13,6 +13,7 @@ import {
   slotSamples, CAP, RATES, RATE_NAME, FOLDS,
 } from "./media.js";
 import { initPanel } from "./panel.js";
+import { sliceKey } from "../breaks/slices.js";
 import { audition as fmAudition } from "./fmsynth.js";
 import { readProject, writeProject, checkProject, mediaOf, FORMAT } from "./project.js";
 import { parseSyx, zoneBytes, zoneVoices, unpack as fmUnpack, vname as fmVname, vmax as fmVmax, vtext as fmVtext, isCarrier, opFreq } from "./dx7.js";
@@ -219,7 +220,7 @@ $("save").onclick = () => guard(async () => { await S.link.save(); say("Kept on 
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", x === b));
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.id === b.dataset.tab));
-  if (b.dataset.tab === "files" && S.link && S.proj && !S.mediaRead) guard(readMedia);
+  if ((b.dataset.tab === "files" || b.dataset.tab === "fmtab") && S.link && S.proj && !S.mediaRead) guard(readMedia);   // (0.31.2: FM too)
   render();
 });
 
@@ -1353,16 +1354,29 @@ async function decodeFile(bytes) {
   for (let c = 0; c < Math.min(2, ab.numberOfChannels); c++) ch.push(Float32Array.from(ab.getChannelData(c)));
   return { rate: ab.sampleRate, ch };
 }
+// (0.31.2) the names of what was sent, by the sound itself (the FM-1 keeps no names for them): in this browser, so the
+// list shows them when it is read back
+const NAMES_KEY = "dn-media-names";
+const mediaNames = () => { try { return JSON.parse(localStorage.getItem(NAMES_KEY)) || {}; } catch (_) { return {}; } };
+const nameKey = (adpcm, n) => String(sliceKey(adpcm, n));
+function keepNames(list) {
+  const nm = mediaNames();
+  for (const m of list) {
+    if (m.dx7) { const b = dx7Data(m); nm[nameKey(b, 2 * b.length)] = m.name; } else if (m.adpcm) nm[nameKey(m.adpcm, m.n)] = m.name;
+  }
+  try { localStorage.setItem(NAMES_KEY, JSON.stringify(nm)); } catch (_) { /* (private window) */ }
+}
 async function readMedia() {
   S.mediaRead = true;
   say("Reading the samples on the FM-1…");
   S.writing++;
   try { S.dev = await readSlots(S.link); } finally { S.writing--; }
   const kept = S.media.filter((m) => !m.sent);       // (added here, not sent yet: they stay)
+  const nm = mediaNames();
   S.media = slotSamples(S.dev).map((x, i) => {
-    const dx = zoneVoices(x.adpcm);                  // (0.25: DX7 voices, not a sample)
-    return dx ? { name: "DX7 voices", dx7: dx.map((v) => ({ ...v, on: true })), adpcm: x.adpcm, n: x.n, rate: x.rate, sent: true }
-      : { name: `Sample ${i + 1}`, adpcm: x.adpcm, n: x.n, rate: x.rate, set: { rate: x.rate, fold: "mix" }, sent: true };
+    const dx = zoneVoices(x.adpcm), known = nm[nameKey(x.adpcm, x.n)];   // (0.25: DX7 voices, not a sample)
+    return dx ? { name: known || "DX7 voices", dx7: dx.map((v) => ({ ...v, on: true })), adpcm: x.adpcm, n: x.n, rate: x.rate, sent: true }
+      : { name: known || `Sample ${i + 1}`, adpcm: x.adpcm, n: x.n, rate: x.rate, set: { rate: x.rate, fold: "mix" }, sent: true };
   });
   S.media.push(...kept);
   say("Samples read.", "ok");
@@ -1489,6 +1503,7 @@ $("msend").onclick = () => guard(async () => {
     if (!S.dev) S.dev = await readSlots(S.link);
     await writeSlots(S.link, ims, S.dev, (f) => { $("pprog").value = f; }, (t) => say(t));
     const sent = sendable();
+    keepNames(sent);
     S.media = S.media.filter((m) => sent.includes(m) || (m.dx7 && !m.sent && m.bank));   // (a bank none kept: still to pick from)
     S.media.forEach((m) => { if (sent.includes(m)) { m.stale = false; m.sent = true; } });
     S.loops = await S.link.names(1);

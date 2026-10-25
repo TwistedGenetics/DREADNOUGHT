@@ -675,3 +675,18 @@ page's screenshot looked at in BLOCKS.
 Tested: host scenarios `fit.txt` (the walk: none too wide) and `skin.txt` (the pop-up in all three skins); the trigs,
 chords, long-notes and ramp screenshots looked at.
 
+## 0.31.2 — the editor: add to what's on the FM-1, see what's there (2026-10-25)
+
+- **Only what changed is sent.** Adding a DX7 bank's voices or a sample after what's on the FM-1 rewrites just the
+  slot's first 4 KB (where its header lives) and the new part, not the whole slot. What's there already is left
+  as it is. (It was always kept, but it went across again every time.)
+- **The FM tab reads what's on the FM-1** when you open it, as the Project tab does. Banks already on the FM-1 show
+  with their kept voices; a newly loaded bank goes on after them.
+- **Names come back.** The editor remembers the name each sample and bank was sent with (in this browser, by the
+  sound itself), so reading the FM-1 shows `mybank` and `kick`, not `DX7 voices` and `Sample 3`. Project files
+  keep their own names as before.
+
+Tested: editor unit tests (a sample added after another: only the new sectors written, the first as it was; the
+simulated FM-1 now behaves as flash, erasing by 4 KB sector and checking each slot's CRC at the end) and end to end
+(read back by name; one more voice from a new bank sent with a few writes).
+

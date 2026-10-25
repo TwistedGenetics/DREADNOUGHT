@@ -2,7 +2,7 @@
 // A simulated FM-1 running DREADNOUGHT, for the editor's demo mode and its tests: a Web MIDI access object with one
 // port that answers the editor's commands (src/app/dn_editor.c) the way the firmware does. Copyright (C) 2026 Jamie
 // (TwistedGenetics).
-import { parseSlot, SLOT_HDR_LEN, SLOT_DATA_OFF } from "./media.js";
+import { parseSlot, SLOT_HDR_LEN, SLOT_DATA_OFF, crc32 } from "./media.js";
 import { zoneVoices, unpack as fmUnpack } from "./dx7.js";
 import { REESE, CHORDS } from "./protocol.js";
 import { SMP_PAD, SMP_ZONE, SMP_KEYS, HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
@@ -279,16 +279,24 @@ export class MockFM1 {
         return [1];
       }
       case CMD.PROJ_NAME: this.proj.name = String.fromCharCode(...a.slice(0, 11)) || "P1"; this.rev++; this.dirty = 1; return [0];
-      case 11: { const sl = this.slots[a[0]]; if (!sl) return [a[0], 1]; sl.ok = false; sl.buf.fill(0xFF, 0, 512); return [a[0], 0]; }
+      // the slots as flash (as the FM-1's): BEGIN erases the first 4 KB sector, a write at a sector's start erases that
+      // sector, a write only clears bits, END checks the data's CRC (0.31.2: so a send of only what changed is tested)
+      case 11: { const sl = this.slots[a[0]]; if (!sl) return [a[0], 1]; sl.ok = false; sl.buf.fill(0xFF, 0, 4096); this.erases = (this.erases || 0) + 1; return [a[0], 0]; }
       case 12: {
         const sl = this.slots[a[0]], off = a[1] | a[2] << 7 | a[3] << 14, b = unpack7(a.slice(4));
-        if (!sl || off < 512 || off + b.length > sl.buf.length) return [a[0], a[1], a[2], a[3], 1];
-        sl.buf.set(b, off);
+        if (!sl || off < 512 || (off & 0xFF) || off + b.length > sl.buf.length) return [a[0], a[1], a[2], a[3], 1];
+        if (sl.ok) return [a[0], a[1], a[2], a[3], 4];
+        if (!(off & 0xFFF)) { sl.buf.fill(0xFF, off, off + 4096); this.erases = (this.erases || 0) + 1; }
+        for (let i = 0; i < b.length; i++) sl.buf[off + i] &= b[i];
+        this.writes = (this.writes || 0) + 1;
         return [a[0], a[1], a[2], a[3], 0];
       }
       case 13: {
         const sl = this.slots[a[0]], h = unpack7(a.slice(1)).slice(0, 480);
         if (!sl || h.length < 480) return [a[0], 1];
+        const v = new DataView(Uint8Array.from(h).buffer), len = v.getUint32(16, true);
+        if (512 + len > sl.buf.length) return [a[0], 2];
+        if (crc32(sl.buf.subarray(512, 512 + len)) !== v.getUint32(20, true)) return [a[0], 3];
         sl.buf.set(h, 0); sl.ok = true; this.rev++;
         return [a[0], 0];
       }
