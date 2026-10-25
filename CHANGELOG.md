@@ -879,3 +879,15 @@ and samples, the sequencer playing both, the editor's kinds 4-7, both kept over 
 (JUNO's values, names, texts and factory sounds as the firmware's); the editor's end-to-end run (the JUNO tab, SAMPLER
 2 on the SAMPLER tab). Not yet tried on the FM-1.
 
+## The editor on iPad (2026-10-25)
+
+- **DREADNOUGHT for iPad** (`ios/`): the web editor, the breaks page and the flasher as an iPad app. Safari on iPad has no
+  Web MIDI; the app gives the pages the iPad's MIDI ports through CoreMIDI (SysEx, ports coming and going), saves
+  downloads to Files (On My iPad › DREADNOUGHT), makes its Projects folder the editor's projects folder, and adds
+  SHIFT / DELETE toggles and double tap for touch. GitHub Actions builds it on every change and publishes the unsigned
+  `.ipa` on the rolling **ipad** pre-release (for SideStore / AltStore); `ios/README.md` covers Xcode.
+
+Tested: `ios/test/bridge_e2e.py` (the editor through the bridge to the simulated FM-1: connecting, ports coming and going,
+SHIFT / DELETE / double tap on the roll, a project saved to the folder, listed and loaded back, a download, the
+clipboard); the app built in Actions and started in an iPad simulator in demo mode (its self-test). Not yet tried on an
+iPad with the FM-1.
