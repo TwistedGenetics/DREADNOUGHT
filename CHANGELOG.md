@@ -739,3 +739,20 @@ real FM-1 — how it sounds and what it costs there.
   page); the four knob colours as blocks (the panel's knobs each in its colour, the value big under it); orange
   buttons and tabs with dark type; the piano roll's notes in the skin's blue. Light only, as before.
 
+## 0.32.1 — WAVE without the buzz (2026-10-25)
+
+Jamie: "the wavetable sometimes seems a bit buzzy on all oscs, especially with warp on".
+
+- **The buzz on every table:** the level, the position in the table and the filter moved in steps every 32 samples,
+  which buzzes at 1378 Hz around the note (loudest on fast envelopes and moving POS). They now glide a sample at a
+  time. A fast decay's buzz went from 26 dB down to more than 40 dB down.
+- **The warps' noise:** each warp reads the table faster than the note (SYNC up to 8x, PWM and BEND squeeze it,
+  MIRROR doubles it, FM sweeps it), but the version read was picked for the note alone, so high harmonics folded
+  back as noise. The version is now picked for the warp's top speed. SYNC's restart and PWM's edges are smoothed
+  (PolyBLEP). At C5, what's off the note's harmonics: SYNC -10 → -38 dB, PWM -8 → -36 dB, MIRROR -24 → -46 dB, FM -24
+  → -50 dB. CRUSH stays rough on purpose.
+- WAVE is a little quieter (about 2 dB), so chords leave the master limiter alone more often.
+
+Tested on the host: every warp's aliasing at C5 and the envelope zipper measured (new checks), all the earlier
+checks, the whole app. Not yet tested: on a real FM-1.
+

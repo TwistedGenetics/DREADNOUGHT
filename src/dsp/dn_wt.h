@@ -42,6 +42,8 @@ typedef struct {
     uint8_t mip[DN_WT_NU];
     dn_wt_env_t amp, mod;
     float ic1[2], ic2[2];                           /* the filter's state, L and R */
+    float volp, posp, f1p, f2p, f3p;                /* (0.32.1) last tick's level, position, filter: ramped from, a sample
+                                                     * at a time (stepping them every 32 samples buzzed) */
 } dn_wt_v_t;
 
 typedef struct {

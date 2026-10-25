@@ -213,6 +213,44 @@ int main(int argc, char **argv)
         }
         check("every warp on every table: sounding, the peak under 3x full scale", ok, worst, 3 * 32768);
     }
+    /* (0.32.1) the warps don't alias: each at AMOUNT 100 on ANALOG's saw, C5, the energy off the note's harmonics */
+    {
+        static const char *const WN[WW_N] = {"OFF", "SYNC", "BEND", "MIRROR", "PWM", "FM", "CRUSH"};
+        double worst = -200;
+        const char *wn = "";
+        for (uint32_t w = 0; w < WW_CRUSH; w++) {
+            patch(0);
+            W.p[WP_POS] = 127, W.p[WP_WARP] = (int16_t)w, W.p[WP_WAMT] = 100;
+            dn_wt_note_on(&W, 72, 127);
+            render(FS / 2u);
+            double a = alias_db(FS / 4u, 2048u, 440.0 * pow(2.0, 3.0 / 12.0));
+            printf("     warp %-6s at C5: off the harmonics %.1f dB\n", WN[w], a);
+            if (a > worst) worst = a, wn = WN[w];
+        }
+        printf("     (the worst: %s)\n", wn);
+        check("every warp at C5: what's off the note's harmonics under -30 dB (0.32: SYNC -10, PWM -8)", worst < -30.0, worst, -30.0);
+    }
+    /* (0.32.1) no zipper: a sine decaying fast, its level ramped a sample at a time, not stepped every 32 (the steps
+     * buzzed at 1378 Hz either side of the note) */
+    {
+        patch(0);
+        W.p[WP_POS] = 0, W.p[WP_DEC] = 40, W.p[WP_SUS] = 0;
+        dn_wt_note_on(&W, 69, 127);
+        render(FS / 4u);
+        double tot = 0, side = 0;
+        for (uint32_t i = 200; i < 200 + 8192; i++) tot += (double)lr[2u * i] * lr[2u * i];
+        for (int kk = 1; kk <= 4; kk++)
+            for (int sg = -1; sg <= 1; sg += 2) {
+                double f = 1378.125 * kk + sg * 440.0, re = 0, im = 0;
+                for (uint32_t i = 0; i < 8192; i++) {
+                    double wv = 0.5 - 0.5 * cos(2 * M_PI * i / 8191), x = lr[2u * (200 + i)] * wv;
+                    re += x * cos(2 * M_PI * f * i / FS), im += x * sin(2 * M_PI * f * i / FS);
+                }
+                side += (re * re + im * im) / (8192.0 * 0.375 * 8192.0 / 2.0);
+            }
+        double db = 10 * log10(side / (tot / 2.0) + 1e-15);
+        check("a fast decay: no zipper at the control rate (under -40 dB; 0.32: -26)", db < -40.0, db, -40.0);
+    }
     /* the factory sounds: every value in range, a factory table, a chord sounding and in bounds; a WAV of each */
     {
         int ok = 1;

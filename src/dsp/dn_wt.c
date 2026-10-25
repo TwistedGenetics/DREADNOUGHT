@@ -175,6 +175,7 @@ static void wt_start(dn_wt_t *s, dn_wt_v_t *v, uint8_t note, uint8_t vel, int le
             v->ph[u] = u ? (s->seq * 0x9E3779B9u) ^ (u * 0x85EBCA6Bu) : 0u;
         v->sph = 0;
         v->ic1[0] = v->ic1[1] = v->ic2[0] = v->ic2[1] = 0.0f;
+        v->volp = 0.0f, v->posp = -1.0f, v->f1p = -1.0f;
     } else {
         v->amp.st = v->amp.st > 1u ? 1u : v->amp.st;   /* (legato: the envelopes go on) */
         v->mod.st = v->mod.st > 1u ? 1u : v->mod.st;
@@ -292,6 +293,21 @@ static inline uint32_t wt_warp(uint32_t q, uint32_t w, uint32_t a1, uint32_t a2,
     }
 }
 
+/* how much faster than the note a warp reads the table at most (the version read must allow for it, or it aliases) */
+static float wt_speed(uint32_t w, uint32_t a1, uint32_t bp)
+{
+    switch (w) {
+    case WW_SYNC: return (float)a1 * (1.0f / 256.0f);
+    case WW_BEND: {
+        float x = 2147483648.0f / (float)bp, y = 2147483648.0f / (float)(0u - bp);
+        return x > y ? x : y;
+    }
+    case WW_PWM: return 4294967296.0f / (float)bp;
+    case WW_MIRROR: return 2.0f;
+    case WW_FM: return 1.0f + 6.2831853f * 32767.0f * (float)a1 * (1.0f / 4294967296.0f);
+    default: return 1.0f;
+    }
+}
 static void wt_tick(dn_wt_t *s, dn_wt_v_t *v, float *gl, float *gr, uint32_t *bp, uint32_t *a1, uint32_t *a2,
                     float *g, float *kres, float *pos)
 {
@@ -309,15 +325,6 @@ static void wt_tick(dn_wt_t *s, dn_wt_v_t *v, float *gl, float *gr, uint32_t *bp
         v->pitch += (v->target - v->pitch) * wt_k(p[WP_GLIDE]);
     else
         v->pitch = v->target;
-    for (u = 0; u < nu; u++) {
-        float o = nu > 1u ? det * (2.0f * (float)u / (float)(nu - 1u) - 1.0f) : 0.0f;
-        float pan = nu > 1u ? spr * (2.0f * (float)u / (float)(nu - 1u) - 1.0f) : 0.0f;   /* -1 L .. +1 R */
-        uint32_t inc = wt_inc(v->pitch + o), allow = inc ? 0x80000000u / inc : 128u, m = 0;
-        while (m < 6u && (128u >> m) - 1u > allow)   /* (the version with no harmonic past Nyquist) */
-            m++;
-        v->inc[u] = inc, v->mip[u] = (uint8_t)m;
-        gl[u] = (1.0f - pan) * 0.5f, gr[u] = (1.0f + pan) * 0.5f;
-    }
     v->sinc = wt_inc(v->pitch - 12.0f);
     pp = (float)p[WP_POS] * (1.0f / 127.0f) + (float)p[WP_PENV] * (1.0f / 64.0f) * v->mod.lv +
          (float)p[WP_PLFO] * (1.0f / 127.0f) * s->lfo;
@@ -342,6 +349,55 @@ static void wt_tick(dn_wt_t *s, dn_wt_v_t *v, float *gl, float *gr, uint32_t *bp
     case WW_CRUSH: *a1 = ~((1u << (24u + (uint32_t)p[WP_WAMT] * 6u / 127u)) - 1u); break;
     default: break;
     }
+    {                                               /* each oscillator's pitch, and the version that can't alias at it
+                                                     * (the warp's speed-up allowed for) */
+        float sp = wt_speed((uint32_t)p[WP_WARP], *a1, *bp);
+    for (u = 0; u < nu; u++) {
+            float o = nu > 1u ? det * (2.0f * (float)u / (float)(nu - 1u) - 1.0f) : 0.0f;
+            float pan = nu > 1u ? spr * (2.0f * (float)u / (float)(nu - 1u) - 1.0f) : 0.0f;   /* -1 L .. +1 R */
+            uint32_t inc = wt_inc(v->pitch + o), allow = inc ? (uint32_t)(2147483648.0f / ((float)inc * sp)) : 128u, m = 0;
+            while (m < 6u && (128u >> m) - 1u > allow)   /* (the version with no harmonic past Nyquist) */
+                m++;
+            v->inc[u] = inc, v->mip[u] = (uint8_t)m;
+            gl[u] = (1.0f - pan) * 0.5f, gr[u] = (1.0f + pan) * 0.5f;
+        }
+    }
+}
+
+/* a frame pair's version at phase q, read 4-point (Hermite), mixed tf of the way from a to b */
+static inline float wt_rd(const int16_t *pa, const int16_t *pb, float tf, uint32_t sh, uint32_t msk, uint32_t q)
+{
+    uint32_t j = q >> sh, j0 = (j - 1u) & msk, j2 = (j + 1u) & msk, j3 = (j + 2u) & msk;
+    float x = (float)(q & ((1u << sh) - 1u)) * (1.0f / (float)(1u << sh)), ya, yb;
+    {
+        float x0 = pa[j0], x1 = pa[j], x2 = pa[j2], x3 = pa[j3];
+        float c1 = 0.5f * (x2 - x0), c2 = x0 - 2.5f * x1 + 2.0f * x2 - 0.5f * x3, c3 = 0.5f * (x3 - x0) + 1.5f * (x1 - x2);
+        ya = ((c3 * x + c2) * x + c1) * x + x1;
+    }
+    if (pb == pa)
+        return ya;
+    {
+        float x0 = pb[j0], x1 = pb[j], x2 = pb[j2], x3 = pb[j3];
+        float c1 = 0.5f * (x2 - x0), c2 = x0 - 2.5f * x1 + 2.0f * x2 - 0.5f * x3, c3 = 0.5f * (x3 - x0) + 1.5f * (x1 - x2);
+        yb = ((c3 * x + c2) * x + c1) * x + x1;
+    }
+    return ya + (yb - ya) * tf;
+}
+/* (0.32.1) a step of height j in the signal at phase e, smoothed (PolyBLEP: the two samples either side of it), so
+ * SYNC's restart and PWM's edges don't alias: what to add to the sample at phase ph (inv: 1 / the phase step) */
+static inline float wt_blep(uint32_t ph, uint32_t e, uint32_t inc, float inv, float j)
+{
+    uint32_t d = ph - e;
+    if (d < inc) {
+        float t = (float)d * inv;
+        return j * 0.5f * (t + t - t * t - 1.0f);
+    }
+    d = e - ph;
+    if (d && d <= inc) {
+        float t = -(float)d * inv;
+        return j * 0.5f * (t * t + t + t + 1.0f);
+    }
+    return 0.0f;
 }
 
 void dn_wt_render(dn_wt_t *s, int32_t *lr, uint32_t n)
@@ -351,12 +407,14 @@ void dn_wt_render(dn_wt_t *s, int32_t *lr, uint32_t n)
     uint32_t nf = dn_wt_frames(t);
     while (i0 < n) {
         uint32_t len = n - i0 < WT_TICK ? n - i0 : WT_TICK, k, busy = 0;
+        float rl = 1.0f / (float)len;
         s->lfo_ph += DN_LFO_INC[s->p[WP_LRATE] < 0 ? 0 : s->p[WP_LRATE] > 127 ? 127 : s->p[WP_LRATE]];
         s->lfo = (float)wt_sine(s->lfo_ph) * (1.0f / 32768.0f);
         for (k = 0; k < DN_WT_NV; k++) {
             dn_wt_v_t *v = &s->v[k];
             float gl[DN_WT_NU], gr[DN_WT_NU], g = 0.5f, kr = 2.0f, pos = 0.0f, a1f, a2f, a3f, vol, drive, sub;
-            uint32_t bp = 0x80000000u, a1 = 0, a2 = 0, u, i, w = (uint32_t)s->p[WP_WARP], nu, fa, fb, ft;
+            float fp, tf0, tf1, f1, f2, f3, d1, d2, d3, vc, dv;
+            uint32_t bp = 0x80000000u, a1 = 0, a2 = 0, u, i, w = (uint32_t)s->p[WP_WARP], nu, fa, fb;
             const uint8_t *fra, *frb;
             if (!v->live || !t || !nf)
                 continue;
@@ -365,69 +423,81 @@ void dn_wt_render(dn_wt_t *s, int32_t *lr, uint32_t n)
                 continue;
             busy++;
             nu = s->p[WP_UNI] < 1 ? 1u : s->p[WP_UNI] > (int16_t)DN_WT_NU ? DN_WT_NU : (uint32_t)s->p[WP_UNI];
-            {                                       /* the two frames either side of the position, and the way between */
-                uint32_t q = (uint32_t)(pos * (float)(nf - 1u) * 256.0f);
-                fa = q >> 8, ft = q & 255u, fb = fa + 1u < nf ? fa + 1u : fa;
-            }
+            /* the two frames either side of where the position was at the tick's start, and the way between them
+             * ramped to where it is now (across a frame: held at the next one, which the next tick starts from) */
+            if (v->posp < 0.0f)
+                v->posp = pos;
+            fp = v->posp * (float)(nf - 1u);
+            fa = (uint32_t)fp;
+            if (fa >= nf - 1u)
+                fa = nf > 1u ? nf - 2u : 0u;
+            fb = nf > 1u ? fa + 1u : fa;
+            tf0 = fp - (float)fa;
+            tf1 = pos * (float)(nf - 1u) - (float)fa;
+            tf0 = tf0 < 0.0f ? 0.0f : tf0 > 1.0f ? 1.0f : tf0;
+            tf1 = tf1 < 0.0f ? 0.0f : tf1 > 1.0f ? 1.0f : tf1;
+            v->posp = pos;
             fra = t + DN_WT_HDR + fa * DN_WT_FRAME_BYTES, frb = t + DN_WT_HDR + fb * DN_WT_FRAME_BYTES;
             a1f = 1.0f / (1.0f + g * (g + kr)), a2f = g * a1f, a3f = g * a2f;
+            if (v->f1p < 0.0f)
+                v->f1p = a1f, v->f2p = a2f, v->f3p = a3f;
+            f1 = v->f1p, f2 = v->f2p, f3 = v->f3p;      /* (the filter ramped too) */
+            d1 = (a1f - f1) * rl, d2 = (a2f - f2) * rl, d3 = (a3f - f3) * rl;
+            v->f1p = a1f, v->f2p = a2f, v->f3p = a3f;
             vol = v->amp.lv * (float)v->vel * (1.0f / 127.0f) * (float)s->p[WP_LEVEL] * (1.0f / 127.0f);
+            vc = v->volp, dv = (vol - vc) * rl;          /* (the level ramped: the envelope moved in steps) */
+            v->volp = vol;
             drive = 1.0f + (float)s->p[WP_DRIVE] * (6.0f / 127.0f);
             sub = (float)s->p[WP_SUB] * (1.0f / 127.0f);
             {
-                float bl[WT_TICK], br[WT_TICK], tf = (float)ft * (1.0f / 256.0f);
+                float bl[WT_TICK], br[WT_TICK], dtf = (tf1 - tf0) * rl;
                 int stereo = nu > 1u && s->p[WP_SPREAD] > 0;
-                float osc = vol * (1.0f / 32768.0f) / (float)nu * 1.4f;   /* (the oscillators' sum to about +-1) */
+                float osc = (1.0f / 32768.0f) / (float)nu * 1.1f;   /* (the oscillators' sum to about +-1) */
                 int32_t cm = w == WW_CRUSH ? ~((1 << (4 + s->p[WP_WAMT] * 8 / 127)) - 1) : -1;
                 for (i = 0; i < len; i++)
                     bl[i] = br[i] = 0.0f;
-                for (u = 0; u < nu; u++) {          /* each oscillator over the tick: the two frames' version m,
-                                                     * read 4-point (Hermite), then between the frames */
+                for (u = 0; u < nu; u++) {          /* each oscillator over the tick */
                     uint32_t m = v->mip[u], sh = 23u + m, msk = (512u >> m) - 1u, ph = v->ph[u], inc = v->inc[u];
                     const int16_t *pa = (const int16_t *)(const void *)(fra + 2u * WT_MIPOFF[m]);
                     const int16_t *pb = (const int16_t *)(const void *)(frb + 2u * WT_MIPOFF[m]);
-                    float cl = gl[u] * osc, cr = gr[u] * osc;
-                    for (i = 0; i < len; i++, ph += inc) {
-                        uint32_t q = w ? wt_warp(ph, w, a1, a2, bp) : ph, j = q >> sh;
-                        uint32_t j0 = (j - 1u) & msk, j2 = (j + 1u) & msk, j3 = (j + 2u) & msk;
-                        float x = (float)(q & ((1u << sh) - 1u)) * (1.0f / (float)(1u << sh)), ya, yb, y;
-                        {
-                            float x0 = pa[j0], x1 = pa[j], x2 = pa[j2], x3 = pa[j3];
-                            float c1 = 0.5f * (x2 - x0), c2 = x0 - 2.5f * x1 + 2.0f * x2 - 0.5f * x3;
-                            float c3 = 0.5f * (x3 - x0) + 1.5f * (x1 - x2);
-                            ya = ((c3 * x + c2) * x + c1) * x + x1;
-                        }
-                        if (pb != pa) {
-                            float x0 = pb[j0], x1 = pb[j], x2 = pb[j2], x3 = pb[j3];
-                            float c1 = 0.5f * (x2 - x0), c2 = x0 - 2.5f * x1 + 2.0f * x2 - 0.5f * x3;
-                            float c3 = 0.5f * (x3 - x0) + 1.5f * (x1 - x2);
-                            yb = ((c3 * x + c2) * x + c1) * x + x1;
-                            y = ya + (yb - ya) * tf;
-                        } else {
-                            y = ya;
-                        }
+                    float cl = gl[u] * osc, cr = gr[u] * osc, tf = tf0, inv = inc ? 1.0f / (float)inc : 0.0f, j0 = 0.0f, j1 = 0.0f;
+                    if (w == WW_SYNC) {             /* the restart's step: from where the cycle got to, back to its start */
+                        float tm = 0.5f * (tf0 + tf1);
+                        j0 = wt_rd(pa, pb, tm, sh, msk, 0u) - wt_rd(pa, pb, tm, sh, msk, (a1 & 255u) << 24);
+                    } else if (w == WW_PWM) {       /* the gate: up at the cycle's start, down at the pulse's end */
+                        j0 = wt_rd(pa, pb, 0.5f * (tf0 + tf1), sh, msk, 0u);
+                        j1 = -j0;
+                    }
+                    for (i = 0; i < len; i++, ph += inc, tf += dtf) {
+                        uint32_t q = w ? wt_warp(ph, w, a1, a2, bp) : ph;
+                        float y = wt_rd(pa, pb, tf, sh, msk, q);
                         if (w == WW_PWM && ph >= bp)
                             y = 0.0f;
                         else if (w == WW_CRUSH)
                             y = (float)((int32_t)y & cm);
+                        if (j0 != 0.0f) {
+                            y += wt_blep(ph, 0u, inc, inv, j0);
+                            if (j1 != 0.0f)
+                                y += wt_blep(ph, bp, inc, inv, j1);
+                        }
                         bl[i] += y * cl, br[i] += y * cr;
                     }
                     v->ph[u] = ph;
                 }
-                for (i = 0; i < len; i++) {
-                    float l, r, x = (float)wt_sine(v->sph) * (1.0f / 32768.0f) * sub * 0.7f * vol;   /* the sub */
+                for (i = 0; i < len; i++, vc += dv, f1 += d1, f2 += d2, f3 += d3) {
+                    float l, r, x = (float)wt_sine(v->sph) * (1.0f / 32768.0f) * sub * 0.7f;   /* the sub */
                     v->sph += v->sinc;
-                    l = bl[i] + x, r = br[i] + x;
+                    l = (bl[i] + x) * vc, r = (br[i] + x) * vc;
                     if (drive > 1.0f) {
                         float dg = 1.0f / (0.8f + 0.2f * drive);
                         l = wt_clip(l * drive) * dg, r = wt_clip(r * drive) * dg;
                     }
                     {                               /* the filter (a TPT state-variable low-pass): each side, or one for
                                                      * both when there's no spread */
-                        float v3 = l - v->ic2[0], v1 = a1f * v->ic1[0] + a2f * v3, v2 = v->ic2[0] + a2f * v->ic1[0] + a3f * v3;
+                        float v3 = l - v->ic2[0], v1 = f1 * v->ic1[0] + f2 * v3, v2 = v->ic2[0] + f2 * v->ic1[0] + f3 * v3;
                         v->ic1[0] = 2.0f * v1 - v->ic1[0], v->ic2[0] = 2.0f * v2 - v->ic2[0], l = v2;
                         if (stereo) {
-                            v3 = r - v->ic2[1], v1 = a1f * v->ic1[1] + a2f * v3, v2 = v->ic2[1] + a2f * v->ic1[1] + a3f * v3;
+                            v3 = r - v->ic2[1], v1 = f1 * v->ic1[1] + f2 * v3, v2 = v->ic2[1] + f2 * v->ic1[1] + f3 * v3;
                             v->ic1[1] = 2.0f * v1 - v->ic1[1], v->ic2[1] = 2.0f * v2 - v->ic2[1], r = v2;
                         } else {
                             r = l;
