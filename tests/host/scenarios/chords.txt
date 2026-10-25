@@ -160,6 +160,8 @@ expect reply.1 71
 expect chord.3.2 10
 # (0.27.1) the sequencer page itself: REC on, the keys play and record (a chord held: a chord); REC off: steps again
 tap FX
+expect rollkeys 2
+tap FX
 expect rollkeys 0
 key 20 down
 wait 1200

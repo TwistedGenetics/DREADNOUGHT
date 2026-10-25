@@ -805,6 +805,9 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "replylen")) got = (long)ed_n;
             else if (!strcmp(b, "reclen")) got = dn_sq.pat.tr[dn.trk].st[dn.rec_last].len;
             else if (!strcmp(b, "rollkeys")) got = dn.roll_keys;
+            else if (!strcmp(b, "drumplay")) got = dn.drum_play;   /* (0.34) DRUM's PLAY mode */
+            else if (!strcmp(b, "recq")) got = dn.rec_q;            /* (0.34) REC's grid: 0 1/16 .. 4 a bar */
+            else if (!strcmp(b, "reclast")) got = dn.rec_last + 1;  /* the step the last live note went to (1-based) */
             else if (!strcmp(b, "row")) got = dn.drum_row;
             else if (!strcmp(b, "glide")) got = (dn_rs.target256 - dn_rs.pitch256) / 32;   /* eighths of a semitone to go */
             else if (!strcmp(b, "rolllo")) got = dn.roll_lo;

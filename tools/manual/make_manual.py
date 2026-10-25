@@ -243,7 +243,7 @@ def body():
         (k("KNOB 1") + " – " + k("KNOB 4"), "The four tiles on the screen, in their colours: orange, yellow, green, blue."),
         (k("OCT-") + " " + k("OCT+"), "Octave, -3 to +3. With a step held: moves its note an octave."),
         (k("SEL") + " " + k("EDIT") + " " + k("ENV") + " " + k("LFO") + " " + k("GLO"), "The sound's five pages (OSC, FILTER, AMP, MOD, OUT on the synths). Pressed again: the page's second view. GLO goes on: FX, SETUP, MIDI, PROJECT."),
-        (k("FX"), "More: the next four values of an effect, a held step, an LFO; on PROJECT, puts the instrument on the track; on SETUP, the skin."),
+        (k("FX"), "Tap: more: the next four values of an effect, a held step, an LFO; on PROJECT, puts the instrument on the track; on SETUP, the skin; on ROLL and DRUM, the keys' mode. Held ½ s: the FX page (again: back)."),
         (k("HOME"), "Tap: the HOME page (the eight tracks). On a sequencer page, held: FILL."),
         (k("SAVE"), "Tap: keep the sound, patterns, slices and layout (lit when something changed). Held with other controls: store, name, copy (see SAVING)."),
         (k("ARP"), "BREAKS: BRK, again BRK2, again SLICE (chop mode)."),
@@ -454,9 +454,12 @@ def body():
         ("Black keys 1-8", "Mute / unmute tracks 1-8 (lit: playing)."),
         ("Black key 9, held 1 s", "Clear the track."),
         ("Black keys 10 / 11", "The bar in view: steps 1-16, 17-32, 33-48, 49-64."),
+        ("Black key 10 or 11 held + white key 1-4", "The track 1, 2, 3 or 4 bars long."),
         (k("KNOB 1") + " – " + k("KNOB 4") + " (ROLL)", "Scroll the pitches, transpose the track, its length (1-64), the steps in view."),
         (k("KNOB 1") + " – " + k("KNOB 4") + " (DRUM)", "The slice row, length, swing, the steps in view."),
-        (k("FX") + " (ROLL)", "KEYS mode: the keys write notes at a cursor. KNOB 2 their length, KNOB 4 the cursor, HOME a rest."),
+        (k("FX") + " (ROLL)", "The keys' mode, round: STEP (keys are steps), KEYS (notes at a cursor: KNOB 2 their length, KNOB 4 the cursor, HOME a rest), PLAY (the keys play the sound; REC lit: they record)."),
+        (k("FX") + " (DRUM)", "PLAY mode on / off: the keys play the slices or pads; REC lit: they record."),
+        (k("REC") + " held + any knob", "REC's grid: live notes to the nearest 1/16, 1/8, 1/4, 1/2 or bar."),
         (k("HOME") + " held", "FILL, for FILL / !FILL steps."),
     ], head=["ON ROLL / DRUM", "DOES"]))
     o.append("<h2>A step held</h2><p>Hold a step's key: its values pop up big, four tiles, one a knob. " + k("FX") +
@@ -486,14 +489,21 @@ def body():
     o.append("<h2>Recording</h2><p>" + k("REC") + " lit, playing: each key writes a note at the nearest step, as long as you "
              "hold it. Stopped: step by step from the cursor; a key held under another writes a slide. Keys held together make a "
              "chord step on the instruments that play chords. A new step you tap in takes the last note, length and chord you "
-             "used on that track.</p>")
+             "used on that track.</p><p>To play in while you watch the pattern, put ROLL or DRUM in PLAY mode (" + k("FX") +
+             "): the keys play the sound, and with " + k("REC") + " lit they record; the bar in view follows the one playing. "
+             "Hold " + k("REC") + " and turn any knob for REC's grid (record quantise): 1/16 (a step), 1/8, 1/4, 1/2 or BAR; "
+             "the status line shows it as Q 1/4. ROLL's top has a ruler of the pattern's bars (the longest track's), the bar "
+             "playing lit, so you can see which bar of the whole you're putting notes into.</p>")
+    o.append(shots(("perform-02-play.png", "ROLL in PLAY mode: Q, REC's grid, on the status line."),
+                   ("perform-05-ruler.png", "A 1-bar track against a 4-bar break: the ruler, bar 3 playing."),
+                   ("perform-04-drumplay.png", "DRUM in PLAY mode: the key played selects its row.")))
 
     # ---- FX
     o.append(chapter("EFFECTS", 2, "Two effect slots, FX A and FX B, fed by each track's sends. A master limiter keeps "
                      "the mix from clipping."))
     o.append(knobs([
         ("MIX", k("GLO") + " ×2", "SEND A (the track)", "SEND B", "RETURN A", "RETURN B"),
-        ("FX A", k("FX"), "the effect", "its 1st value", "2nd", "3rd"),
+        ("FX A", k("FX") + " (on the FX page; hold FX anywhere to get there)", "the effect", "its 1st value", "2nd", "3rd"),
         ("FX A 2", k("FX") + " again", "its 4th", "5th", "6th", "7th"),
         ("FX B, FX B 2", k("FX") + " again", "as FX A", "", "", ""),
     ], "176 KB of effect memory: an effect that won't fit beside the other is refused. DELAY fits beside anything; two of the big reverbs fit; two DELAYs don't."))
@@ -581,6 +591,10 @@ def body():
         (k("GLO") + " ×2 / ×3 / ×4 / ×5", "FX · SETUP · MIDI · PROJECT"),
         (k("ARP") + " ×1 / ×2 / ×3", "BRK · BRK2 · SLICE"),
         (k("LFO") + " again (REESE, SUB)", "LFO 1 … 4"),
+        (k("FX") + " held ½ s", "the FX page; again: back"),
+        (k("FX") + " on ROLL / DRUM", "STEP · KEYS · PLAY mode"),
+        ("black 10 / 11 held + white 1-4", "track 1-4 bars long"),
+        (k("REC") + " held + knob", "record quantise"),
         ("step held + knobs", "NOTE LENGTH VEL COND; FX: SLIDE ACCENT RETRIG RATE; FX: RT LEN RT VEL CHORD"),
         ("step held + another step", "move it there (SAVE held: copy)"),
         ("step held + " + k("REC") + " + last step", "velocity ramp"),

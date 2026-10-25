@@ -31,6 +31,8 @@ expect nt.1.7 63
 expect st.1.7 3
 shot roll-03-keys.png
 tap FX
+expect rollkeys 2
+tap FX
 expect rollkeys 0
 # copy bar 1 (SAVE + OCT-), the track to 32 steps (KNOB 3), the next bar (KNOB 4), paste (SAVE + OCT+)
 press SAVE

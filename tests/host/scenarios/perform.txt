@@ -1,0 +1,104 @@
+# DREADNOUGHT host scenario (0.34): playing in from the sequencer pages. A track's length in whole bars from the keys,
+# FX held for the FX page, ROLL's and DRUM's PLAY mode, REC's grid, the ruler of the pattern's bars over the roll.
+# White keys 1-4: keys 0 2 4 6. Black keys 10 / 11 (the bar keys): keys 22, 25.
+tap SEQ
+expect page 7
+expect trk 1
+# black key 10 held + white key 3: 3 bars; it doesn't move the bar in view when it comes up
+key 22 down
+tapkey 4 60
+key 22 up
+expect len.1 48
+expect view 0
+# black key 11 alone still moves to the next bar (when it comes up)
+tapkey 25 60
+expect view 1
+# black key 11 held + white key 1: 1 bar (the bar in view back to 1)
+key 25 down
+tapkey 0 60
+key 25 up
+expect len.1 16
+expect view 0
+# white keys 5-8 with a bar key: nothing (no step either)
+key 22 down
+tapkey 7 60
+key 22 up
+expect len.1 16
+# FX held 1/2 s: the FX page; held again: back to the roll. A tap still changes the roll's mode
+press FX
+wait 600
+expect page 14
+release FX
+expect page 14
+shot perform-01-fxpage.png
+press FX
+wait 600
+release FX
+expect page 7
+expect rollkeys 0
+tap FX
+expect rollkeys 1
+tap FX
+expect rollkeys 2
+# PLAY mode: the keys play the sound, nothing written (REC off)
+expect on.1 7
+key 9 down
+expect gate 1
+key 9 up
+expect on.1 7
+shot perform-02-play.png
+# REC held + a knob: REC's grid (and REC not toggled)
+press REC
+turn K1 2
+release REC
+expect recq 2
+expect rec 0
+press REC
+turn K3 -1
+turn K3 1
+release REC
+expect recq 2
+# live, on the 1/4 grid: a note ~3.4 steps into the bar goes on step 5 (1/16 would put it on 4)
+tap REC
+expect rec 1
+tap PLAY
+wait 1395
+wait 300
+key 12 down
+wait 120
+key 12 up
+expect reclast 5
+shot perform-03-rec.png
+tap PLAY
+tap REC
+# DRUM: FX toggles PLAY mode: a key plays its slice (and selects its row), no step written
+tap ARP
+tap SEQ
+expect page 8
+expect trk 2
+tap FX
+expect drumplay 1
+expect on.2 0
+tapkey 4 60
+expect row 4
+expect on.2 0
+shot perform-04-drumplay.png
+tap FX
+expect drumplay 0
+tapkey 0 60
+tapkey 9 60
+expect on.2 2
+# the ruler: the break track 4 bars, the roll's track 1 bar: the ruler shows 4, the bar playing lit
+key 22 down
+tapkey 6 60
+key 22 up
+expect len.2 64
+press SEQ
+tapkey 0 60
+release SEQ
+expect page 7
+expect trk 1
+tap PLAY
+wait 3000
+shot perform-05-ruler.png
+tap PLAY

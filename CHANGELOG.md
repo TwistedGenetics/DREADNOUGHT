@@ -802,3 +802,30 @@ Jamie: "Is there a way with the web editor that we can change the sample rate of
 Tested: media unit tests (decode → resample → send at 11 kHz: same length in time, same pitch, less space; slices
 rescaled) and the editor's end-to-end run (a sample read back, set to 8 kHz, sent: half the samples on the simulated
 FM-1, its slices moved with it).
+
+## 0.34 — playing in from the sequencer (2026-10-25)
+
+Jamie: "1. quick way to set patten to 1/2/3/4 bars without using the value knob 2. FX knob to select the fx page.
+3. when in sequencer page a way to swap to play/record notes manually but still have sequencer screen up ... 4 record
+quantise. 5. the bar that shows the rolls progress should show the bars for the longest sequence".
+
+- **Length in bars:** on ROLL and DRUM, hold black key 10 or 11 (the bar keys) and press white key 1–4: the track is
+  1, 2, 3 or 4 bars long. The bar keys now move the bar in view as they come up (so they can be held for this).
+- **FX held ½ s: the FX page**, from any page; held again there: back where you were. A tap does FX's usual job on
+  the page, now as it comes up (with SAVE or a step held, at once, as before).
+- **PLAY mode:** FX on ROLL now goes round STEP → KEYS → **PLAY**: the keys play the sound with the roll in view, and
+  with REC lit they record live (as REC did on ROLL before). FX on DRUM switches PLAY mode on and off: the keys play
+  the slices or SAMPLER's pads, the row following the key, and record with REC lit. In PLAY mode the bar in view
+  follows the one playing. FX is lit in KEYS and PLAY.
+- **Record quantise:** hold REC on ROLL or DRUM and turn any knob: live notes go to the nearest 1/16 (a step, as
+  before), 1/8, 1/4, 1/2 or bar line. The status line shows it (Q 1/4) while recording or in PLAY mode; SAVE keeps
+  it (in the settings, older saves come up 1/16).
+- **The roll's ruler:** ROLL's top shows the pattern's bars (the longest track playing, or this one when longer),
+  the bar playing lit and numbered, so a 1-bar track recorded against 4-bar ones shows which bar of the four you're
+  in. The track's notes repeat, dim, across the bars after its own.
+
+Tested: host scenario `perform.txt` (the bar keys set 3 then 1 bar and still page the bars when tapped; FX held opens
+the FX page and goes back, a tap still changes the mode; PLAY mode plays without writing; REC + knob sets the grid
+without toggling REC; a note played ~3.4 steps into the bar lands on step 5 at 1/4; DRUM's PLAY mode plays and selects
+the row without writing; the ruler with a 1-bar roll against a 4-bar break). The ROLL scenarios step through the
+new third mode. Not yet tried on the FM-1.
