@@ -34,6 +34,7 @@
   <button role="tab" data-tab="smptab" id="smpTabBtn" hidden>SAMPLER</button>
   <button role="tab" data-tab="fmtab" id="fmTabBtn" hidden>FM</button>
   <button role="tab" data-tab="wavetab" id="waveTabBtn" hidden>WAVE</button>
+  <button role="tab" data-tab="junotab" id="junoTabBtn" hidden>JUNO</button>
   <button role="tab" data-tab="lfos">LFOs</button>
   <button role="tab" data-tab="breaks">Breaks</button>
   <button role="tab" data-tab="files">Project</button>
@@ -169,6 +170,21 @@
       (above). The macros go on top of the voice without changing it: BRIGHT the modulators' levels, TIME every
       envelope, ATTACK and RELEASE the carriers'.</p>
     <div id="fmEd" class="groups"></div>
+  </section>
+
+  <section id="junotab" class="tab">
+    <div class="row"><label>Sound <select id="jupreset"></select></label>
+      <span class="small" id="juwhere"></span></div>
+    <div class="row"><span class="small">On the FM-1 (hold):</span>
+      <button class="quiet small jukey" data-n="36">C1</button><button class="quiet small jukey" data-n="48">C2</button>
+      <button class="quiet small jukey" data-n="60">C3</button><button class="quiet small jukey" data-n="72">C4</button></div>
+    <p class="small">A Juno-60 / 106-style polysynth, six voices. The DCO: SAW and PULSE on or off, the pulse's width moved
+      by the LFO, set by hand or by the envelope (PWM), the SUB an octave down, NOISE, RANGE 16' 8' 4'. The HPF (BOOST,
+      FLAT, 2, 3), then the resonant 4-pole VCF with the envelope (or inverted), the LFO, the keys and the velocity on its
+      cutoff. One envelope for the filter and the amp (or VCA: GATE). One LFO, its DELAY fading it in after the first
+      key, free or synced to the tempo. The CHORUS: I, II, I+II, the Juno's stereo. On the FM-1 SEL, EDIT and ENV pressed
+      again show the page's second view.</p>
+    <div id="juEd" class="groups"></div>
   </section>
 
   <section id="wavetab" class="tab">

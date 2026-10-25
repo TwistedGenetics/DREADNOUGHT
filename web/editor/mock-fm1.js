@@ -5,6 +5,7 @@
 import { parseSlot, SLOT_HDR_LEN, SLOT_DATA_OFF, crc32 } from "./media.js";
 import { zoneVoices, unpack as fmUnpack } from "./dx7.js";
 import { parseTable, wtMin, wtMax } from "./wavetable.js";
+import { juMin, juMax } from "./juno.js";
 import { REESE, CHORDS } from "./protocol.js";
 import { SMP_PAD, SMP_ZONE, SMP_KEYS, HDR, CMD, digits, pack7, unpack7, parsePattern, serializePattern, ST_ON, ST_SLIDE, ST_ACC, lfoPtsArgs, NLFO_ALL, LFO_PTS, FX_NAMES, FX_KB, FX_ARENA_KB, FX_DEFAULTS, fxParams, newStep, MAGIC } from "./protocol.js";
 
@@ -38,6 +39,26 @@ const LIMITS = [[0, 5], [0, 127], [0, 7], [0, 127], [0, 127], [0, 127], [0, 127]
   [0, 127], [-36, 36], [0, 127],
   // SUB's LFOs (0.15)
   ...[0, 1, 2, 3].flatMap(() => [[0, 7], [0, 1], [0, 127], [0, 33], [-64, 63], [0, 127], [0, 2], [0, 127]])];
+// JUNO (0.36): the factory sounds (src/dsp/dn_ju.c JU_PRESET: the host tests compare)
+export const JU_PRESETS = [
+  ["INIT", [1, 1, 0, 0, 0, 0, 0, 0, 100, 0, 0, 64, 1, 0, 0, 0, 0, 40, 127, 30, 0, 30, 60, 0, 0, 0, 0, 100, 6, 0]],
+  ["JUNO PAD", [1, 1, 1, 0, 70, 0, 0, 0, 70, 20, 30, 64, 1, 0, 0, 0, 70, 80, 100, 85, 0, 30, 45, 30, 0, 0, 2, 100, 6, 0]],
+  ["BRASS", [1, 1, 0, 0, 0, 0, 0, 0, 45, 15, 75, 80, 1, 0, 0, 0, 25, 60, 80, 40, 0, 30, 60, 0, 0, 0, 1, 100, 6, 0]],
+  ["STRINGS", [1, 0, 1, 0, 90, 0, 0, 0, 85, 0, 0, 64, 2, 0, 0, 0, 75, 60, 120, 85, 0, 30, 55, 0, 0, 0, 2, 100, 6, 0]],
+  ["106 BASS", [0, 0, 1, 127, 40, 1, 0, 0, 35, 40, 60, 64, 0, 0, 0, 0, 0, 55, 0, 20, 0, 30, 60, 0, 0, 0, 0, 100, 1, 0]],
+  ["ORGAN", [1, 0, 1, 100, 0, 0, 0, 0, 110, 0, 0, 64, 1, 0, 0, 0, 0, 40, 127, 10, 1, 30, 60, 0, 0, 0, 1, 75, 6, 0]],
+  ["RAVE STAB", [1, 1, 1, 0, 60, 1, 0, 0, 60, 70, 70, 64, 1, 0, 0, 0, 0, 50, 20, 35, 0, 30, 60, 0, 0, 0, 3, 100, 6, 0]],
+  ["PLUCK", [1, 1, 0, 0, 0, 0, 0, 0, 40, 30, 80, 64, 1, 0, 0, 40, 0, 45, 0, 45, 0, 30, 60, 0, 0, 0, 2, 100, 6, 0]],
+  ["PIANO", [1, 1, 1, 0, 30, 1, 0, 0, 55, 0, 60, 100, 1, 0, 0, 0, 0, 85, 0, 60, 0, 80, 60, 0, 0, 0, 1, 100, 6, 0]],
+  ["SUB BASS", [0, 0, 0, 127, 0, 0, 0, 0, 40, 0, 0, 64, 0, 0, 0, 0, 0, 60, 127, 15, 0, 30, 60, 0, 0, 0, 0, 100, 1, 0]],
+  ["ACID POLY", [1, 1, 0, 0, 0, 0, 0, 0, 30, 95, 85, 64, 1, 0, 0, 0, 0, 40, 10, 25, 0, 30, 60, 0, 0, 0, 0, 100, 3, 0]],
+  ["GLASS", [2, 0, 1, 0, 100, 2, 0, 0, 95, 60, 0, 64, 3, 0, 0, 0, 5, 90, 30, 90, 0, 30, 60, 0, 0, 0, 3, 100, 6, 0]],
+  ["DARK PAD", [1, 1, 0, 60, 0, 0, 0, 0, 35, 55, 0, 64, 1, 0, 40, 0, 90, 40, 127, 95, 0, 30, 20, 60, 0, 0, 2, 100, 6, 0]],
+  ["NOISE SWEEP", [1, 0, 0, 0, 0, 0, 127, 0, 50, 90, 0, 64, 1, 0, 90, 0, 60, 40, 127, 80, 0, 30, 30, 0, 0, 0, 2, 100, 6, 0]],
+  ["WHISTLE", [1, 0, 0, 0, 0, 0, 0, 0, 60, 127, 0, 127, 1, 0, 0, 0, 40, 40, 127, 50, 0, 30, 60, 0, 0, 0, 1, 100, 6, 0]],
+  ["HOOVERISH", [0, 1, 1, 0, 110, 0, 0, 30, 80, 30, 20, 64, 1, 0, 0, 0, 0, 40, 127, 30, 0, 30, 80, 40, 0, 0, 3, 100, 2, 0]],
+  ["JUNGLE STAB", [1, 1, 1, 80, 50, 1, 0, 0, 70, 35, 55, 64, 2, 0, 0, 0, 0, 45, 0, 30, 0, 30, 60, 0, 0, 0, 1, 100, 6, 0]],
+];
 // WAVE (0.32): the factory tables, the factory sounds (src/dsp/dn_wt.c WT_PRESET: the host tests compare)
 export const WT_TABLES = ["ANALOG", "REESE", "PPG", "VOCAL", "SYNC", "PWM", "GRIT", "HOLLOW"];
 export const WT_PRESETS = [
@@ -102,6 +123,8 @@ export class MockFM1 {
     this.fmPlayed = 0;
     this.wave = { p: WT_PRESETS[1][1].slice(), preset: 1 };   // (0.32: SUPERSAW, as the FM-1 starts)
     this.wtPlayed = 0;
+    this.juno = { p: JU_PRESETS[1][1].slice(), preset: 1 };   // (0.36: JUNO PAD, as the FM-1 starts)
+    this.juPlayed = 0;
     // the panel (0.26): a small FM-1 behind it: REESE's five sound pages and a sequencer page
     this.ui = { page: 0, back: 0, keys: 0, btn: 0, msg: "" };
     this.slots = [0x14000, 0x14000, 0x10000].map((n) => ({ buf: new Uint8Array(n).fill(0xFF), ok: false }));   // (0.29: slot 3 64 KB)
@@ -286,6 +309,25 @@ export class MockFM1 {
         return [0];
       }
       case CMD.WT_PLAY: this.wtPlayed += a[1] ? 1 : 0; return [0];
+      case CMD.JU_GET: {
+        const j = this.juno;
+        return [j.p.length, ...j.p.flatMap((v) => digits(v + 8192, 2)), ...digits(j.preset, 2), ...digits(JU_PRESETS.length, 2)];
+      }
+      case CMD.JU_SET: {
+        const k = a[0], v = (a[1] | a[2] << 7) - 8192;
+        if (k >= JU_PRESETS[0][1].length) return [1];
+        this.juno.p[k] = Math.max(juMin(k), Math.min(juMax(k), v));
+        this.rev++; this.dirty = 1;
+        return [this.juno.p[k] === v ? 0 : 1];
+      }
+      case CMD.JU_LOAD: {
+        const i = a[0] | a[1] << 7;
+        if (i >= JU_PRESETS.length) return [1];
+        this.juno = { p: JU_PRESETS[i][1].slice(), preset: i };
+        this.rev++; this.dirty = 1;
+        return [0];
+      }
+      case CMD.JU_PLAY: this.juPlayed += a[1] ? 1 : 0; return [0];
       case CMD.SMP_PLAY: this.smpPlayed = (this.smpPlayed || 0) + (a[1] ? 1 : 0); return [0];
       case CMD.SUB_PRESET: this.subPreset = a[0]; this.rev++; return [0];
       case CMD.PROJ: {
@@ -300,7 +342,7 @@ export class MockFM1 {
         const f = a[0], v = a[1] | a[2] << 7, P = this.proj;
         this.rev++; this.dirty = 1;
         if (f < 8) {
-          if (v > 6) return [1];
+          if (v > 9) return [1];
           if (v !== 0 && v !== 4) { const u = P.eng.indexOf(v); if (u >= 0 && u !== f) P.eng[u] = P.eng[f]; }
           P.eng[f] = v;
           return [0];
@@ -369,9 +411,9 @@ export class MockFM1 {
         return [...a.slice(0, 5), 0];
       }
       case CMD.NAMES: {
-        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE"], FX_NAMES,
+        const list = [[...PRESETS, ...USERS], LOOPS, ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE", "JUNO"], FX_NAMES,
           ["1/32", "1/16T", "1/16", "1/8T", "1/16D", "1/8", "1/4T", "1/8D", "1/4", "1/2T", "1/4D", "1/2"], [...SUB_PRESETS, ...USERS],
-          [...FM_FACTORY, ...this.fmVoices().map((v) => v.name)], this.wtNames(), WT_PRESETS.map((x) => x[0])][a[0]] || [];
+          [...FM_FACTORY, ...this.fmVoices().map((v) => v.name)], this.wtNames(), WT_PRESETS.map((x) => x[0]), JU_PRESETS.map((x) => x[0])][a[0]] || [];
         const out = [list.length, a[1]];
         for (let i = a[1]; i < list.length; i++) out.push(...list[i].split("").map((c) => c.charCodeAt(0)), 0);
         return out;

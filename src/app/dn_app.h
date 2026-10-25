@@ -13,6 +13,7 @@
 #include "dn_smp.h"
 #include "dn_fm.h"
 #include "dn_wt.h"
+#include "dn_ju.h"
 
 void dn_app_init(void);
 void dn_app_render(int32_t *lr, uint32_t n);

@@ -1,0 +1,84 @@
+# DREADNOUGHT host scenario (0.36): JUNO, the Juno-60 / 106-style polysynth, on track 6 from HOME's picker. Its pages
+# (SEL: DCO, DCO 2; EDIT: VCF, VCF 2; ENV: ENV, VCA; LFO; GLO: OUT), PRESETS over its factory sounds, the keys
+# polyphonic, the sequencer playing it, the sound kept over a reboot.
+# Values (set ID V): 400 + JP_*: 408 CUT, 409 RES, 426 CHORUS, 428 VOICES.
+tap HOME
+turn SELECT 5
+expect trk 6
+tap FX
+turn K1 5
+expect picke 9
+shot juno-00-pick.png
+tap FX
+expect eng.6 9
+expect page 0
+expect jupreset 1
+expect ju.1 1
+expect ju.2 1
+shot juno-01-dco.png
+tap SEL
+shot juno-02-dco2.png
+tap SEL
+tap EDIT
+turn K1 -10
+expect ju.8 40
+shot juno-03-vcf.png
+tap EDIT
+shot juno-04-vcf2.png
+tap ENV
+shot juno-05-env.png
+tap ENV
+shot juno-06-vca.png
+tap LFO
+shot juno-07-lfo.png
+tap GLO
+shot juno-08-out.png
+# PRESETS: on to BRASS
+turn PRESET 1
+expect jupreset 2
+expect ju.10 75
+# the keys: three down, three voices, sounding; up, gone after the release
+key 0 down
+wait 20
+key 4 down
+wait 20
+key 7 down
+wait 200
+expect juv 3
+expect peak >1000
+key 0 up
+key 4 up
+key 7 up
+wait 2000
+expect juv 0
+# VOICES 1: one voice, the last key
+set 428 1
+key 0 down
+wait 20
+key 4 down
+wait 50
+expect juv 1
+key 4 up
+key 0 up
+wait 2000
+set 428 6
+# the sequencer: steps on track 6's roll, PLAY, it sounds
+tap SEQ
+expect page 7
+expect trk 6
+tapkey 0 40
+tapkey 7 40
+press PLAY
+wait 60
+expect juv >0
+release PLAY
+wait 300
+shot juno-09-roll.png
+tap PLAY
+# SAVE, reboot: the sound and the instrument back
+set 426 3
+tap SAVE
+reboot
+expect eng.6 9
+expect jupreset 2
+expect ju.26 3

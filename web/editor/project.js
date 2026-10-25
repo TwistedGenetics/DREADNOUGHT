@@ -9,7 +9,7 @@
 //
 // The file is JSON (binary parts in base64). The FM-1 must be stopped to read or write one: its patterns are reached by
 // selecting each in turn, which while playing would only queue.
-import { NLFO_ALL, nLfos, NPAT, TRACKS, parsePattern, serializePattern, PF, setEngines, readSampler, writeSampler, readFm, writeFm, readWave, writeWave, ST_CHORD, chordMatch } from "./protocol.js";
+import { NLFO_ALL, nLfos, NPAT, TRACKS, parsePattern, serializePattern, PF, setEngines, readSampler, writeSampler, readFm, writeFm, readWave, writeWave, readJuno, writeJuno, ST_CHORD, chordMatch } from "./protocol.js";
 import { zoneVoices } from "./dx7.js";
 import { parseTable } from "./wavetable.js";
 import { readSlots, writeSlots, slotSamples, sameImage, imagesOf, slotMax } from "./media.js";
@@ -41,6 +41,7 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   const smp = await readSampler(link);                 // (0.23; null before)
   const fm = await readFm(link);                       // (0.25; null before)
   const wave = await readWave(link);                   // (0.32; null before)
+  const juno = await readJuno(link);                   // (0.36; null before)
   say("Reading the patterns…");
   const pats = await link.pats(), cur = pats.tracks.map((t) => t.cur), patterns = [];
   try {
@@ -61,7 +62,7 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   onPart(1);
   return {
     format: FORMAT, version: VERSION, saved: new Date().toISOString(), firmware: link.name || "",
-    name: proj.name, params, lfo, smp, fm, wave, proj: { eng: proj.eng, send: proj.send, ret: proj.ret, fx: proj.fx },
+    name: proj.name, params, lfo, smp, fm, wave, juno, proj: { eng: proj.eng, send: proj.send, ret: proj.ret, fx: proj.fx },
     patterns, current: cur, patSize: st.patSize,
     slots: dev.map((im) => (im ? { hdr: b64(im.hdr), data: b64(im.data) } : null)), slices,
     media: media.map((m) => ({ name: m.name, set: m.set, lock: !!m.lock, file: m.orig ? b64(m.orig) : undefined })),
@@ -103,7 +104,7 @@ export function checkProject(o) {
   if (o.version > VERSION) throw new Error("That project was saved by a newer editor: reload the page to update it.");
   if (!Array.isArray(o.patterns) || o.patterns.length !== NPAT) throw new Error("The project's patterns are missing.");
   const eng = o.proj.eng;
-  for (const e of [1, 2, 3, 5, 6, 7, 8]) if (eng.filter((x) => x === e).length > 1) throw new Error("The project has an instrument twice.");
+  for (const e of [1, 2, 3, 5, 6, 7, 8, 9]) if (eng.filter((x) => x === e).length > 1) throw new Error("The project has an instrument twice.");
   return o;
 }
 
@@ -156,6 +157,7 @@ export async function writeProject(link, o, { onPart = () => {}, say = () => {} 
   }
   if (!want.every((w, k) => sameImage(w, dev[k]))) await writeSlots(link, want, dev, (f) => onPart(0.4 + f * 0.55), say);
   if (o.wave && (await readWave(link))) await writeWave(link, o.wave);   // (0.32: after the slots: its table may be one of theirs)
+  if (o.juno && (await readJuno(link))) await writeJuno(link, o.juno);   // (0.36)
   for (const sl of o.slices || []) {
     const r = await link.req(51, [...key7(sl.key), sl.starts.length, ...sl.starts.flatMap(pos7)], 5000).catch(() => null);
     if (!r) break;

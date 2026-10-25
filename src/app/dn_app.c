@@ -86,10 +86,11 @@ static int32_t dn_in_enc(int role)
 #define DN_NBRK 2u                                  /* BREAKS A and B (tracks 2 and 3 unless the project moves them) */
 /* ---- the project's instruments: which one each track plays (0.12). REESE and BREAKS A / B are one each: put on a
  * track that another holds, they swap (dn_eng_set). MIDI on any number of tracks; OFF plays nothing. */
-enum { DN_E_OFF, DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_SUB, DN_E_SMP, DN_E_FM, DN_E_WAVE, DN_E_N };
+enum { DN_E_OFF, DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_SUB, DN_E_SMP, DN_E_FM, DN_E_WAVE, DN_E_JUNO, DN_E_N };
 enum { DN_SK_BLOCKS, DN_SK_LIGHT, DN_SK_DARK, DN_SK_N };   /* (0.31) the screen's skins */
 static const char *const DN_SK_NAME[DN_SK_N] = {"SKIN: BLOCKS", "SKIN: LIGHT", "SKIN: DARK"};
-static const char *const DN_E_NAME[DN_E_N] = {"OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE"};
+static const char *const DN_E_NAME[DN_E_N] = {"OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE",
+                                              "JUNO"};
 static uint8_t dn_eng[8] = {DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI, DN_E_MIDI};
 #define DN_IS_BRK(t) (dn_eng[t] == DN_E_BRKA || dn_eng[t] == DN_E_BRKB)
 #define DN_BK(t) ((uint32_t)dn_eng[t] - DN_E_BRKA)  /* a break track's voice: 0 A, 1 B */
@@ -101,11 +102,12 @@ static uint8_t dn_eng[8] = {DN_E_REESE, DN_E_BRKA, DN_E_BRKB, DN_E_MIDI, DN_E_MI
 #define DN_IS_PADS(t) (DN_IS_BRK(t) || (DN_IS_SMP(t) && dn_sm.p.mode == DN_SMP_ONESHOT))   /* played as rows: DRUM */
 #define DN_IS_FM(t) (dn_eng[t] == DN_E_FM)          /* FM (0.25) */
 #define DN_IS_WAVE(t) (dn_eng[t] == DN_E_WAVE)      /* WAVE, the wavetable synth (0.32) */
-#define DN_IS_OWNPG(t) (DN_IS_SMP(t) || DN_IS_FM(t) || DN_IS_WAVE(t))   /* its own five pages (no LFO page) */
-#define DN_IS_POLY(t) ((DN_IS_SMP(t) && dn_sm.p.mode == DN_SMP_KEYS) || DN_IS_FM(t) || DN_IS_WAVE(t))   /* a key a note
+#define DN_IS_JUNO(t) (dn_eng[t] == DN_E_JUNO)      /* JUNO, the Juno-60 / 106-style polysynth (0.36) */
+#define DN_IS_OWNPG(t) (DN_IS_SMP(t) || DN_IS_FM(t) || DN_IS_WAVE(t) || DN_IS_JUNO(t))   /* its own five pages (no LFO page) */
+#define DN_IS_POLY(t) ((DN_IS_SMP(t) && dn_sm.p.mode == DN_SMP_KEYS) || DN_IS_FM(t) || DN_IS_WAVE(t) || DN_IS_JUNO(t))   /* a key a note
                                                      * (no slides; WAVE's MONO glides by itself) */
 #define DN_ONE(e) ((e) == DN_E_REESE || (e) == DN_E_BRKA || (e) == DN_E_BRKB || (e) == DN_E_SUB || (e) == DN_E_SMP || \
-                   (e) == DN_E_FM || (e) == DN_E_WAVE)
+                   (e) == DN_E_FM || (e) == DN_E_WAVE || (e) == DN_E_JUNO)
 #define DN_KEY0 53                                  /* key 0 is F3 */
 /* FM's values (0.25): the voice's own, the macros, the operator shown (DN_PX_FOP) and its values (DN_PX_FO0 + DN_FMO_*) */
 #define DN_PX_FM0 60
@@ -117,6 +119,9 @@ enum { DN_PX_FALG = DN_PX_FM0, DN_PX_FFB, DN_PX_FBRIGHT, DN_PX_FTIME, DN_PX_FATK
 #define DN_IS_WPX(id) ((id) >= DN_PX_WV0 && (id) < DN_PX_WV0 + WP_N)
 #define DN_W(k) (DN_PX_WV0 + (k))
 #define DN_PX_WSLOT 299                             /* WAVE's MATRIX: the slot shown (1-8) */
+#define DN_PX_JU0 400                               /* JUNO's values: 400 + JP_* (0.36) */
+#define DN_IS_JPX(id) ((id) >= DN_PX_JU0 && (id) < DN_PX_JU0 + JP_N)
+#define DN_J(k) (DN_PX_JU0 + (k))
 #define DN_PX_BPM 100                               /* the OUT page's two non-engine dials */
 #define DN_PX_OCT 101
 #define DN_PX_OVL 102                               /* OUT: REESE's OVERLAP (SLIDE / CUT) */
@@ -246,6 +251,21 @@ static const uint16_t DN_WV_PG[DN_NPAGES][DN_WV_NV][4] = {
      {DN_W(WP_L3SHAPE), DN_W(WP_L3RATE), DN_W(WP_L3SYNC), DN_W(WP_L3MODE)},
      {DN_PX_WSLOT, DN_W(WP_M0), DN_W(WP_M0 + 1), DN_W(WP_M0 + 2)}},
     {{DN_W(WP_LEVEL), DN_W(WP_VOICES), DN_W(WP_GLIDE), DN_W(WP_TRANS)}}};
+/* JUNO's pages (0.36), in the synths' places; each button again: the page's next view (SEL: DCO, DCO 2; EDIT: VCF,
+ * VCF 2; ENV: ENV, VCA) */
+#define DN_JU_NVW 2u
+static const uint8_t DN_JU_NVIEW[DN_NPAGES] = {2, 2, 2, 1, 1};
+static const uint16_t DN_JU_PG[DN_NPAGES][DN_JU_NVW][4] = {
+    {{DN_J(JP_RANGE), DN_J(JP_SAW), DN_J(JP_PULSE), DN_J(JP_SUB)},
+     {DN_J(JP_PWM), DN_J(JP_PWMSRC), DN_J(JP_NOISE), DN_J(JP_DLFO)}},
+    {{DN_J(JP_CUT), DN_J(JP_RES), DN_J(JP_FENV), DN_J(JP_FKEY)},
+     {DN_J(JP_HPF), DN_J(JP_FPOL), DN_J(JP_FLFO), DN_J(JP_FVEL)}},
+    {{DN_J(JP_ATK), DN_J(JP_DEC), DN_J(JP_SUS), DN_J(JP_REL)},
+     {DN_J(JP_VCA), DN_J(JP_VVEL), DN_PX_NONE, DN_PX_NONE}},
+    {{DN_J(JP_LRATE), DN_J(JP_LDELAY), DN_J(JP_LSYNC), DN_J(JP_LMODE)}},
+    {{DN_J(JP_CHORUS), DN_J(JP_LEVEL), DN_J(JP_VOICES), DN_J(JP_TRANS)}}};
+static const char *const DN_JU_TAB[DN_NPAGES][DN_JU_NVW] = {{"DCO", "DCO 2"}, {"VCF", "VCF 2"}, {"ENV", "VCA"},
+                                                            {"LFO"}, {"OUT"}};
 static const char *const DN_WV_TAB[DN_NPAGES][DN_WV_NV] = {{"WAVE A", "OSC A", "WAVE B", "OSC B", "B MIX"},
                                                            {"FILTER", "DRIVE"}, {"AMP", "MOD ENV", "ENV 3"},
                                                            {"MOD", "LFO 1", "LFO 2", "LFO 3", "MATRIX"}, {"OUT"}};
@@ -365,7 +385,8 @@ typedef char dn_save_fits[sizeof(dn_save_t) <= PLAT_STORE_MAX ? 1 : -1];
 static dn_sub_t dn_sb;                              /* SUB (0.13) */
 static dn_smp_t dn_sm;                              /* SAMPLER (0.23) */
 static dn_fm_t dn_fmx;                              /* FM (0.25) */
-static dn_wt_t dn_wv;                               /* WAVE (0.32) */
+static dn_wt_t dn_wv X0X_POOL;                      /* WAVE (0.32; 0.36: in the pool, 8 KB off .bss) */
+static dn_ju_t dn_ju;                               /* JUNO (0.36) */
 /* chords (0.27): 15 of them (a step's flags pick one: DN_ST_CHORD), each its notes above the step's, and the chord
  * each sounding note of each track started with (so its note-off lets go of the whole chord) */
 static const int8_t dn_chord[DN_CHORDS][DN_CHORD_N] = {
@@ -442,6 +463,7 @@ static struct {
     uint16_t fm_preset;                             /* FM: the voice PRESETS is on (factory, then the project's) */
     uint8_t wv_view[DN_NPAGES], wv_preset;          /* (0.32) WAVE: each page's view (0.33); the factory sound */
     uint8_t wv_slot;                                /* (0.33) MATRIX: the slot shown (0-7) */
+    uint8_t ju_view[DN_NPAGES], ju_preset;          /* (0.36) JUNO: each page's view; the factory sound */
     uint8_t wv_tslot[2];                            /* WAVE: A's, B's table is one sent to the slots (not the factory's) */
     char wv_tname[2][9];                            /* ... and their names (found again by them when the slots change) */
     char nm[12];
@@ -752,6 +774,8 @@ static void dn_sq_on1(uint32_t t, uint8_t note, uint8_t vel, int slide, uint8_t 
         dn_fm_note_on(&dn_fmx, note, (flags & DN_ST_ACC) && vel < 127u ? 127u : vel);
     } else if (DN_IS_WAVE(t)) {
         dn_wt_note_on(&dn_wv, note, (flags & DN_ST_ACC) && vel < 127u ? 127u : vel);
+    } else if (DN_IS_JUNO(t)) {
+        dn_ju_note_on(&dn_ju, note, (flags & DN_ST_ACC) && vel < 127u ? 127u : vel);
     } else if (DN_IS_MIDI(t))
         plat_midi_out(0x09u | (0x90u | dn_sq.pat.tr[t].chan) << 8 | (uint32_t)note << 16 | (uint32_t)vel << 24);
 }
@@ -766,6 +790,8 @@ static void dn_sq_off1(uint32_t t, uint8_t note)
         dn_fm_note_off(&dn_fmx, note);
     else if (DN_IS_WAVE(t))
         dn_wt_note_off(&dn_wv, note);
+    else if (DN_IS_JUNO(t))
+        dn_ju_note_off(&dn_ju, note);
     else if (DN_IS_MIDI(t))
         plat_midi_out(0x08u | (0x80u | dn_sq.pat.tr[t].chan) << 8 | (uint32_t)note << 16);
     else if (DN_IS_SUB(t)) {
@@ -945,6 +971,9 @@ static void dn_mix_render(int32_t *lr, uint32_t k)
         else if (e == DN_E_WAVE) {
             dn_wv.bpm = dn_sq.bpm;                  /* (0.33: the synced LFOs) */
             dn_wt_render(&dn_wv, ib, k);
+        } else if (e == DN_E_JUNO) {
+            dn_ju.bpm = dn_sq.bpm;                  /* (its synced LFO) */
+            dn_ju_render(&dn_ju, ib, k);
         }
         else
             dn_brk_render(&dn_bk[e - DN_E_BRKA], ib, k);   /* (a break on no track: only chop mode's loop) */
@@ -1503,6 +1532,7 @@ static uint32_t dn_dial(uint32_t k)
          : dn.page < DN_NPAGES && DN_IS_SMP(dn.trk) ? DN_SMP_PG[dn_sm.p.mode ? 1 : 0][dn.page][k]
          : dn.page < DN_NPAGES && DN_IS_FM(dn.trk) ? DN_FM_PG[(dn.fm_alt >> dn.page) & 1u][dn.page][k]
          : dn.page < DN_NPAGES && DN_IS_WAVE(dn.trk) ? dn_wv_dial(k)
+         : dn.page < DN_NPAGES && DN_IS_JUNO(dn.trk) ? DN_JU_PG[dn.page][dn.ju_view[dn.page] % DN_JU_NVIEW[dn.page]][k]
          : dn.page == DN_PG_PROJ ? DN_PROJ_PAGE[k]
          : dn.page == DN_PG_FX ? dn_fx_dial(k)
          : DN_PAGE[dn.page % DN_NPAGES][k];
@@ -2258,6 +2288,56 @@ static void dn_wv_restore(void)                     /* (start-up) the kept sound
     }
 }
 
+/* (0.36) JUNO: a factory sound; kept on SAVE in the second settings object (dn_ext_save 1) */
+static void dn_ju_load(uint32_t i)
+{
+    int16_t p[JP_N];
+    uint32_t k;
+    dn_ju_preset(i, p);
+    dn_lock();
+    dn_ju_all_off(&dn_ju);
+    for (k = 0; k < JP_N; k++)
+        dn_ju.p[k] = p[k];
+    dn_unlock();
+    dn.ju_preset = (uint8_t)(i % dn_ju_preset_count());
+    dn_mark();
+}
+#define DN_X1_MAGIC 0x31584E44u                     /* "DNX1" (0.36): JUNO's sound */
+typedef struct {
+    uint32_t magic;
+    uint8_t ju_preset, ju_np, pad[2];
+    int16_t ju[JP_N];
+} dn_x1_save_t;
+static int dn_x1_keep(void)                         /* 0 kept (or unchanged), else the refusal */
+{
+    static dn_x1_save_t w, old;
+    uint32_t k;
+    int rc;
+    w.magic = DN_X1_MAGIC;
+    w.ju_preset = dn.ju_preset, w.ju_np = JP_N;
+    for (k = 0; k < JP_N; k++)
+        w.ju[k] = dn_ju.p[k];
+    if (dn_ext_load(1, &old, sizeof old) == (int)sizeof old && !mem_cmp_dn(&old, &w, sizeof w))
+        return 0;
+    dn_flash_t = plat_ms();
+    rc = dn_ext_save(1, &w, sizeof w);
+    dn_flash_t = plat_ms();
+    return rc;
+}
+static void dn_x1_restore(void)                     /* (start-up) JUNO's kept sound, else JUNO PAD */
+{
+    static dn_x1_save_t u;
+    uint32_t k;
+    dn_ju_init(&dn_ju);
+    if (dn_ext_load(1, &u, sizeof u) == (int)sizeof u && u.magic == DN_X1_MAGIC && u.ju_np == JP_N) {
+        for (k = 0; k < JP_N; k++)
+            dn_ju.p[k] = (int16_t)dn_clamp(u.ju[k], dn_ju_vmin(k), dn_ju_vmax(k));
+        dn.ju_preset = (uint8_t)(u.ju_preset % dn_ju_preset_count());
+    } else {
+        dn_ju_load(1);
+    }
+}
+
 /* the filter envelopes' values (0.19): REESE's or SUB's fe[] */
 static int16_t *dn_fe(uint32_t id) { return id >= DN_PX_SFE ? &dn_sb.fe[id - DN_PX_SFE] : &dn_rs.fe[id - DN_PX_RFE]; }
 static int32_t dn_get(uint32_t id)
@@ -2268,6 +2348,8 @@ static int32_t dn_get(uint32_t id)
         return dn_fm_get(id);
     if (DN_IS_WPX(id))
         return dn_wv.p[id - DN_PX_WV0];
+    if (DN_IS_JPX(id))
+        return dn_ju.p[id - DN_PX_JU0];
     if (id == DN_PX_WSLOT)
         return dn.wv_slot;
     if (DN_IS_FEX(id))
@@ -2330,6 +2412,8 @@ static int32_t dn_min(uint32_t id)
         return dn_fm_lim(id, 0);
     if (DN_IS_WPX(id))
         return dn_wv_lim(id, 0);
+    if (DN_IS_JPX(id))
+        return dn_ju_vmin(id - DN_PX_JU0);
     if (id == DN_PX_WSLOT)
         return 0;
     if (DN_IS_FEX(id))
@@ -2353,6 +2437,8 @@ static int32_t dn_max(uint32_t id)
         return dn_fm_lim(id, 1);
     if (DN_IS_WPX(id))
         return dn_wv_lim(id, 1);
+    if (DN_IS_JPX(id))
+        return dn_ju_vmax(id - DN_PX_JU0);
     if (id == DN_PX_WSLOT)
         return DN_WT_NMOD - 1;
     if (DN_IS_FEX(id))
@@ -2380,6 +2466,8 @@ static const char *dn_name(uint32_t id)
         return dn_fm_name(id);
     if (DN_IS_WPX(id))
         return dn_wt_vname(id - DN_PX_WV0);
+    if (DN_IS_JPX(id))
+        return dn_ju_vname(id - DN_PX_JU0);
     if (id == DN_PX_WSLOT)
         return "SLOT";
     if (DN_IS_FEX(id))
@@ -2430,6 +2518,10 @@ static void dn_text(uint32_t id, int32_t v, char out[8])
     }
     if (DN_IS_WPX(id)) {
         dn_wv_text(id, v, out);
+        return;
+    }
+    if (DN_IS_JPX(id)) {
+        dn_ju_vtext(id - DN_PX_JU0, v, dn_ju.p, out);
         return;
     }
     if (id == DN_PX_WSLOT) {
@@ -2561,6 +2653,16 @@ static void dn_set(uint32_t id, int32_t v)
     }
     if (DN_IS_WPX(id)) {
         dn_wv_set(id, v);
+        return;
+    }
+    if (DN_IS_JPX(id)) {                            /* (0.36) JUNO: a value; VOICES fewer: the voices past it let go */
+        uint32_t k = id - DN_PX_JU0;
+        dn_lock();
+        dn_ju.p[k] = (int16_t)dn_clamp(v, dn_ju_vmin(k), dn_ju_vmax(k));
+        if (k == JP_VOICES)
+            dn_ju_all_off(&dn_ju);
+        dn_unlock();
+        dn_mark();
         return;
     }
     if (id == DN_PX_WSLOT) {
@@ -3010,7 +3112,7 @@ static void dn_proj_restore(const dn_save_t *sp)
     for (k = 0; k < DN_SEQ_TRACKS; k++)
         n[sp->proj.eng[k] < DN_E_N ? sp->proj.eng[k] : 0u]++;
     if (n[DN_E_REESE] <= 1u && n[DN_E_BRKA] <= 1u && n[DN_E_BRKB] <= 1u && n[DN_E_SUB] <= 1u && n[DN_E_SMP] <= 1u &&
-        n[DN_E_FM] <= 1u && n[DN_E_WAVE] <= 1u)
+        n[DN_E_FM] <= 1u && n[DN_E_WAVE] <= 1u && n[DN_E_JUNO] <= 1u)
         for (k = 0; k < DN_SEQ_TRACKS; k++)
             dn_eng[k] = sp->proj.eng[k] < DN_E_N ? sp->proj.eng[k] : (uint8_t)DN_E_OFF;
     for (k = 0; k < DN_SEQ_TRACKS; k++) {
@@ -3066,6 +3168,8 @@ static void dn_save(void)
     dn_man.fm.valid = 0xA5u;
     if (dn_wv_keep() != 0)                          /* (0.32) WAVE's sound */
         dn_say("WAVE NOT SAVED: SEND SAMPLES");
+    if (dn_x1_keep() != 0)                          /* (0.36) JUNO's sound */
+        dn_say("JUNO NOT SAVED: SEND SAMPLES");
     dn_save_t *ps = &dn_sv;
 #define s (*ps)
     dn_save_fill(&s);
@@ -3183,6 +3287,11 @@ void dn_app_init(void)
     }
     dn_fm_sync();
     dn_wv_restore();                                /* (0.32) WAVE's sound, kept or SUPERSAW */
+    {
+        uint8_t dirty = dn.dirty;
+        dn_x1_restore();                            /* (0.36) JUNO's sound, kept or JUNO PAD */
+        dn.dirty = dirty;
+    }
     for (k = 0; k < sizeof dn_man.uname; k++) {    /* (printable, ended) */
         char *c = &dn_man.uname[0][0][0] + k;
         if (*c < 32 || *c > 126)
@@ -3334,6 +3443,8 @@ static void dn_play(uint8_t note, int legato)
         dn_fm_note_on(&dn_fmx, note, 100);
     } else if (DN_IS_WAVE(dn.trk)) {
         dn_wt_note_on(&dn_wv, note, 100);
+    } else if (DN_IS_JUNO(dn.trk)) {
+        dn_ju_note_on(&dn_ju, note, 100);
     } else if (DN_IS_MIDI(dn.trk)) {
         uint32_t ch = dn_sq.pat.tr[dn.trk].chan;
         if (dn.sounding != 0xFF)
@@ -3360,6 +3471,8 @@ static void dn_stop(void)
         dn_fm_note_off(&dn_fmx, dn.sounding);
     else if (DN_IS_WAVE(dn.trk) && dn.sounding != 0xFF)
         dn_wt_note_off(&dn_wv, dn.sounding);
+    else if (DN_IS_JUNO(dn.trk) && dn.sounding != 0xFF)
+        dn_ju_note_off(&dn_ju, dn.sounding);
     dn_unlock();
     dn.sounding = 0xFF;
 }
@@ -3369,7 +3482,7 @@ static void dn_legato_fix(void)
 {
     uint32_t t, m = 0;
     for (t = 0; t < DN_SEQ_TRACKS; t++)
-        if (!DN_IS_BRK(t) && !DN_IS_SMP(t) && !DN_IS_FM(t) && !DN_IS_WAVE(t))   /* (SAMPLER, FM, WAVE: every note its
+        if (!DN_IS_BRK(t) && !DN_IS_SMP(t) && !DN_IS_FM(t) && !DN_IS_WAVE(t) && !DN_IS_JUNO(t))   /* (SAMPLER, FM, WAVE: every note its
                                                      * own: no slides) */
             m |= 1u << t;
     dn_sq.legato = (uint8_t)m;
@@ -3390,6 +3503,8 @@ static void dn_trk_silence(uint32_t t)
         dn_fm_all_off(&dn_fmx);
     else if (DN_IS_WAVE(t))
         dn_wt_all_off(&dn_wv);
+    else if (DN_IS_JUNO(t))
+        dn_ju_all_off(&dn_ju);
     else if (DN_IS_MIDI(t))
         plat_midi_out(0x0Bu | (0xB0u | dn_sq.pat.tr[t].chan) << 8 | 123u << 16);   /* all notes off */
 }
@@ -3503,6 +3618,8 @@ static void dn_keys_play(uint32_t keys)             /* the sound's pages: the ke
                     dn_fm_note_off(&dn_fmx, dn_key_note(k));
                 else if (DN_IS_WAVE(dn.trk))
                     dn_wt_note_off(&dn_wv, dn_key_note(k));
+                else if (DN_IS_JUNO(dn.trk))
+                    dn_ju_note_off(&dn_ju, dn_key_note(k));
                 else
                     dn_smp_note_off(&dn_sm, dn_key_note(k));
                 dn_unlock();
@@ -3767,6 +3884,8 @@ static void dn_keys_entry(uint32_t keys)
                         dn_fm_note_off(&dn_fmx, dn_key_note(k));
                     else if (DN_IS_WAVE(dn.trk))
                         dn_wt_note_off(&dn_wv, dn_key_note(k));
+                    else if (DN_IS_JUNO(dn.trk))
+                        dn_ju_note_off(&dn_ju, dn_key_note(k));
                     else if (DN_IS_SMP(dn.trk))
                         dn_smp_note_off(&dn_sm, dn_key_note(k));
                     dn_unlock();
@@ -4943,6 +5062,9 @@ void dn_app_input(void)
         } else if (DN_IS_FM(dn.trk) && k >= 1u && k <= 3u && dn.page == k) {
             dn.fm_alt ^= (uint8_t)(1u << k);        /* FM: OP again OP+, EG again its levels, LFO again LFO+ */
             dn.redraw |= DN_RD_ALL;
+        } else if (DN_IS_JUNO(dn.trk) && dn.page == k && DN_JU_NVIEW[k] > 1u) {
+            dn.ju_view[k] = (uint8_t)((dn.ju_view[k] + 1u) % DN_JU_NVIEW[k]);   /* JUNO: the page's next view */
+            dn.redraw |= DN_RD_ALL;
         } else if (DN_IS_WAVE(dn.trk) && dn.page == k && DN_WV_NVIEW[k] > 1u) {
             dn.wv_view[k] = (uint8_t)((dn.wv_view[k] + 1u) % DN_WV_NVIEW[k]);   /* WAVE: the page's next view */
             dn.redraw |= DN_RD_ALL;
@@ -5180,6 +5302,14 @@ void dn_app_input(void)
             dn_say("WAVE: SAVE KEEPS THIS SOUND");
         } else {
             dn_wv_load((uint32_t)((((int32_t)dn.wv_preset + d) % np + np) % np));
+        }
+    } else if (d && DN_IS_JUNO(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {
+        int32_t np = (int32_t)dn_ju_preset_count();  /* (0.36) JUNO: its factory sounds (round) */
+        if (dn.save_held) {
+            dn.save_chord = 1;
+            dn_say("JUNO: SAVE KEEPS THIS SOUND");
+        } else {
+            dn_ju_load((uint32_t)((((int32_t)dn.ju_preset + d) % np + np) % np));
         }
     } else if (d && (DN_IS_BRKPG(dn.page) || dn.page == DN_PG_DRUM)) {
         dn_set(DN_PX_BSRC, dn_get(DN_PX_BSRC) + (d > 0 ? 1 : -1));   /* on BRK: the loop */
@@ -5664,6 +5794,9 @@ static const char *dn_top_names(const char **pn)
     } else if (DN_IS_WAVE(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {   /* WAVE: its sound */
         tag = "WAVE";
         *pn = dn_wv_name();
+    } else if (DN_IS_JUNO(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {   /* JUNO: its sound */
+        tag = "JUNO";
+        *pn = dn_ju_preset_name(dn.ju_preset);
     } else if (DN_IS_SMP(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {   /* SAMPLER: the pad / zone */
         static char sp[24];
         char v[8];
@@ -6408,6 +6541,8 @@ static const char *dn_trk_sound(uint32_t t)
         return dn_fm_vcname();
     if (DN_IS_WAVE(t))
         return dn_wv_name();
+    if (DN_IS_JUNO(t))
+        return dn_ju_preset_name(dn.ju_preset);
     if (DN_IS_SMP(t))
         return dn_sm.p.mode == DN_SMP_ONESHOT ? "PADS" : "KEYS";
     if (DN_IS_MIDI(t)) {
@@ -6428,7 +6563,7 @@ static const char *dn_trk_sound(uint32_t t)
 /* each instrument's colour (BLOCKS' HOME tiles, the picker) */
 static const uint16_t DN_E_COL[DN_E_N] = {RGB(58, 61, 69), RGB(255, 106, 43), RGB(255, 194, 26), RGB(255, 194, 26),
                                           RGB(214, 212, 204), RGB(61, 220, 151), RGB(195, 162, 255), RGB(91, 155, 255),
-                                          RGB(255, 92, 168)};
+                                          RGB(255, 92, 168), RGB(64, 214, 230)};
 /* (0.35) HOME's instrument picker, over the tracks: the nine (OFF too) as tiles, the one on outlined; an instrument
  * there is one of on another track says which (choosing it swaps the two) */
 static void dn_draw_pick(void)
@@ -6440,20 +6575,20 @@ static void dn_draw_pick(void)
     dn_cat(h, ": WHICH INSTRUMENT?");
     cv_text(6, 18, &FONT_S, h, DN_C_FG);
     for (e = 0; e < DN_E_N; e++) {
-        int32_t x = 2 + (int32_t)(e % 3u) * 79, y = 44 + (int32_t)(e / 3u) * 26;
+        int32_t x = 2 + (int32_t)(e % 3u) * 79, y = 38 + (int32_t)(e / 3u) * 21;
         int on = e == dn.pick_e;
         uint32_t u = DN_ONE(e) ? dn_trk_of(e) : 8u;
         uint16_t c = e == DN_E_OFF ? DN_C_PANEL : DN_E_COL[e];
         if (on) {
-            cv_rect(x, y, 76, 24, DN_C_FG);
-            cv_rect(x + 3, y + 3, 70, 18, c);
+            cv_rect(x, y, 76, 20, DN_C_FG);
+            cv_rect(x + 3, y + 3, 70, 14, c);
         } else {
-            cv_rect(x, y, 76, 24, c);
+            cv_rect(x, y, 76, 20, c);
         }
-        cv_text(x + 6, y + 3, &FONT_S, DN_E_NAME[e], e == DN_E_OFF ? DN_C_LABEL : DN_C_ONACC);
+        cv_text(x + 6, y + 1, &FONT_S, DN_E_NAME[e], e == DN_E_OFF ? DN_C_LABEL : DN_C_ONACC);
         if (u < 8u && u != t) {                     /* (on another track: it moves here, swapping) */
             char w[4] = {'T', (char)('1' + u), 0, 0};
-            cv_text(x + 72 - text_w(&FONT_T, w), y + 6, &FONT_T, w, e == DN_E_OFF ? DN_C_LABEL : DN_C_ONACC);
+            cv_text(x + 72 - text_w(&FONT_T, w), y + 4, &FONT_T, w, e == DN_E_OFF ? DN_C_LABEL : DN_C_ONACC);
         }
     }
     cv_rect(0, 121, 240, 23, DN_C_BAR);
@@ -6556,6 +6691,7 @@ static uint32_t dn_tabs(uint8_t *ids, const char **nms)
                          : DN_IS_FM(dn.trk) && DN_SND[k] == 2u ? dn_fm_egtab()
                          : DN_IS_FM(dn.trk) ? DN_FM_TAB[(dn.fm_alt >> DN_SND[k]) & 1u][DN_SND[k]]
                          : DN_IS_WAVE(dn.trk) ? DN_WV_TAB[DN_SND[k]][dn.wv_view[DN_SND[k]] % DN_WV_NVIEW[DN_SND[k]]]
+                         : DN_IS_JUNO(dn.trk) ? DN_JU_TAB[DN_SND[k]][dn.ju_view[DN_SND[k]] % DN_JU_NVIEW[DN_SND[k]]]
                          : DN_SMP_TAB[dn_sm.p.mode & 1u][DN_SND[k]];
                 continue;
             }

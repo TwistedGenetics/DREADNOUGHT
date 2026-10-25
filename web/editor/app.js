@@ -18,6 +18,7 @@ import { sliceKey } from "../breaks/slices.js";
 import { audition as fmAudition } from "./fmsynth.js";
 import { readProject, writeProject, checkProject, mediaOf, FORMAT } from "./project.js";
 import { fromWav as wtFromWav, parseTable, render as wtRender, WT, wtMin, wtMax, wtText, WT_GROUPS, WT_M0, WT_NMOD, SOURCES, DESTS, MAXF as WT_MAXF } from "./wavetable.js";
+import { JU, juMin, juMax, juText, JU_GROUPS } from "./juno.js";
 import { parseSyx, zoneBytes, zoneVoices, unpack as fmUnpack, vname as fmVname, vmax as fmVmax, vtext as fmVtext, isCarrier, opFreq } from "./dx7.js";
 
 const $ = (id) => document.getElementById(id);
@@ -26,7 +27,7 @@ const S = {
   writing: 0, lastRev: -1, poll: null, dirtyPat: false, drag: null, selNote: -1, zoom: 0, x0: 0,
   lfo: null, lfoNow: null, lfoDraw: null, pats: null,
   proj: null, media: [], dev: null, mediaRead: false, dir: null,
-  smp: null, pad: 0, zone: 0, fm: null, fmNames: [], wave: null, wvTables: [], wvPresets: [],
+  smp: null, pad: 0, zone: 0, fm: null, fmNames: [], wave: null, wvTables: [], wvPresets: [], juno: null, juPresets: [],
 };
 const ROWS = 36, ROW_H = 14, GUT = 46;
 
@@ -82,6 +83,12 @@ async function start(link, label) {
         S.wave = w;
         await wvNames();
         buildWave();
+        return link.juGet().then(async (j) => {    // (0.36: JUNO; none before)
+          if (S.link !== link) return;
+          S.juno = j;
+          S.juPresets = (await link.names(9).catch(() => [])) || [];
+          buildJuno();
+        });
       });
     });
   }).catch(() => {});
@@ -179,6 +186,11 @@ async function poll() {
       const seq = S.wvSeq, w = await S.link.wtGet().catch(() => null);   // (WAVE: the same)
       if (w && seq === S.wvSeq && !S.wvBusy) { S.wave = w; buildWave(); }
     }
+    if (S.juno && $("junotab").classList.contains("on") && !S.juBusy &&
+        !(document.activeElement && document.activeElement.tagName === "INPUT" && document.activeElement.closest("#junotab"))) {
+      const seq = S.juSeq, j = await S.link.juGet().catch(() => null);   // (JUNO: the same)
+      if (j && seq === S.juSeq && !S.juBusy) { S.juno = j; buildJuno(); }
+    }
     if (S.smp && $("smptab").classList.contains("on") && !S.smpBusy &&
         !(document.activeElement && document.activeElement.closest && document.activeElement.closest("#smptab"))) {
       const seq = S.smpSeq, m = await readSampler(S.link);   // (changed on the FM-1: the tab follows, unless
@@ -242,7 +254,7 @@ function trackLabel(t) {
   const k = KIND(t);
   return k === "REESE" ? ["REESE", "bass"] : k === "SUB" ? ["SUB", "bass"]
     : k === "SAMPLER" ? ["SAMPLER", S.smp && S.smp.mode === 1 ? "keys" : "pads"] : k === "BREAKS" ? [brkOf(t) ? "BREAKS B" : "BREAKS A", "slices"]
-    : k === "FM" ? ["FM", "6 voices"] : k === "WAVE" ? ["WAVE", "wavetables"]
+    : k === "FM" ? ["FM", "6 voices"] : k === "WAVE" ? ["WAVE", "wavetables"] : k === "JUNO" ? ["JUNO", "6 voices"]
     : k === "MIDI" ? [`MIDI ${midiNo(t)}`, `channel ${S.pat.tracks[t].chan + 1}`] : ["OFF", "plays nothing"];
 }
 function renderTracks() {
@@ -977,6 +989,51 @@ document.querySelectorAll(".wvkey").forEach((b) => {
   const n = +b.dataset.n;
   b.onpointerdown = () => { if (S.link) guard(() => S.link.wtPlay(n, true)); };
   b.onpointerup = b.onpointerleave = () => { if (S.link) guard(() => S.link.wtPlay(n, false)); };
+});
+
+// ---- JUNO (0.36): the Juno-60 / 106-style polysynth's values ------------------------------------------------------
+const juTimers = {};
+function juSet(k, v) {                               // (a drag: the last value goes, at most every 40 ms)
+  S.juno.p[k] = v;
+  S.juSeq = (S.juSeq || 0) + 1;
+  clearTimeout(juTimers[k]);
+  S.juBusy = (S.juBusy || 0) + 1;
+  juTimers[k] = setTimeout(() => guard(() => S.link.juSet(k, v)).finally(() => { S.juBusy--; }), 40);
+}
+function buildJuno() {
+  $("junoTabBtn").hidden = !S.juno;
+  if (!S.juno) return;
+  const j = S.juno, ps = $("jupreset"), box = $("juEd");
+  ps.textContent = "";
+  S.juPresets.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = n; ps.appendChild(o); });
+  ps.value = j.preset;
+  ps.onchange = () => guard(async () => {
+    S.juSeq = (S.juSeq || 0) + 1;
+    await S.link.juLoad(+ps.value);
+    const seq = S.juSeq, nj = await S.link.juGet();
+    if (seq === S.juSeq) { S.juno = nj; buildJuno(); }
+  });
+  const t = S.proj ? S.proj.eng.indexOf(E.JUNO) : -1;
+  $("juwhere").textContent = t >= 0 ? `On track ${t + 1}.` : "On no track yet: put it on one from HOME (FX) or the Project tab.";
+  box.textContent = "";
+  for (const [title, ks] of JU_GROUPS) {
+    const g = fmGroup(box, title);
+    for (const k of ks) {
+      const el = document.createElement("div");
+      el.className = "prm";
+      el.innerHTML = `<span class="nm">${JU[k]}</span><input type="range" min="${juMin(k)}" max="${juMax(k)}" step="1"><span class="v"></span>`;
+      const r = el.querySelector("input"), v = el.querySelector(".v"), show = () => { v.textContent = juText(k, +r.value); };
+      r.value = j.p[k];
+      show();
+      r.oninput = () => { show(); juSet(k, +r.value); };
+      g.appendChild(el);
+    }
+  }
+}
+document.querySelectorAll(".jukey").forEach((b) => {
+  const n = +b.dataset.n;
+  b.onpointerdown = () => { if (S.link) guard(() => S.link.juPlay(n, true)); };
+  b.onpointerup = b.onpointerleave = () => { if (S.link) guard(() => S.link.juPlay(n, false)); };
 });
 
 // ---- SAMPLER (0.23): 16 pads, or a key map of 8 zones -------------------------------------------------------------

@@ -586,6 +586,18 @@ with sync_playwright() as pw:
           p.evaluate("() => window.__dn.mock.wave.p.slice(59, 62).join() + ' ' + window.__dn.mock.wave.p[29]") == "2,9,30 3",
           p.evaluate("() => window.__dn.mock.wave.p.slice(59, 62).join() + ' ' + window.__dn.mock.wave.p[29]"))
     p.screenshot(path=str(shots / "editor-wave-sent.png"), full_page=True)
+    # (0.36) JUNO: its tab, 17 factory sounds, BRASS picked, CHORUS to I+II
+    p.click("#junoTabBtn")
+    p.wait_for_timeout(300)
+    check("JUNO: the 17 factory sounds", p.locator("#jupreset option").count() == 17, p.locator("#jupreset option").count())
+    p.select_option("#jupreset", "2")
+    p.wait_for_timeout(400)
+    check("JUNO: BRASS on the FM-1", p.evaluate("() => window.__dn.mock.juno.preset") == 2, p.evaluate("() => window.__dn.mock.juno.preset"))
+    ch = p.locator("#juEd .prm").filter(has_text="CHORUS").locator("input")
+    ch.evaluate("(e) => { e.value = 3; e.dispatchEvent(new Event('input')); }")
+    p.wait_for_timeout(300)
+    check("JUNO: CHORUS I+II on the FM-1", p.evaluate("() => window.__dn.mock.juno.p[26]") == 3, p.evaluate("() => window.__dn.mock.juno.p[26]"))
+    p.screenshot(path=str(shots / "editor-juno.png"), full_page=True)
     check("no page errors", not errs, errs)
     b.close()
 srv.shutdown()

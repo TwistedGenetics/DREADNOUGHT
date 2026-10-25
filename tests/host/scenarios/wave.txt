@@ -164,7 +164,7 @@ tap HOME
 shot wave-09-home.png
 tap HOME
 sysex 69 2 0
-expect reply.0 9
+expect reply.0 10
 fitcheck
 expect fitbad 0
 # a sound saved by 0.32 (DVW1: 28 values, A's table) comes back, the rest as INIT

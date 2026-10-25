@@ -483,6 +483,12 @@ int main(int argc, char **argv)
                 ed(69, q2, 2);
                 for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
             }
+            {   /* 0.36: the instruments' names (NAMES kind 2) */
+                uint8_t q2[2] = {2, 0};
+                fprintf(g, "],\"names2\":[");
+                ed(69, q2, 2);
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+            }
             {   /* 0.9: LFO 1's DRAW points, where the LFOs are, and the frames the glue must take whole */
                 uint8_t q1[1] = {0};
                 fprintf(g, "],\"lfopts\":[");
@@ -603,6 +609,35 @@ int main(int argc, char **argv)
                         dn_wt_preset(i, pv);
                         fprintf(g, "%s[", i ? "," : "");
                         for (uint32_t k = 0; k < WP_N; k++) fprintf(g, "%s%d", k ? "," : "", pv[k]);
+                        fprintf(g, "]");
+                    }
+                }
+                fprintf(g, "],\"juget\":[");     /* 0.36: JUNO: JU_GET, every value's name, range, texts, its factory
+                                                 * sounds' names and values */
+                ed(94, 0, 0);
+                for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                fprintf(g, "],\"judefs\":[");
+                for (uint32_t k = 0; k < JP_N; k++) {
+                    int32_t lo = dn_min(DN_J(k)), hi = dn_max(DN_J(k));
+                    fprintf(g, "%s[%u,\"%s\",%d,%d,[", k ? "," : "", k, dn_name(DN_J(k)), lo, hi);
+                    for (int32_t v = lo; v <= hi; v++) {
+                        char tx[8];
+                        dn_text(DN_J(k), v, tx);
+                        fprintf(g, "%s[%d,\"%s\"]", v > lo ? "," : "", v, tx);
+                    }
+                    fprintf(g, "]]");
+                }
+                {
+                    uint8_t q[2] = {9, 0};
+                    fprintf(g, "],\"jupresets\":[");
+                    ed(69, q, 2);
+                    for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
+                    fprintf(g, "],\"jupvals\":[");
+                    for (uint32_t i = 0; i < dn_ju_preset_count(); i++) {
+                        int16_t pv[JP_N];
+                        dn_ju_preset(i, pv);
+                        fprintf(g, "%s[", i ? "," : "");
+                        for (uint32_t k = 0; k < JP_N; k++) fprintf(g, "%s%d", k ? "," : "", pv[k]);
                         fprintf(g, "]");
                     }
                 }
@@ -903,6 +938,9 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "wvtab")) got = dn_wv.tab == sim_wt ? 99 : dn_wv.tab ? 1 : 0;   /* 99 the slot's */
             else if (!strncmp(b, "wvtname.", 8)) got = (unsigned char)dn.wv_tname[0][atoi(b + 8) % 9];
             else if (!strncmp(b, "wv.", 3)) got = dn_wv.p[atoi(b + 3) % WP_N];   /* wv.K: value WP_K */
+            else if (!strncmp(b, "ju.", 3)) got = dn_ju.p[atoi(b + 3) % JP_N];   /* ju.K: JUNO's value JP_K (0.36) */
+            else if (!strcmp(b, "juv")) got = (long)dn_ju_sounding(&dn_ju);   /* JUNO's voices sounding */
+            else if (!strcmp(b, "jupreset")) got = dn.ju_preset;
             else if (!strcmp(b, "fmop")) got = dn.fm_op + 1;
             else if (!strncmp(b, "fmname.", 7)) got = dn_fm_base[DN_FMV_NAME + atoi(b + 7)];
             else if (!strncmp(b, "fmb.", 4)) got = dn_fm_base[atoi(b + 4)];   /* fmb.K: the voice's value K */

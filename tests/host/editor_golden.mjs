@@ -6,8 +6,9 @@ import { unpack as fmUnpack, pack as fmPack, vname as fmName, vmax as fmMax, vte
 import { parseUi, parseChords, CHORDS } from "../../web/editor/protocol.js";
 import { renderNote } from "../../web/editor/fmsynth.js";
 import { WT, wtMin, wtMax, wtText } from "../../web/editor/wavetable.js";
-import { WT_TABLES, WT_PRESETS } from "../../web/editor/mock-fm1.js";
-import { parseWt } from "../../web/editor/protocol.js";
+import { WT_TABLES, WT_PRESETS, JU_PRESETS } from "../../web/editor/mock-fm1.js";
+import { JU, juMin, juMax, juText } from "../../web/editor/juno.js";
+import { parseWt, parseJu, ENG_NAMES } from "../../web/editor/protocol.js";
 import { parseSmp, SMP_PAD, SMP_ZONE, SMP_KEYS, parseState, parseParams, parsePattern, parseNames, serializePattern, REESE, NPARAM_15, parseLfoPts, parseLfoNow, COND_NAMES,
   parseProj, fxParams, FX_DEFAULTS, FX_NAMES } from "../../web/editor/protocol.js";
 
@@ -109,6 +110,23 @@ check("chords: the editor's 15 (MIN .. 6) are the FM-1's", JSON.stringify(parseC
   check("WAVE's factory sounds: the demo's names and values are the FM-1's",
     JSON.stringify(pres) === JSON.stringify(WT_PRESETS.map((x) => x[0])) && JSON.stringify(g.wtpvals) === JSON.stringify(WT_PRESETS.map((x) => x[1])),
     pres.slice(0, 3).join(","), WT_PRESETS.slice(0, 3).map((x) => x[0]).join(","));
+}
+// 0.36: JUNO: JU_GET read as sent; every value named, ranged and read as the FM-1 does; its factory sounds as the demo's
+{
+  const j = parseJu(g.juget), pres = parseNames(g.jupresets).names;
+  check("JU_GET: 30 values, JUNO PAD (the start), 17 sounds", j.p.length === 30 && j.preset === 1 && j.presets === 17,
+    `${j.p.length} ${j.preset} ${j.presets}`, "30 1 17");
+  let bad = [];
+  for (const [k, name, min, max, texts] of g.judefs) {
+    if (JU[k] !== name || juMin(k) !== min || juMax(k) !== max) { bad.push(`${k}: ${JU[k]} ${juMin(k)}..${juMax(k)} vs ${name} ${min}..${max}`); continue; }
+    for (const [v, t] of texts) if (juText(k, v) !== t) { bad.push(`${name} ${v}: ${juText(k, v)} vs ${t}`); break; }
+  }
+  check("JUNO's values: names, ranges and texts as the FM-1's", !bad.length, bad.slice(0, 3).join("; ") || "all", "all");
+  check("JUNO's factory sounds: the demo's names and values are the FM-1's",
+    JSON.stringify(pres) === JSON.stringify(JU_PRESETS.map((x) => x[0])) && JSON.stringify(g.jupvals) === JSON.stringify(JU_PRESETS.map((x) => x[1])),
+    pres.slice(0, 3).join(","), JU_PRESETS.slice(0, 3).map((x) => x[0]).join(","));
+  const en = parseNames(g.names2 || []).names;
+  if (en.length) check("the instruments' names as the FM-1's", JSON.stringify(en) === JSON.stringify(ENG_NAMES), en.join(","), ENG_NAMES.join(","));
 }
 console.log(fails ? `EDITOR (page): ${fails} FAILED` : "EDITOR (page): the page reads the firmware's replies");
 process.exit(fails ? 1 : 0);

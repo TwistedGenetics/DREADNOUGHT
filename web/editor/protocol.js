@@ -10,7 +10,8 @@ export const HDR = [0x7D, 0x46, 0x4C];
 export const CMD = { INFO: 1, LFO_PTS_GET: 70, LFO_PTS_SET: 71, LFO_NOW: 72, PATS: 73, PAT_SEL: 74, STATE: 60, PARAMS: 61, PARAM_SET: 62, PAT_READ: 63, PAT_WRITE: 64, PAT_COMMIT: 65,
   TRANSPORT: 66, SAVE: 67, PRESET: 68, NAMES: 69, PROJ: 75, PROJ_SET: 76, PROJ_NAME: 77, SUB_PRESET: 78, PARAMS_HI: 79,
   SMP_GET: 80, SMP_SET: 81, SMP_PLAY: 82, FM_GET: 83, FM_SET: 84, FM_LOAD: 85, FM_PLAY: 86,
-  UI_STATE: 87, UI_INPUT: 88, CHORDS: 89, WT_GET: 90, WT_SET: 91, WT_LOAD: 92, WT_PLAY: 93 };
+  UI_STATE: 87, UI_INPUT: 88, CHORDS: 89, WT_GET: 90, WT_SET: 91, WT_LOAD: 92, WT_PLAY: 93,
+  JU_GET: 94, JU_SET: 95, JU_LOAD: 96, JU_PLAY: 97 };
 
 export const num = (b, at, digits) => { let v = 0; for (let i = digits - 1; i >= 0; i--) v = v * 128 + b[at + i]; return v; };
 export const digits = (v, n) => { const o = []; for (let i = 0; i < n; i++) { o.push(v & 127); v = Math.floor(v / 128); } return o; };
@@ -167,13 +168,13 @@ export function parseNames(r) {
 export const TRACKS = 8, STEPS = 64, LEN_STEP = 4, LEN_MAX = 255;
 export const ST_ON = 1, ST_SLIDE = 2, ST_ACC = 4;
 // what each track plays (0.12: the project says; before it, REESE / BREAKS A / B / MIDI x5)
-export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE"];
-export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4, SUB: 5, SMP: 6, FM: 7, WAVE: 8 };
+export const ENG_NAMES = ["OFF", "REESE", "BRK A", "BRK B", "MIDI", "SUB", "SAMPLER", "FM", "WAVE", "JUNO"];
+export const E = { OFF: 0, REESE: 1, BRKA: 2, BRKB: 3, MIDI: 4, SUB: 5, SMP: 6, FM: 7, WAVE: 8, JUNO: 9 };
 let ENG = [1, 2, 3, 4, 4, 4, 4, 4];
 export function setEngines(e) { ENG = e.slice(0, 8); }
 export const engines = () => ENG.slice();
 export const KIND = (t) => (ENG[t] === E.REESE ? "REESE" : ENG[t] === E.BRKA || ENG[t] === E.BRKB ? "BREAKS" : ENG[t] === E.MIDI ? "MIDI"
-  : ENG[t] === E.SUB ? "SUB" : ENG[t] === E.SMP ? "SAMPLER" : ENG[t] === E.FM ? "FM" : ENG[t] === E.WAVE ? "WAVE" : "OFF");
+  : ENG[t] === E.SUB ? "SUB" : ENG[t] === E.SMP ? "SAMPLER" : ENG[t] === E.FM ? "FM" : ENG[t] === E.WAVE ? "WAVE" : ENG[t] === E.JUNO ? "JUNO" : "OFF");
 export const brkOf = (t) => (ENG[t] === E.BRKB ? 1 : 0);   // a break track's voice: 0 A, 1 B
 export const midiNo = (t) => ENG.slice(0, t).filter((e) => e === E.MIDI).length + 1;   // "MIDI n"
 export const ST_RTRG = 8;
@@ -428,6 +429,10 @@ export class Link {
   async wtSet(k, v) { return (await this.req(CMD.WT_SET, [k & 127, ...digits(v + 8192, 2)]))[0]; }
   async wtLoad(i) { return (await this.req(CMD.WT_LOAD, digits(i, 2)))[0]; }
   async wtPlay(note, on) { return (await this.req(CMD.WT_PLAY, [note & 127, on ? 1 : 0]))[0]; }
+  async juGet() { return parseJu(await this.req(CMD.JU_GET)); }
+  async juSet(k, v) { return (await this.req(CMD.JU_SET, [k & 127, ...digits(v + 8192, 2)]))[0]; }
+  async juLoad(i) { return (await this.req(CMD.JU_LOAD, digits(i, 2)))[0]; }
+  async juPlay(note, on) { return (await this.req(CMD.JU_PLAY, [note & 127, on ? 1 : 0]))[0]; }
   async subPreset(i) { return (await this.req(CMD.SUB_PRESET, [i]))[0]; }
   async preset(i) { return (await this.req(CMD.PRESET, [i]))[0]; }
   async proj() { return parseProj(await this.req(CMD.PROJ)); }
@@ -560,6 +565,23 @@ export async function writeWave(link, o) {
   for (let k = 1; k < o.p.length; k++) if (k !== 29) await link.wtSet(k, o.p[k]);
   await link.wtSet(0, t >= 0 ? t : 0);
   if (o.p.length > 29) await link.wtSet(29, tb >= 0 ? tb : 0);   // (0.33: B's table, by its name too)
+}
+
+// ---- JUNO (0.36): its values (juno.js JU: dn_ju.h JP_*), the factory sound PRESETS is on ----------------------------
+export function parseJu(r) {
+  const n = r[0], p = [];
+  for (let k = 0; k < n; k++) p.push(num(r, 1 + 2 * k, 2) - 8192);
+  const o = 1 + 2 * n;
+  return { p, preset: num(r, o, 2), presets: num(r, o + 2, 2) };
+}
+// JUNO as a project keeps it: its values and the factory sound (null: before 0.36)
+export async function readJuno(link) {
+  try { const j = await link.juGet(); return { p: j.p, preset: j.preset }; } catch (_) { return null; }
+}
+export async function writeJuno(link, o) {
+  if (!o || !o.p) return;
+  await link.juLoad(o.preset || 0);
+  for (let k = 0; k < o.p.length; k++) await link.juSet(k, o.p[k]);
 }
 
 // ---- the panel (0.26): what the FM-1's screen shows, and its controls pressed from the page ------------------------
