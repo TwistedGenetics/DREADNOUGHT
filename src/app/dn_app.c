@@ -359,7 +359,7 @@ static struct {
     int8_t step_key;                                /* the key holding it (the step can move away from that key) */
     uint8_t step_edited;                            /* a knob moved it (or it was just turned on): no toggle off */
     uint8_t key_page;                               /* the page the keys down were pressed on (they act for it) */
-    uint8_t key_mode;                               /* ... and ROLL's mode then */
+    uint8_t key_mode;                               /* ... and ROLL's mode then (2: REC on, the keys play: 0.27.1) */
     uint8_t roll_lo;                                /* ROLL: the lowest pitch in view */
     uint8_t roll_keys;                              /* ROLL: 0 STEP mode (white keys = steps), 1 KEYS mode (notes) */
     uint8_t roll_cur;                               /* ROLL KEYS: the cursor (a step) */
@@ -3475,9 +3475,11 @@ static void dn_keys(uint32_t raw)
         return;
     if (!dn.keys_prev) {                            /* the keys follow the page they were pressed on */
         dn.key_page = dn.page;
-        dn.key_mode = dn.roll_keys;
+        dn.key_mode = dn.roll_keys ? 1u : dn.rec && dn.step_held < 0 ? 2u : 0u;
     }
-    if (dn.key_page == DN_PG_ROLL && dn.key_mode)
+    if (dn.key_page == DN_PG_ROLL && dn.key_mode == 2u)
+        dn_keys_play(keys);                         /* (0.27.1) ROLL with REC on: the keys play and record, chords too */
+    else if (dn.key_page == DN_PG_ROLL && dn.key_mode)
         dn_keys_entry(keys);
     else if (dn.key_page == DN_PG_LFO && dn.lfo_view == 2u)
         dn_keys_draw(keys);
@@ -5416,7 +5418,7 @@ static void dn_draw_roll(void)
         dn_step_status(tr, 0, trans);
         return;
     }
-    dn_cat(line, dn.roll_keys ? "KEYS  AT " : "STEP  ");
+    dn_cat(line, dn.roll_keys ? "KEYS  AT " : dn.rec ? "REC: KEYS  " : "STEP  ");
     if (dn.roll_keys) {
         dn_num(v, dn.roll_cur + 1);
         dn_cat(line, v);
@@ -5845,7 +5847,7 @@ void dn_app_draw(int force)
         lit |= 1u << B_REC;
     if (dn.play)
         lit |= 1u << B_HOME;
-    if (DN_IS_SEQPG(dn.page) && !(dn.page == DN_PG_ROLL && dn.roll_keys)) {   /* the steps on, the playhead dim; the
+    if (DN_IS_SEQPG(dn.page) && !(dn.page == DN_PG_ROLL && (dn.roll_keys || dn.rec))) {   /* the steps on, the playhead dim; the
                                                      * tracks playing (DRUM: the steps playing the selected slice) */
         const dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
         keys = 0;

@@ -89,7 +89,7 @@ The FM-1 restarts on the DREADNOUGHT screen. Press **PLAY** to hear the demo ree
 | SAVE held + OCT− / OCT+ | copy / paste the bar in view of the selected track |
 | SAVE held + white key 1–8 (ROLL, DRUM) | this instrument's **pattern** 1–8: stopped, at once; playing, when the playing one ends (it flashes until then) |
 | SAVE held + black key 10 / 11 (ROLL, DRUM) | copy this pattern / paste into this one |
-| Chords (FM, SAMPLER's keys, MIDI tracks) | REC on the sound page, or ROLL's KEYS mode: keys pressed while another is held go into its step as a chord (up to 6 notes). A chord's step shows `C3+2` (its lowest note, how many more); its note moves the whole chord. A project keeps up to 15 different chord shapes, each usable on any note; other instruments play a chord step's lowest note |
+| Chords (FM, SAMPLER's keys, MIDI tracks) | REC on the sound page or on ROLL (with REC on, ROLL's keys play notes instead of being steps), or ROLL's KEYS mode: keys pressed while another is held go into its step as a chord (up to 6 notes). A chord's step shows `C3+2` (its lowest note, how many more); its note moves the whole chord. A project keeps up to 15 different chord shapes, each usable on any note; other instruments play a chord step's lowest note |
 | SAVE held + REC (ROLL, DRUM) | **×2**: the bars with notes copied into the empty bars after them (1 bar → bar 2, 2 bars → bars 3–4); when the notes fill the track it doubles (16 → 32 → 64 steps) with them copied into the new half. Press again for 4 bars |
 | OCT− + OCT+ held 5 s | update mode (recovery) |
 

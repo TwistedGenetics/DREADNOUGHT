@@ -540,3 +540,12 @@ a held button, the computer's keys, a tab, SEQ; ▶ on a bank's voice plays it w
 Tested: host scenario `chords.txt` (a chord recorded stopped, its lowest key second, a single note after, played back
 on FM's voices, ROLL's KEYS mode, the editor's CHORDS frame, kept over a reboot); the editor end to end (a chord made
 and undone on a MIDI track).
+
+## 0.27.1 — record on the sequencer page: REC makes ROLL's keys play (2026-10-25)
+
+- On ROLL with REC on, the keys play notes and record them (held together on FM, SAMPLER's keys or MIDI: a chord),
+  instead of being the steps. Jamie held a chord on ROLL and got one note, the others moving it (holding a step and
+  pressing another moves its note, as before). REC off: the keys are the steps again, holding and moving as ever. The
+  status line says `REC: KEYS`; the key lights show what's played, not the steps.
+
+Tested: `chords.txt` (a chord held on ROLL with REC on; REC off, a key a step again).

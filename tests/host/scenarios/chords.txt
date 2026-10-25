@@ -99,3 +99,30 @@ sysex 89 3 67 71 64 64 64
 expect reply.0 0
 expect chord.3.0 3
 expect chord.3.1 7
+# (0.27.1) the sequencer page itself: REC on, the keys play and record (a chord held: a chord); REC off: steps again
+tap FX
+expect rollkeys 0
+key 20 down
+wait 1200
+key 20 up
+expect on.7 0
+tap REC
+expect rec 1
+key 0 down
+wait 30
+key 4 down
+wait 30
+key 7 down
+wait 30
+key 0 up
+key 4 up
+key 7 up
+wait 30
+expect on.7 1
+expect nt.7.1 53
+expect chordof.7.1 >0
+shot chords-02-roll-rec.png
+tap REC
+expect rec 0
+tapkey 2 60
+expect on.7 2
