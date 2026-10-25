@@ -39,6 +39,11 @@ the original sample files, so you can convert them again later); Load a project 
 cut-off load carries on when you run it again); Choose a projects folder keeps them in a folder and lists them there
 (Chrome / Edge). Stop the FM-1 before saving or loading.
 
+**On an iPad:** Safari can't talk to MIDI, so the editor comes as an app there: the same pages, with the FM-1 on USB
+through CoreMIDI, and SHIFT / DELETE toggles for what a keyboard and mouse do. Download the `.ipa` from the
+[**ipad** release](https://github.com/TwistedGenetics/DREADNOUGHT/releases/tag/ipad) and add it in SideStore or AltStore, or
+build it with Xcode: [ios/README.md](ios/README.md).
+
 **If it won't connect:** close everything else that uses the FM-1's MIDI port (Ableton, the breaks page or the flasher
 in another tab), reload the page, Connect again. If Chrome once refused MIDI for the site, click the icon left of the
 address bar and allow MIDI devices. Still nothing: open **Diagnostics** at the bottom of the page, press **Look for
