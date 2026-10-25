@@ -114,6 +114,37 @@ with sync_playwright() as pw:
     check("the link still talks after the change", pg.evaluate("window.__fake.sent") > n1)
     check("still connected", not pg.inner_text("#status").startswith("The FM-1 stopped"), pg.inner_text("#status"))
 
+    # touch: SHIFT and DELETE in the top bar stand in for the keys, a double tap for a double-click
+    check("SHIFT and DELETE are in the editor's top bar",
+          pg.evaluate("[...document.querySelectorAll('header.top #dn-touch button')].map((b) => b.textContent)") == ["SHIFT", "DELETE"])
+    pg.click('.tabs button[data-tab="pattern"]')
+    pg.select_option("#zoom", "0")
+    pg.wait_for_timeout(300)
+    rb = pg.locator("#roll").bounding_box()
+    gg = pg.evaluate("""() => { const S = window.__dn, t = S.pat.tracks[S.sel];
+      const i = t.steps.findIndex((s) => s.flags & 1);
+      return {cw: (document.getElementById('roll').clientWidth - 46) / t.len, lo: S.lo, i, note: t.steps[i].note}; }""")
+    nx, ny = rb["x"] + 46 + (gg["i"] + 0.4) * gg["cw"], rb["y"] + ((gg["lo"] + 35) - gg["note"]) * 14 + 7
+    flags = lambda: pg.evaluate(f"window.__dn.pat.tracks[window.__dn.sel].steps[{gg['i']}].flags")
+    f0 = flags()
+    pg.click("#dn-touch button[data-mod=shift]")
+    pg.mouse.click(nx, ny)
+    pg.wait_for_timeout(200)
+    check("SHIFT lit + a tap on a note: accent (shift-click)", (flags() ^ f0) & 4 == 4, f"{f0} -> {flags()}")
+    pg.click("#dn-touch button[data-mod=shift]")
+    f1 = flags()
+    pg.evaluate(f"""() => {{ const cv = document.getElementById('roll');
+      for (const t of [0, 120]) setTimeout(() => cv.dispatchEvent(new PointerEvent('pointerup',
+        {{ bubbles: true, pointerType: 'touch', clientX: {nx}, clientY: {ny} }})), t); }}""")
+    pg.wait_for_timeout(500)
+    check("a double tap on a note: slide (double-click)", (flags() ^ f1) & 2 == 2, f"{f1} -> {flags()}")
+    pg.click("#dn-touch button[data-mod=alt]")
+    pg.mouse.click(nx, ny)
+    pg.wait_for_timeout(200)
+    check("DELETE lit + a tap on a note: deleted (right-click)", flags() & 1 == 0, flags())
+    pg.click("#dn-touch button[data-mod=alt]")
+    check("the toggles go off again", pg.evaluate("document.querySelectorAll('#dn-touch .on').length") == 0)
+
     # the Project tab: the projects folder is the app's, Save writes there, the list shows it, Load reads it back
     pg.click('.tabs button[data-tab="proj"]') if pg.query_selector('.tabs button[data-tab="proj"]') else None
     pg.evaluate("document.getElementById('pfolder').click()")
