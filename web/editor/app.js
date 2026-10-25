@@ -670,6 +670,7 @@ function fmGroup(box, title) {
 function buildFm() {
   $("fmTabBtn").hidden = !S.fm;
   if (!S.fm) return;
+  renderFmBanks();
   const f = S.fm, box = $("fmEd"), ps = $("fmpreset");
   ps.textContent = "";
   S.fmNames.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `${i < 10 ? "" : "★ "}${n}`; ps.appendChild(o); });
@@ -724,6 +725,74 @@ function buildFm() {
   }
 }
 document.querySelectorAll(".fmhere").forEach((b) => { b.onclick = () => { if (S.fm) fmAudition(S.fm.voice, +b.dataset.n); }; });
+
+// ---- (0.29) DX7 banks on the FM tab: load one, hear each voice (here or on the FM-1), keep some, send them --------
+// A bank is a DX7 entry of the media list (the Project tab's samples): its kept voices are the ones sent, a zone of
+// their own in a sample slot; the FM-1 lists them on PRESETS after the factory voices.
+async function fmTry(v) {                            // on the FM-1: it becomes FM's voice there, a note played
+  await S.link.fmLoad(fmUnpack(v.packed));
+  const n = +$("fmBankNote").value;
+  await S.link.fmPlay(n, true);
+  setTimeout(() => guard(() => S.link.fmPlay(n, false)), 900);
+  S.fm = await S.link.fmGet();
+  buildFm();
+}
+function renderFmBanks() {
+  const box = $("fmBankList");
+  if (!box) return;
+  box.textContent = "";
+  const banks = S.media.filter((m) => m.dx7);
+  let kept = 0, unsent = false;
+  banks.forEach((m) => {
+    const on = m.dx7.filter((v) => v.on).length;
+    kept += on;
+    unsent = unsent || !!m.stale;
+    const d = document.createElement("div"), h = document.createElement("h3"), tiles = document.createElement("div");
+    d.className = "fmbank";
+    h.innerHTML = `<span class="bn"></span><span class="small">${on} of ${m.dx7.length} kept${m.sent && !m.stale ? " · on the FM-1" : m.stale ? " · not sent yet" : ""}</span>`
+      + `<button class="quiet small">Keep all</button><button class="quiet small">Keep none</button>${m.sent ? "" : '<button class="quiet small" title="Close this bank">✕</button>'}`;
+    h.querySelector(".bn").textContent = m.name;
+    const [all, none, rm] = h.querySelectorAll("button");
+    all.onclick = () => { m.dx7.forEach((v) => { v.on = true; }); m.stale = true; renderMedia(); };
+    none.onclick = () => { m.dx7.forEach((v) => { v.on = false; }); m.stale = true; renderMedia(); };
+    if (rm) rm.onclick = () => { S.media.splice(S.media.indexOf(m), 1); renderMedia(); };
+    tiles.className = "fmtiles";
+    m.dx7.forEach((v, i) => {
+      const t = document.createElement("div");
+      t.className = "fmtile" + (v.on ? " kept" : "");
+      t.innerHTML = `<div class="nm"><b>${i + 1}</b><span></span></div><div class="acts"><button class="quiet small" title="Hear it here (the FM-1's engine, in the browser)">▶</button>`
+        + `<button class="quiet small" title="Hear it on the FM-1 (it becomes FM's voice there)">FM-1</button><label><input type="checkbox"> Keep</label></div>`;
+      t.querySelector(".nm span").textContent = v.name || "(no name)";
+      const [here, fm1] = t.querySelectorAll("button"), c = t.querySelector("input");
+      here.onclick = () => fmAudition(fmUnpack(v.packed), +$("fmBankNote").value);
+      fm1.disabled = !S.link;
+      fm1.onclick = () => guard(() => fmTry(v));
+      c.checked = v.on;
+      c.onchange = () => { v.on = c.checked; m.stale = true; renderMedia(); };
+      tiles.appendChild(t);
+    });
+    d.append(h, tiles);
+    box.appendChild(d);
+  });
+  $("fmKept").textContent = banks.length ? `${kept} voice${kept === 1 ? "" : "s"} kept (${(kept * 128 / 1024).toFixed(1)} KB)${unsent ? ", not sent yet" : ""}.`
+    : "No bank loaded yet.";
+  $("fmSendKept").disabled = !S.link || !unsent;
+}
+$("fmLoadBank").onclick = () => $("fmBankFile").click();
+$("fmBankFile").onchange = (ev) => guard(async () => {
+  for (const f of [...ev.target.files]) {
+    const { voices, notes } = parseSyx(new Uint8Array(await f.arrayBuffer()));
+    S.media.push({ name: f.name.replace(/\.[^.]+$/, ""), dx7: voices.map((v) => ({ ...v, on: false })), stale: true, bank: true });
+    if (notes.length) say(`${f.name}: ${notes.join("; ")}`, "bad");
+  }
+  ev.target.value = "";
+  renderMedia();
+});
+$("fmSendKept").onclick = () => guard(async () => {
+  if (!S.mediaRead) await readMedia();               // (what's on the FM-1 stays: the samples go back with the voices)
+  await $("msend").onclick();
+  renderFmBanks();
+});
 document.querySelectorAll(".fmkey").forEach((b) => {
   const n = +b.dataset.n;
   b.onpointerdown = () => { if (S.link) guard(() => S.link.fmPlay(n, true)); };
@@ -1272,6 +1341,7 @@ $("pname").onchange = () => guard(async () => {
 //            orig (the file's bytes), stale (changed, not sent)}]
 const isSrc = (m) => !!m.ch;                         // (converted here: its settings can change)
 const dx7Data = (m) => zoneBytes(m.dx7.filter((v) => v.on).map((v) => v.packed));   // (0.25: a DX7 bank's voices picked)
+const sendable = () => S.media.filter((m) => !m.dx7 || m.dx7.some((v) => v.on));   // (0.29: a bank none kept: not sent)
 const sizeOf = (m) => (m.dx7 ? dx7Data(m).length : isSrc(m) && (m.stale || !m.adpcm) ? costAt(m, m.set.rate) : m.adpcm.length);
 const proxy = (m) => (m.dx7 ? { rate: 22050, ch: [{ length: 2 * dx7Data(m).length }], set: { rate: 22050 }, lock: true }
   : isSrc(m) ? m : { rate: m.rate, ch: [{ length: m.n }], set: { rate: m.rate }, lock: true });
@@ -1327,7 +1397,7 @@ function preview(m) {
 function renderMedia() {
   const tb = $("mlist");
   tb.textContent = "";
-  const plan = packPlan(S.media.length, (i) => sizeOf(S.media[i])), total = S.media.reduce((a, m) => a + sizeOf(m), 0);
+  const sm = sendable(), plan = packPlan(sm.length, (i) => sizeOf(sm[i])), total = sm.reduce((a, m) => a + sizeOf(m), 0);
   S.media.forEach((m, i) => {
     const tr = document.createElement("tr");
     tr.className = (m.stale ? "stale " : "") + (!plan ? "over" : "");
@@ -1389,7 +1459,8 @@ function renderMedia() {
   $("m-media").style.width = `${Math.min(100, (100 * total) / CAP).toFixed(1)}%`;
   $("m-media").classList.toggle("full", !plan);
   $("mtotal").textContent = `${(total / 1024).toFixed(0)} of ${(CAP / 1024).toFixed(0)} KB${plan ? "" : " — too much: lower some rates, or Fit to space"}`;
-  $("msend").disabled = !plan || !S.link || !S.media.some((m) => m.stale) && S.media.length === slotSamples(S.dev || [null, null, null]).length;
+  $("msend").disabled = !plan || !S.link || !S.media.some((m) => m.stale) && sm.length === slotSamples(S.dev || [null, null, null]).length;
+  renderFmBanks();
 }
 $("madd").onclick = () => $("mfiles").click();
 $("mfiles").onchange = (ev) => { addMedia([...ev.target.files]); ev.target.value = ""; };
@@ -1405,7 +1476,7 @@ $("mfit").onclick = () => {
 };
 $("msend").onclick = () => guard(async () => {
   if (S.st.playing) throw new Error("Stop the FM-1 first: writing its memory interrupts the sound.");
-  const parts = S.media.map((m) => {
+  const parts = sendable().map((m) => {
     if (m.dx7) { const b = dx7Data(m); return { adpcm: b, n: 2 * b.length, rate: 22050 }; }   // (DX7 voices: a zone of their own)
     if (isSrc(m) && (m.stale || !m.adpcm)) { const c = convert(m); m.adpcm = imaEncode(c.s); m.n = c.s.length; }
     return { adpcm: m.adpcm, n: m.n, rate: isSrc(m) ? m.set.rate : m.rate };   // (a source's m.rate is its file's)
@@ -1416,7 +1487,9 @@ $("msend").onclick = () => guard(async () => {
   try {
     if (!S.dev) S.dev = await readSlots(S.link);
     await writeSlots(S.link, ims, S.dev, (f) => { $("pprog").value = f; }, (t) => say(t));
-    S.media.forEach((m) => { m.stale = false; m.sent = true; });
+    const sent = sendable();
+    S.media = S.media.filter((m) => sent.includes(m) || (m.dx7 && !m.sent && m.bank));   // (a bank none kept: still to pick from)
+    S.media.forEach((m) => { if (sent.includes(m)) { m.stale = false; m.sent = true; } });
     S.loops = await S.link.names(1);
     S.proj = await S.link.proj();
     if (S.fm) S.fmNames = await S.link.names(6).catch(() => S.fmNames);

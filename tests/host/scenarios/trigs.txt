@@ -41,8 +41,10 @@ shot trigs-05-ramp.png
 key 6 up
 expect vl.1.4 <100
 expect vl.1.15 100
-# FILL: HOME held on the roll
+# FILL: HOME held on the roll (0.29: from 150 ms held; a tap opens HOME)
 press HOME
+expect fill 0
+wait 200
 expect fill 1
 release HOME
 expect fill 0

@@ -569,3 +569,34 @@ Tested: host `chords.txt` (recorded chords, an inversion, A MIN7, two notes that
 held step, OFF and 6 at the ends, ROLL's KEYS mode, REC on ROLL, the editor's frame), `upgrade.txt` (a 0.27 save with
 recorded chords), the editor's table against the FM-1's, `chordMatch` and the 0.27 project upgrade in the editor's unit
 tests, and the editor end to end (MIN7 picked, the chord dragged, None, no list on REESE).
+
+## 0.29 — HOME, jump to an instrument, the roll remembers, DX7 banks on the FM tab (2026-10-25)
+
+- **HOME** is a page now: the eight tracks in a grid, each with its instrument and sound. A dot shows when it plays a
+  note; a muted track is dim. Press a white or black key 1–8 to open that track's instrument, or turn SELECT and press
+  HOME again. HOME no longer holds a note. On a sequencer page holding HOME is still **FILL**: FILL now starts after
+  150 ms, so a quick tap opens HOME instead.
+- **SEQ held + a black key 1–8** (OP1…) opens that track's instrument, its sound pages, from anywhere, including a
+  sequencer page. SEQ + a white key still goes to its sequencer page there.
+- **The roll remembers:** a step you turn on gets the note, length and chord of the last note you put in, edited or
+  touched on that track (the breaks and SAMPLER's pads still take their slice / pad).
+- **The built-in breaks are gone** (ROLLER and STEPPER): the breaks play only your loops. With none sent they are
+  silent, and LOOP reads NONE. Saves and project files from before keep their loops: the numbers move down past the
+  two that went. A break that was on a built-in loop goes to your first loop.
+- **Sample slot 3 is 64 KB.** Its top 16 KB holds two more settings objects for what's coming (JUNO next). Slots 1 and
+  2 stay 80 KB. The editor and the breaks page pack samples to fit, and a project file saved with a fuller slot 3 is
+  packed again on its way. A slot 3 sent before 0.29 that reaches past 64 KB keeps playing, and the new settings
+  aren't written over it until it is sent again.
+- **Editor, FM tab: DX7 banks.** Load a bank (.syx), play each voice in the browser (▶) or on the FM-1 (**FM-1**),
+  tick **Keep** on the ones you want, then **Send the kept voices to the FM-1**. They go into a sample slot with your
+  samples (read from the FM-1 first, so nothing is lost) and come up on PRESETS after the factory voices.
+- CPU: Jamie measured 50% with samples, a break, FM (6 notes), SUB and REESE all playing, so DREADNOUGHT stays on one
+  core for now.
+
+Tested: host scenarios `home.txt` (HOME by a tap, keys, SELECT; FILL by a hold; SEQ + black key; a playing dot),
+`roll_memory.txt` (note, length, chord carried over; a step tapped off picked up; REESE without chords),
+`no_builtin.txt` (old loop numbers, no loops at all, loops back); `store_test` (X0X's storage as built: the two
+settings objects only in 0xD8000–0xDBFFF, slot 3's first 64 KB and the panel untouched); HOME's UI_STATE against the
+editor; the editor's unit tests (slot 3's size, packing, old projects' loop numbers, repacking) and end to end (the FM
+tab's banks: load, ▶, FM-1, Keep, send).
+

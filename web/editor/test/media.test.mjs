@@ -52,7 +52,7 @@ test("cost: half a byte a sample at the chosen rate", () => {
   const smp = { rate: 44100, ch: [new Float32Array(44100)] };
   assert.equal(costAt(smp, 44100), 22050);
   assert.equal(costAt(smp, 11025), 5513);
-  assert.equal(CAP, 3 * SLOT_MAX_DATA);
+  assert.equal(CAP, 2 * SLOT_MAX_DATA + 0x10000 - 512, "(0.29: slot 3 is 64 KB)");
 });
 
 test("fit to space: the longest come down first, short hits keep their rate, locked ones are left alone", () => {
@@ -109,4 +109,15 @@ test("send and read back against the simulated FM-1: only the slots that changed
   assert.deepEqual([...back[0].adpcm], [...part.adpcm]);
   assert.equal(await writeSlots(link, imagesOf([part]), dev), 0, "nothing changed: nothing written");
   m.close();
+});
+
+test("slot 3 holds 64 KB (0.29): a sample that fits slots 1 and 2 but not 3 goes in them, too much is refused", async () => {
+  const { packPlan, slotMax, SLOT_SIZES } = await import("../media.js");
+  assert.deepEqual(SLOT_SIZES, [0x14000, 0x14000, 0x10000]);
+  assert.equal(slotMax(2), 0x10000 - 512);
+  const big = 0x12000;                                 // 72 KB: a slot 1 / 2 sample, too big for slot 3
+  assert.deepEqual(packPlan(2, () => big), [0, 1]);
+  assert.equal(packPlan(3, () => big), null, "a third 72 KB sample: slot 3 is too small");
+  assert.deepEqual(packPlan(3, (i) => (i < 2 ? big : 0x10000 - 512)), [0, 1, 2], "exactly 64 KB less its header fits slot 3");
+  assert.equal(packPlan(3, (i) => (i < 2 ? big : 0x10000 - 511)), null);
 });

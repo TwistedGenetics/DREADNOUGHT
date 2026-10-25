@@ -446,7 +446,7 @@ export async function connect(midi, log = () => {}, prefer = "", tap = null) {
 
 // ---- SAMPLER (0.23): 16 one-shot pads, or a key map of 8 zones (src/dsp/dn_smp.h PD_* / ZN_* / KY_*) ---------------
 // SMP_GET kind i: kind 0 pad i, 1 zone i, 2 the keys' values, 3 the mode (0 ONE-SHOT, 1 KEYS). A SAMPLE is a loop's
-// place in NAMES kind 1 (the loops BREAKS plays: built-in first), -1 none.
+// place in NAMES kind 1 (the loops BREAKS plays: the slots' loops, in order; 0.29: no built-in ones), -1 none.
 const pct = (v) => `${(v / 10).toFixed(1)}%`;
 const NN = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 export const smpNote = (v) => `${NN[v % 12]}${Math.floor(v / 12) - 2}`;   // (C3 = 60, as the FM-1 names it)

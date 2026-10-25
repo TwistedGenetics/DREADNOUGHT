@@ -10,7 +10,9 @@
 
 export const SLOT_SIZE = 0x14000, SLOT_DATA_OFF = 512, SLOT_ZONES = 16, NSLOT = 3;
 export const SLOT_HDR_LEN = 32 + SLOT_ZONES * 28, SLOT_MAX_DATA = SLOT_SIZE - SLOT_DATA_OFF;
-export const CAP = NSLOT * SLOT_MAX_DATA;
+// (0.29) slot 3 is 64 KB: its top 16 KB holds the FM-1's settings. The data each slot holds:
+export const SLOT_SIZES = [SLOT_SIZE, SLOT_SIZE, 0x10000], slotMax = (k) => SLOT_SIZES[k] - SLOT_DATA_OFF;
+export const CAP = SLOT_SIZES.reduce((a, s) => a + s - SLOT_DATA_OFF, 0);
 export const RATES = [44100, 32000, 26040, 22050, 16000, 11025, 8000];
 export const RATE_NAME = { 44100: "44.1 kHz", 32000: "32 kHz", 26040: "26 kHz (SP-1200)", 22050: "22 kHz", 16000: "16 kHz",
   11025: "11 kHz", 8000: "8 kHz" };
@@ -169,7 +171,7 @@ export function imaDecode(b, n) {
 }
 
 // ---- fitting ------------------------------------------------------------------------------------------------
-// the samples, in order, into the three slots (a slot filled before the next; 16 zones or 80 KB a slot): the slot of
+// the samples, in order, into the three slots (a slot filled before the next; 16 zones, 80 KB a slot, slot 3 64 KB): the slot of
 // each sample, or null if they don't fit. bytes(i): sample i's ADPCM bytes
 export function packPlan(n, bytes) {
   const slotOf = [];
@@ -177,8 +179,8 @@ export function packPlan(n, bytes) {
   for (let i = 0; i < n; i++) {
     const b = bytes(i);
     if (b > SLOT_MAX_DATA) return null;
-    if (used + b > SLOT_MAX_DATA || zones >= SLOT_ZONES) { k++; used = 0; zones = 0; }
-    if (k >= NSLOT) return null;
+    if (used + b > slotMax(k) || zones >= SLOT_ZONES) { k++; used = 0; zones = 0; }
+    if (k >= NSLOT || b > slotMax(k)) return null;
     slotOf.push(k);
     used += b;
     zones++;
@@ -221,9 +223,9 @@ export function crc32(b) {
 const keySplit = (roots) => roots.map((r, j) => [j === 0 ? 0 : ((roots[j - 1] + r) >> 1) + 1, j === roots.length - 1 ? 127 : (r + roots[j + 1]) >> 1]);
 
 // a slot image from encoded parts [{adpcm, n, rate}] (each zone at its own rate) -> {hdr, data}
-export function slotImage(name, parts) {
+export function slotImage(name, parts, max = SLOT_MAX_DATA) {
   const total = parts.reduce((a, p) => a + p.adpcm.length, 0);
-  if (total > SLOT_MAX_DATA) throw new Error(`too long: ${total} B, a slot holds ${SLOT_MAX_DATA} B`);
+  if (total > max) throw new Error(`too long: ${total} B, the slot holds ${max} B`);
   if (parts.length < 1 || parts.length > SLOT_ZONES) throw new Error(`1..${SLOT_ZONES} samples a slot`);
   const data = new Uint8Array(total), zs = [];
   let off = 0;
@@ -366,5 +368,5 @@ export function imagesOf(parts) {
   if (!plan) throw new Error("The samples don't fit in the FM-1's sample memory.");
   const groups = [[], [], []];
   parts.forEach((p, i) => groups[plan[i]].push(p));
-  return groups.map((g, k) => (g.length ? slotImage(`SMP${k + 1}`, g) : null));
+  return groups.map((g, k) => (g.length ? slotImage(`SMP${k + 1}`, g, slotMax(k)) : null));
 }

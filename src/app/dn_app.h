@@ -12,14 +12,19 @@
 #include "dn_sub.h"
 #include "dn_smp.h"
 #include "dn_fm.h"
-#include "dn_breaks_builtin.h"   /* (generated: tools/gen_dn_breaks.py) */
 
 void dn_app_init(void);
 void dn_app_render(int32_t *lr, uint32_t n);
 void dn_app_midi(uint8_t st, uint8_t d1, uint8_t d2);
 void dn_app_input(void);
 void dn_app_draw(int force);
-void dn_app_slots_changed(int done);     /* the sample slots: about to change (0), changed (1) */
+void dn_app_slots_changed(int done);
+/* (0.29) two more settings objects, 3840 bytes each, in sample slot 3's top 16 KB (for what doesn't fit the others):
+ * as plat_store_load / save; a save is refused (-10) while slot 3 holds samples sent before 0.29 that reach there */
+#define DN_NEXT 2u
+#define DN_OBJ_EXT0 16u
+int dn_ext_load(uint32_t i, void *dst, uint32_t max);
+int dn_ext_save(uint32_t i, const void *src, uint32_t len);     /* the sample slots: about to change (0), changed (1) */
 uint32_t dn_app_slices_get(uint32_t key, uint32_t *starts);   /* a loop's manual slices (samples); 0: none */
 int dn_app_slices_set(uint32_t key, uint32_t n, const uint32_t *starts);   /* 0: kept (and saved) */
 /* the web editor's commands (src/app/dn_editor.c): 1 = ours, the reply's bytes given to put; 0 = not ours */

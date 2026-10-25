@@ -150,9 +150,22 @@
       <button class="quiet small fmkey" data-n="36">C1</button><button class="quiet small fmkey" data-n="48">C2</button>
       <button class="quiet small fmkey" data-n="60">C3</button><button class="quiet small fmkey" data-n="72">C4</button>
       <span class="small" id="fmalg"></span></div>
-    <p class="small">A six-operator FM synth that plays DX7 voices: the factory's, and the ones you add from a DX7 bank on
-      the Project tab (Add files… takes .syx). The macros go on top of the voice without changing it: BRIGHT the
-      modulators' levels, TIME every envelope, ATTACK and RELEASE the carriers'.</p>
+    <div class="card wide" id="fmBanks">
+      <h2>DX7 banks</h2>
+      <p class="small">Load a DX7 bank (.syx: 32 voices, or a single voice). Play each voice here with ▶ (the FM-1's own
+        engine, in the browser), or on the FM-1 with <b>FM-1</b> (it becomes FM's voice there; SAVE keeps it). Tick
+        <b>Keep</b> on the ones you want and send them: they go into a sample slot with your samples and come up on the
+        FM-1's PRESETS after the factory voices (★ here), in every project.</p>
+      <div class="row"><button id="fmLoadBank">Load a bank (.syx)…</button>
+        <label>Play at <select id="fmBankNote"><option value="36">C1</option><option value="48">C2</option>
+          <option value="60" selected>C3</option><option value="72">C4</option></select></label>
+        <button id="fmSendKept">Send the kept voices to the FM-1</button><span class="small" id="fmKept"></span></div>
+      <div id="fmBankList"></div>
+      <input type="file" id="fmBankFile" accept=".syx,application/octet-stream" multiple hidden>
+    </div>
+    <p class="small">A six-operator FM synth that plays DX7 voices: the factory's, and the ones you keep from a DX7 bank
+      (above). The macros go on top of the voice without changing it: BRIGHT the modulators' levels, TIME every
+      envelope, ATTACK and RELEASE the carriers'.</p>
     <div id="fmEd" class="groups"></div>
   </section>
 

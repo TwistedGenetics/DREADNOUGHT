@@ -1,0 +1,83 @@
+# DREADNOUGHT host scenario (0.29): HOME, the eight tracks. A tap on HOME opens it (on a sequencer page a hold is still
+# FILL); a key 1-8, white or black, opens that track's instrument; SELECT picks one and HOME opens it. SEQ held + a
+# black key 1-8 (OP1..) opens that track's instrument from anywhere, as SEQ + a white key opens its sequencer.
+expect page 0
+tap HOME
+expect page 19
+expect trk 1
+expect gate 0
+shot home-01.png
+# SELECT picks track 2 (BREAKS A), HOME opens it: its BRK page
+turn SELECT 1
+expect page 19
+expect trk 2
+tap HOME
+expect page 6
+expect trk 2
+# HOME again, white key 4: track 4, MIDI 1's page
+tap HOME
+expect page 19
+tapkey 6 40
+expect page 13
+expect trk 4
+# HOME, black key 1 (OP1): track 1, REESE's first page; the key plays nothing
+tap HOME
+key 1 down
+wait 40
+expect page 0
+expect trk 1
+expect gate 0
+key 1 up
+wait 20
+# PRESETS and the knobs do nothing on HOME
+tap HOME
+expect preset 0
+turn PRESET 3
+turn K1 5
+expect preset 0
+expect page 19
+tap HOME
+expect page 0
+# a sequencer page: a hold is FILL, not HOME; a tap opens HOME
+tap SEQ
+expect page 7
+press HOME
+wait 200
+expect fill 1
+release HOME
+expect fill 0
+expect page 7
+tap HOME
+expect page 19
+expect fill 0
+# playing: the tracks with a note on the step light a dot (track 1: steps 1-8 on)
+tap SEQ
+tapkey 0 40
+tapkey 2 40
+tapkey 4 40
+tapkey 6 40
+tapkey 7 40
+tapkey 9 40
+tapkey 11 40
+tapkey 12 40
+tap HOME
+expect page 19
+tap PLAY
+wait 300
+shot home-02-playing.png
+tap PLAY
+# SEQ held + black key 2 (OP2) on the roll: track 2's instrument (BRK); + white key 1: track 1's roll
+tap HOME
+tap SEQ
+expect page 7
+press SEQ
+tapkey 3 40
+release SEQ
+expect trk 2
+expect page 6
+tap SEQ
+press SEQ
+tapkey 0 40
+release SEQ
+expect trk 1
+expect page 7

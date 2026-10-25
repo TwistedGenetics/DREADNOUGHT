@@ -67,6 +67,13 @@ def overlay(b, gen):
     if text.count('#include "usb.c"') != 1:
         raise SystemExit("build_fm1: x0x.c no longer includes usb.c once")
     text = text.replace('#include "usb.c"', inc(gen / "usb_dn.c").rstrip())
+    # storage.c with DREADNOUGHT's settings objects in slot 3's top 16 KB (0.29; tools/dn_patches.py)
+    sys.path.insert(0, str(REPO / "tools"))
+    import dn_patches
+    (gen / "storage_dn.c").write_text(dn_patches.storage(b.FW / "src"))
+    if text.count('#include "storage.c"') != 1:
+        raise SystemExit("build_fm1: x0x.c no longer includes storage.c once")
+    text = text.replace('#include "storage.c"', inc(gen / "storage_dn.c").rstrip())
     main = gen / "dreadnought_fm1.c"
     main.write_text(text + "/* ---- DREADNOUGHT (X0X's app cut away; tools/build_fm1.py) ---- */\n" +
                     inc(REPO / "src" / "hardware" / "dn_main_fm1.c"))
@@ -97,8 +104,8 @@ def main():
         b.GEN.mkdir(parents=True, exist_ok=True)
         dngen.mkdir(parents=True, exist_ok=True)
         for cmd in ([sys.executable, str(b.SRC / "tools" / "gen_font.py"), str(b.GEN / "felucca_font.h")],
-                    [sys.executable, str(REPO / "tools" / "gen_dn_tables.py"), str(dngen / "dn_tables.h")],
-                    [sys.executable, str(REPO / "tools" / "gen_dn_breaks.py"), str(dngen / "dn_breaks_builtin.h")]):
+                    [sys.executable, str(REPO / "tools" / "gen_dn_tables.py"), str(dngen / "dn_tables.h")]):
+            # (0.29: no built-in breaks in the image; tools/gen_dn_breaks.py makes them for the host tests only)
             r = subprocess.run(cmd, capture_output=True, text=True)
             if r.returncode:
                 sys.stderr.write(r.stdout + r.stderr)

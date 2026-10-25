@@ -11,8 +11,9 @@ shot long-01-held.png
 key 0 up
 expect ln.1.1 16
 tapkey 9 40
+expect ln.1.6 16
 key 9 down
-turn K2 17
+turn K2 8
 key 9 up
 expect ln.1.6 32
 shot long-02-grid.png

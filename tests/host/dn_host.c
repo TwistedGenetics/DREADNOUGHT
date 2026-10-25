@@ -98,13 +98,21 @@ int plat_store_save(uint32_t obj, const void *src, uint32_t len)
 uint32_t plat_cpu_pct(void) { return 0; }         /* (the simulator does not measure the FM-1's load) */
 uint32_t plat_cpu_peak_pct(void) { return 0; }
 uint32_t plat_xruns(void) { return 0; }
-/* the simulator's sample slots: none, unless a scenario puts DX7 voices in slot 1 (fmbank, 0.25) */
+/* the simulator's sample slots: slot 1 holds ROLLER and STEPPER (tools/gen_dn_breaks.py, the loops the FM-1 had
+ * built in before 0.29), as if sent from the editor; slot 2 DX7 voices when a scenario puts them there (fmbank) */
+#include "dn_breaks_builtin.h"
 static uint8_t sim_fmz[8 + 32 * 128];
-static uint32_t sim_fmz_n;
-int plat_slot_zones(int k) { return k == 0 && sim_fmz_n ? 1 : 0; }
+static uint32_t sim_fmz_n, sim_noloops;
+int plat_slot_zones(int k) { return k == 0 ? (sim_noloops ? 0 : DN_BRK_BUILTIN) : k == 1 && sim_fmz_n ? 1 : 0; }
 const uint8_t *plat_slot(int k, int z, uint32_t *n, uint32_t *rate, char name[9])
 {
-    if (k != 0 || z != 0 || !sim_fmz_n)
+    if (k == 0 && !sim_noloops && z >= 0 && z < DN_BRK_BUILTIN) {
+        *n = DN_BRK_BUILTIN_LOOPS[z].n;
+        *rate = DN_BRK_BUILTIN_LOOPS[z].rate;
+        memcpy(name, "BREAKS", 7);
+        return DN_BRK_BUILTIN_LOOPS[z].adpcm;
+    }
+    if (k != 1 || z != 0 || !sim_fmz_n)
         return 0;
     *n = 2u * (8u + sim_fmz_n * 128u);
     *rate = 22050;
@@ -115,6 +123,24 @@ static void dn_lock(void) {}
 static void dn_unlock(void) {}
 
 #include "../../src/app/dn_app.c"
+/* (0.29) the settings objects in slot 3's top 16 KB (the FM-1's: src/hardware/dn_main_fm1.c; storage: store_test.c) */
+static uint8_t sim_ext[DN_NEXT][PLAT_STORE_MAX];
+static int sim_ext_len[DN_NEXT] = {-1, -1};
+int dn_ext_load(uint32_t i, void *dst, uint32_t max)
+{
+    if (i >= DN_NEXT || sim_ext_len[i] < 0)
+        return -1;
+    memcpy(dst, sim_ext[i], (uint32_t)sim_ext_len[i] < max ? (uint32_t)sim_ext_len[i] : max);
+    return (uint32_t)sim_ext_len[i] < max ? sim_ext_len[i] : (int)max;
+}
+int dn_ext_save(uint32_t i, const void *src, uint32_t len)
+{
+    if (i >= DN_NEXT || len > PLAT_STORE_MAX)
+        return -1;
+    memcpy(sim_ext[i], src, len);
+    sim_ext_len[i] = (int)len;
+    return 0;
+}
 #include "../../src/app/dn_splash.c"
 
 /* ---------------------------------------------------------------------------------------- editor frames --- */
@@ -504,6 +530,10 @@ int main(int argc, char **argv)
                     for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
                     fprintf(g, "],\"uiknob\":[\"%s\",%d,\"%s\",\"%s\"", dn_name(dn_dial(0)), dn_get(dn_dial(0)), dn_name(dn_dial(3)),
                             dn_sound_name(0, dn.preset));
+                    fprintf(g, "],\"uihome\":[");   /* 0.29: HOME's UI_STATE: the eight tracks as its tabs */
+                    dn_goto(DN_PG_HOME);
+                    ed(87, 0, 0);
+                    for (uint32_t i = 0; i < ed_n; i++) fprintf(g, "%s%u", i ? "," : "", ed_reply[i]);
                     dn_goto(pg);
                 }
                 fprintf(g, "],\"chords\":[");    /* 0.28: the 15 chords, as the editor's CHORDS frame sends them */
@@ -575,6 +605,11 @@ int main(int argc, char **argv)
             FILE *f = fopen(b, "rb");
             if (!f || fread(store_len, sizeof store_len, 1, f) != 1 || fread(store, sizeof store, 1, f) != 1) { printf("  FAIL storeload\n"); return 1; }
             fclose(f);
+        } else if (!strcmp(a, "noloops") && n >= 2) {   /* (0.29) noloops 1: slot 1 empty (no loops at all) */
+            sim_noloops = (uint32_t)atoi(b);
+            dn_app_slots_changed(0);
+            dn_app_slots_changed(1);
+            run(1);
         } else if (!strcmp(a, "fmbank") && n >= 2) {   /* fmbank N: N DX7 voices in slot 1, as the editor sends
                                                      * them (each a factory voice named PROJ n) */
             uint32_t v, j;
@@ -605,6 +640,9 @@ int main(int argc, char **argv)
             long got;
             if (!strcmp(b, "preset")) got = dn.preset;
             else if (!strcmp(b, "page")) got = dn.page;
+            else if (!strncmp(b, "srcmap.", 7)) got = dn_brk_src_of((uint8_t)atoi(b + 7));   /* (0.29) a saved loop number */
+            else if (!strncmp(b, "bsrc.", 5)) got = dn_bk_src[atoi(b + 5) % DN_NBRK];
+            else if (!strncmp(b, "bok.", 4)) got = dn_bk[atoi(b + 4) % DN_NBRK].ok;
             else if (!strcmp(b, "dirty")) got = dn.dirty;
             else if (!strcmp(b, "oct")) got = dn.oct;
             else if (!strcmp(b, "bpm")) got = dn_rs.bpm;

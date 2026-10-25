@@ -16,7 +16,7 @@
  * The panel. On every page:
  *   PLAY                     the sequencer: start / stop (MIDI clock and start / stop go out on USB)
  *   REC                      record on / off (lit): keys write into the selected track (below)
- *   HOME                     hold a note (F3) to tweak with both hands free
+ *   HOME                     (0.29) the HOME page: the eight tracks, a key 1-8 (or SELECT, then HOME) opens one
  *   SEQ                      the SEQ page; SEL EDIT ENV LFO GLO: the sound's pages (lit: the page shown)
  *   PRESETS encoder          the factory sounds (the edits since are dropped)
  *   ALGORITHM encoder        the tempo (the sequencer, and BEAT, which locks the reese's movement to it)
@@ -74,6 +74,8 @@ static int32_t dn_in_enc(int role)
 #define DN_PG_SOSC2 (DN_NPAGES + 11u)               /* SUB: OSC's second page (SEL again): PW, PWM, its rate, the sub */
 #define DN_PG_DIRT (DN_NPAGES + 12u)                /* SUB: FILTER's second page (EDIT again): the dirt */
 #define DN_PG_FENV (DN_NPAGES + 13u)                /* AMP's second page (ENV again): the filter envelope (0.19) */
+#define DN_PG_HOME (DN_NPAGES + 14u)                /* (0.29) HOME: the eight tracks' instruments, one to open */
+#define DN_HOME_TAP_MS 150                          /* (0.29) HOME up sooner on a sequencer page: a tap, not FILL */
 #define DN_IS_GLOPG(p) ((p) == 4u || (p) == DN_PG_FX || (p) == DN_PG_SET || (p) == DN_PG_MIDI || (p) == DN_PG_PROJ)
 #define DN_ROLL_ROWS 12                             /* the piano roll's pitches in view (an octave) */
 #define DN_DRUM_ROWS 8                              /* the drum grid's slices in view */
@@ -389,6 +391,9 @@ static struct {
     uint16_t fm_preset;                             /* FM: the voice PRESETS is on (factory, then the project's) */
     char nm[12];
     uint8_t home_chord;                             /* HOME held and SELECT turned: an instrument picked */
+    uint32_t home_dn;                               /* (0.29) when HOME went down: a tap opens HOME, a hold is FILL */
+    uint8_t home_back;                              /* (0.29) the page HOME was opened from */
+    uint8_t last_len[DN_SEQ_TRACKS], last_chord[DN_SEQ_TRACKS];   /* (0.29) the roll: the last note's length, chord */
     uint8_t fx_exact;                               /* (the editor sets an effect: no skipping past ones that don't fit) */                              /* the editor: the LFO values read set 1 (REESE) / 2 (SUB), 0: by page */
     uint8_t midi_sel;                               /* the MIDI page: MIDI 1..n (the tracks that play MIDI, in order) */
     uint8_t bk_last;                                /* the break the BRK pages showed last (0 A, 1 B) */
@@ -780,6 +785,7 @@ static uint32_t dn_chord_match(const uint8_t *notes, uint32_t n, uint8_t *root)
     return 0;
 }
 
+static void dn_step_remember(uint32_t t, const dn_step_t *st);
 /* (0.28) REC: note joins the keys held into step st; the step takes the chord they make, on its root (none of the
  * 15: the first key's note alone) */
 static void dn_chord_rec(dn_step_t *st, uint8_t note)
@@ -794,6 +800,7 @@ static void dn_chord_rec(dn_step_t *st, uint8_t note)
     st->note = c ? root : dn.rec_notes[0];
     st->flags = (uint8_t)((st->flags & ~DN_ST_CHORD) | (c << 4));
     dn_unlock();
+    dn_step_remember(dn.trk, st);
 }
 static void dn_sq_clock(uint8_t st) { plat_midi_out(0x0Fu | (uint32_t)st << 8); }
 /* ---- patterns: 8 an instrument (a track), the playing one in dn_sq.pat, the others here ------------------------
@@ -1002,10 +1009,18 @@ void dn_app_midi(uint8_t st, uint8_t d1, uint8_t d2)
 }
 
 /* ----------------------------------------------------------------------------------------------- breaks --- */
-/* the loops BREAKS can play: the built-in ones, then every loop uploaded to the three sample slots, in order */
+/* the loops BREAKS can play: every loop sent to the three sample slots, in order (0.29: no built-in ones any more) */
+#define DN_OLD_BUILTIN 2u                           /* (ROLLER and STEPPER, built in before 0.29: older saves count them) */
+/* a saved loop number: 0.29's (top bit set), or one from before, which counted ROLLER and STEPPER first (theirs go to
+ * the first loop) */
+static uint8_t dn_brk_src_of(uint8_t v)
+{
+    return (v & 0x80u) ? (uint8_t)(v & 0x7Fu) : v >= DN_OLD_BUILTIN ? (uint8_t)(v - DN_OLD_BUILTIN) : 0u;
+}
 /* the sample slots: bytes used (4-bit ADPCM: half a byte a sample, plus each slot's header), and in all */
 #define DN_SLOT_BYTES 0x14000u
-static uint32_t dn_smp_cap(void) { return PLAT_NSLOTS * DN_SLOT_BYTES; }
+#define DN_SLOT3_BYTES 0x10000u                     /* (0.29: slot 3's top 16 KB holds settings) */
+static uint32_t dn_smp_cap(void) { return (PLAT_NSLOTS - 1u) * DN_SLOT_BYTES + DN_SLOT3_BYTES; }
 static uint32_t dn_smp_used(void)
 {
     uint32_t used = 0, n, r;
@@ -1064,7 +1079,7 @@ static const uint8_t *dn_fmv_get(uint32_t i)        /* project voice i, packed *
 }
 static uint32_t dn_src_count(void)
 {
-    uint32_t n = DN_BRK_BUILTIN, c;
+    uint32_t n = 0, c;
     int k, z;
     for (k = 0; k < PLAT_NSLOTS; k++)
         for (z = 0; z < plat_slot_zones(k); z++)
@@ -1077,16 +1092,7 @@ static int dn_src_get(uint32_t i, dn_loop_t *L)
     uint32_t j;
     for (j = 0; j < sizeof L->name; j++)
         L->name[j] = 0;
-    if (i < DN_BRK_BUILTIN) {
-        L->adpcm = DN_BRK_BUILTIN_LOOPS[i].adpcm;
-        L->n = DN_BRK_BUILTIN_LOOPS[i].n;
-        L->rate = DN_BRK_BUILTIN_LOOPS[i].rate;
-        L->bars = DN_BRK_BUILTIN_LOOPS[i].bars;
-        for (j = 0; DN_BRK_BUILTIN_LOOPS[i].name[j] && j < 8u; j++)
-            L->name[j] = DN_BRK_BUILTIN_LOOPS[i].name[j];
-        return 1;
-    }
-    i -= DN_BRK_BUILTIN;
+    L->adpcm = 0, L->n = 0;
     for (k = 0; k < PLAT_NSLOTS; k++)
         for (z = 0; z < plat_slot_zones(k); z++) {
             uint32_t c;
@@ -1274,8 +1280,18 @@ static void dn_brk_select(uint32_t k, uint32_t src)
 {
     dn_loop_t L;
     if (src >= dn_src_count() || !dn_src_get(src, &L)) {
-        src = k % DN_BRK_BUILTIN;                   /* gone (the slots were rewritten): a built-in loop */
-        dn_src_get(src, &L);
+        src = 0;                                    /* gone (the slots were rewritten): the first loop, or none */
+        if (!dn_src_get(0, &L)) {
+            uint32_t j;                             /* (0.29) no loops at all: the break is silent until one comes */
+            dn_lock();
+            dn_bk[k].ok = 0;
+            dn_bk[k].on = 0;
+            dn_unlock();
+            for (j = 0; j < sizeof dn_bk[k].loop.name; j++)
+                dn_bk[k].loop.name[j] = 0;
+            dn_bk_src[k] = 0;
+            return;
+        }
     }
     dn_lock();
     dn_bk[k].ok = 0;
@@ -1349,7 +1365,7 @@ void dn_app_slots_changed(int done)
         dn_unlock();
     }
     for (k = 0; k < DN_NBRK; k++)
-        if (dn_bk_src[k] >= DN_BRK_BUILTIN) {
+        {                                           /* (0.29: every loop is a slot's) */
             if (done) {
                 dn_brk_select(k, dn_bk_src[k]);
             } else {
@@ -1382,7 +1398,7 @@ static uint32_t dn_fx_dial(uint32_t k)
 /* the dial under KNOB k on this page */
 static uint32_t dn_dial(uint32_t k)
 {
-    return dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : dn.page == DN_PG_BRK2 ? DN_BRK2_PAGE[k]
+    return dn.page == DN_PG_HOME ? DN_PX_NONE : dn.page == DN_PG_BRK ? DN_BRK_PAGE[k] : dn.page == DN_PG_BRK2 ? DN_BRK2_PAGE[k]
          : dn.page == DN_PG_SLICE ? DN_SLICE_PAGE[k] : dn.page == DN_PG_SET ? DN_SET_PAGE[k]
          : dn.page == DN_PG_LFO ? DN_LFO_PAGE[dn.lfo_view & 1u][k] : dn.page == DN_PG_MIDI ? DN_MIDI_PAGE[k]
          : dn.page == DN_PG_SOSC2 ? DN_SUB_OSC2[k] : dn.page == DN_PG_DIRT ? DN_SUB_DIRT[k]
@@ -2041,7 +2057,7 @@ static int32_t dn_max(uint32_t id)
         return id == DN_PX_SLSEL ? (int32_t)dn_bk[dn_bsel()].nslices - 1 : id == DN_PX_SLADD ? 6
              : (int32_t)dn_bk[dn_bsel()].loop.n;
     return id == DN_PX_BPM ? 200 : id == DN_PX_OVL || id == DN_PX_MOVL ? 1 : id == DN_PX_CLICK || id == DN_PX_CIN ? 2
-         : id == DN_PX_CLKLVL || id == DN_PX_VSENS ? 127 : id == DN_PX_MSEL ? (dn_midi_n() ? (int32_t)dn_midi_n() - 1 : 0) : id == DN_PX_MCHAN ? 15 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (int32_t)dn_src_count() - 1
+         : id == DN_PX_CLKLVL || id == DN_PX_VSENS ? 127 : id == DN_PX_MSEL ? (dn_midi_n() ? (int32_t)dn_midi_n() - 1 : 0) : id == DN_PX_MCHAN ? 15 : id == DN_PX_OCT ? 3 : id == DN_PX_BSRC ? (dn_src_count() ? (int32_t)dn_src_count() - 1 : 0)
          : id == DN_PX_BPITCH ? 24 : id == DN_PX_BCHOKE ? 4 : id == DN_PX_BSMODE || id == DN_PX_BSTRETCH ? 2
          : id >= DN_PX_BDECAY ? 127 : reese_param_max(id);
 }
@@ -2109,8 +2125,10 @@ static void dn_text(uint32_t id, int32_t v, char out[8])
     if (id == DN_PX_BSRC) {
         dn_loop_t L;
         uint32_t i;
-        if (!dn_src_get((uint32_t)v, &L))
-            L.name[0] = '?', L.name[1] = 0;
+        if (!dn_src_get((uint32_t)v, &L)) {         /* (0.29: no loops sent yet) */
+            for (i = 0; i < 5u; i++)
+                L.name[i] = "NONE"[i];
+        }
         for (i = 0; i < 7u && L.name[i]; i++)
             out[i] = L.name[i];
         out[i] = 0;
@@ -2397,7 +2415,7 @@ static void dn_save_fill(dn_save_t *sp)
     for (k = 0; k < RP_COUNT; k++)
         s.p[k] = dn_rs.p[k];
     for (k = 0; k < DN_NBRK; k++) {
-        s.brk[k].src = dn_bk_src[k];
+        s.brk[k].src = (uint8_t)(dn_bk_src[k] | 0x80u);   /* (0.29: top bit, counted without the built-in loops) */
         s.brk[k].pitch = dn_bk[k].pitch;
         s.brk[k].decay = dn_bk[k].decay;
         s.brk[k].crush = dn_bk[k].crush;
@@ -2901,7 +2919,7 @@ void dn_app_init(void)
             dn_bk[k].level = (uint8_t)dn_clamp(s.brk2[k].level, 0, 127);
         }
         for (k = 0; got >= (int)DN_SAVE_V05 && k < DN_NBRK; k++) {
-            dn_bk_src[k] = s.brk[k].src;
+            dn_bk_src[k] = dn_brk_src_of(s.brk[k].src);
             dn_bk[k].pitch = (int8_t)dn_clamp(s.brk[k].pitch, -24, 24);
             dn_bk[k].decay = (uint8_t)dn_clamp(s.brk[k].decay, 0, 127);
             dn_bk[k].crush = (uint8_t)dn_clamp(s.brk[k].crush, 0, 127);
@@ -3060,6 +3078,17 @@ static uint32_t dn_tick_now(void)
 
 /* REC: a played note into the selected track. Playing: the step now, or the next one if the note came in its second
  * half (the nearest). Stopped: at the cursor, which moves on. Played under another key: a slide. */
+/* (0.29) the roll remembers the last note put in, edited or picked up on track t: its note, length, chord; a step
+ * turned on next gets them (not on the breaks or SAMPLER's pads, whose steps take their slice / pad) */
+static void dn_step_remember(uint32_t t, const dn_step_t *st)
+{
+    t %= DN_SEQ_TRACKS;
+    if (DN_IS_PADS(t))
+        return;
+    dn_sq.pat.tr[t].last_note = st->note;
+    dn.last_len[t] = st->len;
+    dn.last_chord[t] = (uint8_t)DN_ST_CHORD_OF(st->flags);
+}
 static uint32_t dn_rec_note(uint8_t note, int legato)
 {
     dn_track_t *tr = &dn_sq.pat.tr[dn.trk];
@@ -3079,6 +3108,7 @@ static uint32_t dn_rec_note(uint8_t note, int legato)
     tr->st[i].vel = 100;
     tr->last_note = note;
     dn_unlock();
+    dn_step_remember(dn.trk, &tr->st[i]);
     dn_mark();
     return i;
 }
@@ -3240,12 +3270,17 @@ static void dn_keys_seq(uint32_t keys)
                     } else if (DN_IS_PADS(dn.trk)) {   /* SAMPLER's pads: the row's (or the pad shown) */
                         tr->st[i].note = (uint8_t)(drum ? dn.drum_row : dn.smp_pad);
                         tr->st[i].len = DN_LEN_STEP;
-                    } else {
+                    } else {                        /* (0.29) the last note's note, length and chord */
                         tr->st[i].note = tr->last_note;
+                        tr->st[i].len = dn.last_len[dn.trk] ? dn.last_len[dn.trk] : 3u;
+                        tr->st[i].flags = (uint8_t)((tr->st[i].flags & ~DN_ST_CHORD) |
+                                                    (DN_CHORDABLE(dn.trk) ? (uint32_t)dn.last_chord[dn.trk] << 4 : 0u));
                     }
                     dn_unlock();
                     dn.step_edited = 1;             /* just turned on: letting go keeps it */
                     dn_mark();
+                } else if (!drum) {
+                    dn_step_remember(dn.trk, &tr->st[i]);   /* (0.29) one already there: the next is like it */
                 }
             }
             if ((up & (1u << k)) && dn.step_held >= 0 && dn.step_key == (int8_t)k) {
@@ -3323,6 +3358,7 @@ static void dn_keys_entry(uint32_t keys)
             tr->st[i].flags = (uint8_t)(DN_ST_ON | (legato ? DN_ST_SLIDE : 0u));
             tr->last_note = note;
             dn_unlock();
+            dn_step_remember(dn.trk, &tr->st[i]);
             dn_play(note, legato);
             dn.roll_cur = (uint8_t)((i + (adv ? adv : 1u)) % tr->len);
             dn.view = (uint8_t)(dn.roll_cur / 16u);
@@ -3418,9 +3454,17 @@ static void dn_lfo_draw_knob(uint32_t k, int32_t d)  /* DRAW: KNOB 1 the pen (or
 }
 
 /* SEQ held + white key 1-8: track 1-8, and its instrument's page (on a sequencer page: its sequencer page) */
-static void dn_trk_go(uint32_t t)
+static void dn_trk_go2(uint32_t t, int seq);
+static void dn_trk_go(uint32_t t) { dn_trk_go2(t, DN_IS_SEQPG(dn.page)); }
+/* (0.29) track t's instrument: its sound pages (HOME, SEQ held + black key 1-8) */
+static void dn_trk_open(uint32_t t)
 {
-    int seq = DN_IS_SEQPG(dn.page);
+    if (DN_IS_SEQPG(dn.page) || dn.page == DN_PG_HOME)
+        dn.page = 0xFFu;                            /* (not a sound page: the instrument's first) */
+    dn_trk_go2(t, 0);
+}
+static void dn_trk_go2(uint32_t t, int seq)
+{
     t %= DN_SEQ_TRACKS;
     dn.trk = (uint8_t)t;
     dn.peng = 0xFF;
@@ -3452,10 +3496,15 @@ static void dn_keys(uint32_t raw)
 {
     uint32_t down = raw & ~dn.keys_raw, k, keys;
     dn.keys_raw = raw;
-    if (down && (dn_in_buttons() & (1u << B_SEQ))) {   /* SEQ held: the white keys 1-8 are the tracks */
+    if (down && (dn_in_buttons() & (1u << B_SEQ))) {   /* SEQ held: the white keys 1-8 are the tracks (their
+                                                     * sequencer on a sequencer page); (0.29) the black keys 1-8, OP1..:
+                                                     * the track's instrument, its sound pages */
         for (k = 0; k < NKEYS; k++)
-            if ((down >> k & 1u) && dn_is_white(k) && dn_key_ord(k) < 8) {
-                dn_trk_go((uint32_t)dn_key_ord(k));
+            if ((down >> k & 1u) && dn_key_ord(k) < 8) {
+                if (dn_is_white(k))
+                    dn_trk_go((uint32_t)dn_key_ord(k));
+                else
+                    dn_trk_open((uint32_t)dn_key_ord(k));
                 dn.seq_chord = 1;
             }
         dn.keys_ign |= down;
@@ -3467,6 +3516,16 @@ static void dn_keys(uint32_t raw)
     if (!dn.keys_prev) {                            /* the keys follow the page they were pressed on */
         dn.key_page = dn.page;
         dn.key_mode = dn.roll_keys ? 1u : dn.rec && dn.step_held < 0 ? 2u : 0u;
+    }
+    if (dn.key_page == DN_PG_HOME) {                /* (0.29) HOME: a key 1-8, white or black, opens that track */
+        uint32_t dw = keys & ~dn.keys_prev;
+        for (k = 0; k < NKEYS; k++)
+            if ((dw >> k & 1u) && dn_key_ord(k) < 8) {
+                dn_trk_open((uint32_t)dn_key_ord(k));
+                break;
+            }
+        dn.keys_prev = keys;
+        return;
     }
     if (dn.key_page == DN_PG_ROLL && dn.key_mode == 2u)
         dn_keys_play(keys);                         /* (0.27.1) ROLL with REC on: the keys play and record, chords too */
@@ -3618,6 +3677,7 @@ static void dn_chord_turn(int32_t d)
     dn_lock();
     st->flags = (uint8_t)((st->flags & ~DN_ST_CHORD) | (c << 4));
     dn_unlock();
+    dn_step_remember(dn.trk, st);                   /* (0.29) the next step's chord too */
     dn.step_edited = 1;
     dn_mark();
 }
@@ -3661,7 +3721,7 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
                 st->rvel = (int8_t)dn_clamp(st->rvel + d * 8, -127, 127);
             } else if (k == 2u && DN_CHORDABLE(dn.trk)) {
                 dn_unlock();                        /* (0.28) its CHORD */
-                dn_chord_turn(d > 0 ? 1 : -1);
+                dn_chord_turn(d);
                 return;
             }
         }
@@ -3693,6 +3753,8 @@ static void dn_seq_knob(uint32_t k, int32_t d)      /* KNOB 1..4 on the SEQ page
         else
             st->cond = (uint8_t)dn_clamp(st->cond + d, 0, DN_CO_N - 1);
         dn_unlock();
+        if (k < 2u)
+            dn_step_remember(dn.trk, st);           /* (0.29) its note, length: the next step's */
         dn.step_edited = 1;
         dn_mark();
         return;
@@ -4237,6 +4299,7 @@ static void dn_name_input(uint32_t press)
         dn.redraw |= DN_RD_ALL;
     } else if (press & (1u << B_HOME)) {
         dn.naming = 0;
+        dn.home_chord = 1;                          /* (its release: not a tap to HOME) */
         dn_say("NAME LEFT AS IT WAS");
         dn.redraw |= DN_RD_ALL;
     } else if (press || d) {
@@ -4260,7 +4323,7 @@ void dn_app_input(void)
     /* (0.22) HOME held + SELECT: the next / last track and its instrument's pages (HOME's own job then waits: a hold
      * on release, chop deletes cancelled, no FILL) */
     if (press & (1u << B_HOME))
-        dn.home_chord = 0;
+        dn.home_chord = 0, dn.home_dn = plat_ms() | 1u;
     if ((btn & (1u << B_HOME)) && (d = dn_in_enc(EN_SELECT)) != 0) {
         static char t[24];
         uint32_t tr = (uint32_t)(((int32_t)dn.trk + d) % (int32_t)DN_SEQ_TRACKS + (int32_t)DN_SEQ_TRACKS) % DN_SEQ_TRACKS;
@@ -4544,9 +4607,10 @@ void dn_app_input(void)
             dn.redraw |= DN_RD_ALL;
         }
     }
-    {   /* FILL: HOME held on a sequencer page (not ROLL's KEYS, where HOME is a rest) */
+    {   /* FILL: HOME held on a sequencer page (not ROLL's KEYS, where HOME is a rest); (0.29) from 150 ms held, so a
+         * tap can open HOME */
         uint8_t f = DN_IS_SEQPG(dn.page) && !(dn.page == DN_PG_ROLL && dn.roll_keys) && (btn & (1u << B_HOME)) &&
-                    !dn.home_chord;
+                    !dn.home_chord && (int32_t)(plat_ms() - dn.home_dn) >= DN_HOME_TAP_MS;
         if (f != dn_sq.fill) {
             dn_sq.fill = f;
             dn.redraw |= DN_RD_ALL;
@@ -4563,16 +4627,21 @@ void dn_app_input(void)
         dn.roll_cur = (uint8_t)((dn.roll_cur + 1u) % tr->len);
         dn.view = (uint8_t)(dn.roll_cur / 16u);
         dn_mark();
-    } else if ((rel & (1u << B_HOME)) && !dn.home_chord && !DN_IS_SEQPG(dn.page)) {   /* hold a note */
-        dn.play = (uint8_t)!dn.play;
-        if (dn.play && !dn.nheld)
-            dn_play(dn_key_note(0), 0);
-        else if (!dn.play && !dn.nheld)
-            dn_stop();
-        dn.redraw |= DN_RD_BOTTOM;
+    } else if ((rel & (1u << B_HOME)) && !dn.home_chord && dn.page == DN_PG_HOME) {
+        dn_trk_open(dn.trk);                        /* (0.29) HOME on HOME: the track picked with SELECT, opened */
+    } else if ((rel & (1u << B_HOME)) && !dn.home_chord && dn.page != DN_PG_SLICE &&
+               (!DN_IS_SEQPG(dn.page) || (int32_t)(plat_ms() - dn.home_dn) < DN_HOME_TAP_MS)) {
+        dn_sq.fill = 0;                             /* (0.29) a tap: HOME, the eight tracks (a hold on a sequencer
+                                                     * page was FILL) */
+        dn.home_back = dn.page;
+        dn_goto(DN_PG_HOME);
+        dn.redraw |= DN_RD_ALL;
     }
     if ((d = dn_in_enc(EN_SELECT)) != 0) {
-        if (DN_IS_SEQPG(dn.page) && dn.step_held >= 0) {
+        if (dn.page == DN_PG_HOME) {                /* (0.29) HOME: the track picked (HOME again opens it) */
+            dn.trk = (uint8_t)(((int32_t)dn.trk + d) % (int32_t)DN_SEQ_TRACKS + (int32_t)DN_SEQ_TRACKS) % DN_SEQ_TRACKS;
+            dn.redraw |= DN_RD_ALL;
+        } else if (DN_IS_SEQPG(dn.page) && dn.step_held >= 0) {
             dn_step_move(d);                        /* a step held: it moves in time */
         } else if (dn.page == DN_PG_ROLL) {
             /* (an instrument's page: SELECT moves a held note; the instrument is chosen on its sound pages) */
@@ -4597,8 +4666,9 @@ void dn_app_input(void)
             dn_goto(DN_SND[at]);
         }
     }
-    if ((d = dn_in_enc(EN_PRESET)) != 0 && dn.step_held >= 0 && dn.ramp_b < 0 && DN_CHORDABLE(dn.trk) &&
-        DN_IS_SEQPG(dn.page)) {
+    if ((d = dn_in_enc(EN_PRESET)) != 0 && dn.page == DN_PG_HOME) {
+        /* (0.29) HOME: PRESETS does nothing */
+    } else if (d && dn.step_held >= 0 && dn.ramp_b < 0 && DN_CHORDABLE(dn.trk) && DN_IS_SEQPG(dn.page)) {
         dn_chord_turn(d);                           /* (0.28) a step held, FM / SAMPLER / MIDI: its chord */
     } else if (d && DN_IS_SMP(dn.trk) && (DN_IS_SNDPG(dn.page) || DN_IS_SEQPG(dn.page))) {
         if (dn_sm.p.mode == DN_SMP_ONESHOT)         /* SAMPLER: PRESETS picks the pad (the zone) its pages show */
@@ -4897,6 +4967,10 @@ static const char *dn_top_names(const char **pn)
     int brk = DN_IS_BRKPG(dn.page) || (dn.page == DN_PG_DRUM && !DN_IS_SMP(dn.trk));
     const dn_brk_t *bk = &dn_bk[dn_bsel()];
     *pn = dn_sound_name(0, dn.preset);
+    if (dn.page == DN_PG_HOME) {                    /* (0.29) HOME: the project */
+        *pn = dn_pname;
+        return "HOME";
+    }
     if (brk) {                                      /* BRK: which BREAKS, and its loop */
         tag = dn_bsel() ? "BRK B" : "BRK A";
         *pn = bk->loop.name;
@@ -5560,6 +5634,75 @@ static void dn_draw_pat_tabs(void)
     cv_text(238 - text_w(&FONT_T, v), 3, &FONT_T, v, pct > 90u ? DN_C_RED : DN_C_DIMTXT);
 }
 
+/* (0.29) what track t plays, in a few letters: the sound, the loop, the voice, the channel */
+static const char *dn_trk_sound(uint32_t t)
+{
+    static char m[12];
+    t %= DN_SEQ_TRACKS;
+    if (DN_IS_RS(t))
+        return dn_sound_name(0, dn.preset);
+    if (DN_IS_SUB(t))
+        return dn_sound_name(1, dn.sb_preset);
+    if (DN_IS_BRK(t))
+        return dn_bk[DN_BK(t)].ok ? dn_bk[DN_BK(t)].loop.name : "NO LOOP";
+    if (DN_IS_FM(t))
+        return dn_fm_vcname();
+    if (DN_IS_SMP(t))
+        return dn_sm.p.mode == DN_SMP_ONESHOT ? "PADS" : "KEYS";
+    if (DN_IS_MIDI(t)) {
+        uint32_t c = dn_sq.pat.tr[t].chan + 1u;
+        m[0] = 0;
+        dn_cat(m, "CH ");
+        if (c >= 10u)
+            dn_cat(m, "1"), c -= 10u;
+        m[str_len_dn(m) + 1u] = 0;
+        m[str_len_dn(m)] = (char)('0' + c);
+        return m;
+    }
+    return "";
+}
+
+/* (0.29) HOME: the eight tracks, each its number, instrument, sound; the picked one lit; a note playing lights a
+ * dot, a muted track is dim. A key 1-8 opens one; SELECT picks, HOME opens it */
+static void dn_draw_home(void)
+{
+    uint32_t t;
+    cv_rect(0, 0, 64, 17, DN_C_BLUE);
+    cv_text(32 - text_w(&FONT_T, "HOME") / 2, 3, &FONT_T, "HOME", DN_C_BAR);
+    cv_text(236 - text_w(&FONT_XS, "KEY 1-8 OPENS A TRACK"), 4, &FONT_XS, "KEY 1-8 OPENS A TRACK", DN_C_DIMTXT);
+    for (t = 0; t < DN_SEQ_TRACKS; t++) {
+        int32_t x = 2 + (int32_t)(t % 4u) * 59, y = 21 + (int32_t)(t / 4u) * 50;
+        int sel = t == dn.trk, off = dn_eng[t] == DN_E_OFF, mute = dn_sq.pat.tr[t].mute;
+        const dn_track_t *tr = &dn_sq.pat.tr[t];
+        uint16_t fg = sel ? DN_C_BAR : off || mute ? DN_C_DIMTXT : C_WHITE;
+        char n[4] = {0, 0, 0, 0}, nm[10];
+        uint32_t i;
+        cv_rect(x, y, 57, 47, sel ? DN_C_BLUE : DN_C_PANEL);
+        n[0] = (char)('1' + t);
+        cv_text(x + 4, y + 2, &FONT_S, n, sel ? DN_C_BAR : off ? DN_C_DIMTXT : DN_C_BLUE);
+        if (dn_sq.playing && !mute && !off && dn_sq.cur[t] < tr->len && (tr->st[dn_sq.cur[t]].flags & DN_ST_ON))
+            dn_disc(x + 49, y + 8, 4, sel ? DN_C_BAR : DN_C_RED);   /* (a note on this step) */
+        cv_text(x + 4, y + 21, &FONT_T, dn_inst_name(t), fg);
+        for (i = 0; i < 9u && dn_trk_sound(t)[i]; i++)             /* (the sound's name, as much as fits) */
+            nm[i] = dn_trk_sound(t)[i];
+        nm[i] = 0;
+        while (i > 0u && text_w(&FONT_XS, nm) > 50)
+            nm[--i] = 0;
+        cv_text(x + 4, y + 34, &FONT_XS, mute && !off ? "MUTED" : nm, sel ? DN_C_BAR : mute ? DN_C_RED : DN_C_LABEL);
+    }
+    cv_rect(0, 121, 240, 23, DN_C_BAR);
+    {
+        char l[24];
+        l[0] = 'T', l[1] = (char)('1' + dn.trk), l[2] = ' ', l[3] = 0;
+        dn_cat(l, dn_inst_name(dn.trk));
+        cv_text(8, 127, &FONT_T, l, C_WHITE);
+        if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0)
+            cv_text(232 - text_w(&FONT_T, dn.msg), 127, &FONT_T, dn.msg, DN_C_RED);
+        else
+            cv_text(232 - text_w(&FONT_T, "HOME: OPEN IT"), 127, &FONT_T, "HOME: OPEN IT", DN_C_DIMTXT);
+    }
+}
+
 static uint32_t dn_tabs(uint8_t *ids, const char **nms)
 {
     static const uint8_t BRK_T[3] = {DN_PG_BRK, DN_PG_BRK2, DN_PG_SLICE};
@@ -5567,7 +5710,14 @@ static uint32_t dn_tabs(uint8_t *ids, const char **nms)
     static const char *const MN[8] = {"MIDI 1", "MIDI 2", "MIDI 3", "MIDI 4", "MIDI 5", "MIDI 6", "MIDI 7", "MIDI 8"};
     static const char *const FN[5] = {"MIX", "FX A", "FX A 2", "FX B", "FX B 2"};
     uint32_t k, n = 0;
-    if (dn.page == DN_PG_MIDI) {                    /* the MIDI instruments (SELECT: the next) */
+    if (dn.page == DN_PG_HOME) {                    /* (0.29) HOME: the eight tracks (the picked one lit) */
+        static char hn[DN_SEQ_TRACKS][10];
+        for (k = 0; k < DN_SEQ_TRACKS && k < DN_MAXTABS; k++) {
+            hn[k][0] = (char)('1' + k), hn[k][1] = ' ', hn[k][2] = 0;
+            dn_cat(hn[k], dn_inst_name(k));
+            ids[n] = k == dn.trk ? DN_PG_HOME : 0xFFu, nms[n++] = hn[k];
+        }
+    } else if (dn.page == DN_PG_MIDI) {             /* the MIDI instruments (SELECT: the next) */
         for (k = 0; k < dn_midi_n() && k < 8u; k++)
             ids[n] = k == dn.midi_sel ? DN_PG_MIDI : 0xFFu, nms[n++] = MN[k];
         if (!n)
@@ -5640,6 +5790,11 @@ static void dn_draw_bottom(void)
         cv_rect(0, 121, 240, 23, DN_C_BAR);
         cv_text(8, 127, &FONT_T, "SAVE: KEEP", C_WHITE);
         cv_text(232 - text_w(&FONT_T, "HOME: CANCEL"), 127, &FONT_T, "HOME: CANCEL", DN_C_DIMTXT);
+        cv_blit(0, 96);
+        return;
+    }
+    if (dn.page == DN_PG_HOME) {                    /* (0.29) */
+        dn_draw_home();
         cv_blit(0, 96);
         return;
     }
@@ -5816,7 +5971,7 @@ void dn_app_draw(int force)
         dn.redraw = DN_RD_ALL;
     uint32_t keys = dn.keys_prev, dim = 0, k;
     static uint32_t shown_pos;
-    if (DN_IS_SEQPG(dn.page) && dn_sq.playing && dn_sq.pos != shown_pos)
+    if ((DN_IS_SEQPG(dn.page) || dn.page == DN_PG_HOME) && dn_sq.playing && dn_sq.pos != shown_pos)
         dn.redraw |= DN_RD_BOTTOM;                  /* the playhead moved */
     shown_pos = dn_sq.pos;
     {                                               /* (0.16.1) the audio ran late (out of CPU): say so; PROJECT's
@@ -5842,7 +5997,7 @@ void dn_app_draw(int force)
     if (dn.redraw & DN_RD_BOTTOM)
         dn_draw_bottom();
     dn.redraw = 0;
-    lit |= 1u << (DN_IS_SEQPG(dn.page) ? B_SEQ : DN_IS_BRKPG(dn.page) ? B_ARP : DN_IS_GLOPG(dn.page) ? B_GLO
+    lit |= 1u << (dn.page == DN_PG_HOME ? B_HOME : DN_IS_SEQPG(dn.page) ? B_SEQ : DN_IS_BRKPG(dn.page) ? B_ARP : DN_IS_GLOPG(dn.page) ? B_GLO
                   : dn.page == DN_PG_LFO ? B_LFO : dn.page == DN_PG_SOSC2 ? B_SEL : dn.page == DN_PG_DIRT ? B_EDIT
                   : dn.page == DN_PG_FENV ? B_ENV
                   : DN_PAGE_BTN[dn.page % DN_NPAGES]);
@@ -5860,7 +6015,7 @@ void dn_app_draw(int force)
         lit |= 1u << B_PLAY;                        /* (counting in: it blinks) */
     if (dn.rec)
         lit |= 1u << B_REC;
-    if (dn.play)
+    if (dn.page == DN_PG_HOME)
         lit |= 1u << B_HOME;
     if (DN_IS_SEQPG(dn.page) && !(dn.page == DN_PG_ROLL && (dn.roll_keys || dn.rec))) {   /* the steps on, the playhead dim; the
                                                      * tracks playing (DRUM: the steps playing the selected slice) */
@@ -5880,6 +6035,22 @@ void dn_app_draw(int force)
             } else if (o < 8 && !dn_sq.pat.tr[o].mute) {
                 keys |= 1u << k;
             }
+        }
+    }
+    if (dn.page == DN_PG_HOME) {                    /* (0.29) HOME: white keys 1-8 lit for the tracks with an
+                                                     * instrument (the picked one dim), black keys 1-8 as notes play */
+        keys = 0;
+        for (k = 0; k < NKEYS; k++) {
+            int32_t o = dn_key_ord(k);
+            const dn_track_t *tr;
+            if (o >= 8)
+                continue;
+            tr = &dn_sq.pat.tr[o];
+            if (dn_is_white(k) && dn_eng[o] != DN_E_OFF)
+                *(o == (int32_t)dn.trk ? &dim : &keys) |= 1u << k;
+            else if (!dn_is_white(k) && dn_sq.playing && !tr->mute && dn_sq.cur[o] < tr->len &&
+                     (tr->st[dn_sq.cur[o]].flags & DN_ST_ON))
+                keys |= 1u << k;
         }
     }
     if (dn.page == DN_PG_SLICE && DN_IS_BRK(dn.trk)) {   /* chop mode: the keys with a chop dim, the selected lit;

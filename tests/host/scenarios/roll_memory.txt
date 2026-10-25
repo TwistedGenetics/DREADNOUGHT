@@ -1,0 +1,72 @@
+# DREADNOUGHT host scenario (0.29): the roll remembers the last note put in, edited or picked up (its note, length and
+# chord) and a step turned on next gets them. FM on track 8 (white keys: 0 2 4 6 7 9 11 12 are steps 1-8).
+sysex 76 6 7 0
+press SEQ
+tapkey 11 40
+release SEQ
+tap SEQ
+expect page 7
+expect trk 7
+key 20 down
+wait 1200
+key 20 up
+expect on.7 0
+# step 1 on (the track's last note, 3/4 step), then held: NOTE +2, LEN to 2 steps, CHORD MIN7 (FX twice, KNOB 3)
+tapkey 0 40
+expect on.7 1
+expect ln.7.1 3
+key 0 down
+wait 30
+turn K1 2
+turn K2 5
+tap FX
+tap FX
+turn K3 3
+key 0 up
+wait 30
+expect nt.7.1 55
+expect ln.7.1 8
+expect chordof.7.1 3
+# step 3: the same note, length and chord
+tapkey 4 40
+expect nt.7.3 55
+expect ln.7.3 8
+expect chordof.7.3 3
+# step 3 held, NOTE +1: step 5 gets that
+key 4 down
+wait 30
+turn K1 1
+key 4 up
+wait 30
+tapkey 7 40
+expect nt.7.5 56
+expect ln.7.5 8
+expect chordof.7.5 3
+# a step tapped off is picked up: step 1 (55, MIN7) off, then step 7 is like it
+tapkey 0 40
+expect on.7 2
+tapkey 11 40
+expect nt.7.7 55
+expect chordof.7.7 3
+shot roll-memory.png
+# REESE (no chords): the note and length remembered, never a chord
+press SEQ
+tapkey 0 40
+release SEQ
+expect trk 1
+key 20 down
+wait 1200
+key 20 up
+expect on.1 0
+tapkey 0 40
+expect ln.1.1 3
+key 0 down
+wait 30
+turn K1 3
+turn K2 1
+key 0 up
+wait 30
+tapkey 2 40
+expect nt.1.2 >0
+expect ln.1.2 4
+expect chordof.1.2 0

@@ -11,7 +11,7 @@
 // selecting each in turn, which while playing would only queue.
 import { NLFO_ALL, nLfos, NPAT, TRACKS, parsePattern, serializePattern, PF, setEngines, readSampler, writeSampler, readFm, writeFm, ST_CHORD, chordMatch } from "./protocol.js";
 import { zoneVoices } from "./dx7.js";
-import { readSlots, writeSlots, slotSamples, sameImage } from "./media.js";
+import { readSlots, writeSlots, slotSamples, sameImage, imagesOf, slotMax } from "./media.js";
 import { sliceKey, key7, pos7 } from "../breaks/slices.js";
 
 export const FORMAT = "dreadnought-project", VERSION = 1;
@@ -66,6 +66,21 @@ export async function readProject(link, { media = [], onPart = () => {}, say = (
   };
 }
 
+// (0.29) a project saved from an FM-1 before 0.29: its loop numbers counted the two built-in breaks (ROLLER, STEPPER)
+// first. BREAKS' LOOP (value 110) and SAMPLER's SAMPLE (each pad's and zone's first value) move down two; one on a
+// built-in loop goes to the first loop (BREAKS) or none (SAMPLER). In place; the project.
+export const fwBefore = (o, maj, min) => {
+  const m = /(\d+)\.(\d+)/.exec((o && o.firmware) || "");
+  return !!m && (+m[1] < maj || (+m[1] === maj && +m[2] < min));
+};
+export function upLoops(o) {
+  if (!fwBefore(o, 0, 29) || o.loopsUp) return o;
+  if (Array.isArray(o.params) && o.params.length > 110) o.params[110] = o.params[110] >= 2 ? o.params[110] - 2 : 0;
+  if (o.smp) for (const g of [o.smp.pads, o.smp.zones]) for (const v of g || []) if (v && v.length) v[0] = v[0] >= 2 ? v[0] - 2 : -1;
+  o.loopsUp = true;
+  return o;
+}
+
 // (0.28) a 0.27 project's chords were its own shapes (o.chords: distances over the step's note); each step's becomes
 // the chord of the 15 it is (none: the note alone), its note the chord's root
 export function upChords(pat, shapes) {
@@ -93,6 +108,7 @@ export function checkProject(o) {
 // a project object -> the FM-1. Sends only what differs for the samples (a cut-off load can simply be run again).
 export async function writeProject(link, o, { onPart = () => {}, say = () => {} } = {}) {
   checkProject(o);
+  if (!fwBefore({ firmware: link.name || "" }, 0, 29)) upLoops(o);   // (an FM-1 without the built-in breaks)
   const st = await link.state();
   if (st.playing) throw new Error("Stop the FM-1 first (a project is written pattern by pattern).");
   say("Sending the project's layout…");
@@ -129,8 +145,13 @@ export async function writeProject(link, o, { onPart = () => {}, say = () => {} 
   }
   for (let t = 0; t < TRACKS; t++) await link.patSel(t, (o.current && o.current[t]) || 0);
   say("Sending the samples…");
-  const dev = await readSlots(link), want = (o.slots || []).map((s) => (s ? { hdr: unb64(s.hdr), data: unb64(s.data) } : null));
+  const dev = await readSlots(link);
+  let want = (o.slots || []).map((s) => (s ? { hdr: unb64(s.hdr), data: unb64(s.data) } : null));
   while (want.length < 3) want.push(null);
+  if (want.some((w, k) => w && w.data.length > slotMax(k))) {   // (0.29: slot 3 is 64 KB: the samples packed again)
+    want = imagesOf(slotSamples(want).map(({ adpcm, n, rate }) => ({ adpcm, n, rate })));
+    say("Slot 3 holds 64 KB now: the samples were packed again to fit.");
+  }
   if (!want.every((w, k) => sameImage(w, dev[k]))) await writeSlots(link, want, dev, (f) => onPart(0.4 + f * 0.55), say);
   for (const sl of o.slices || []) {
     const r = await link.req(51, [...key7(sl.key), sl.starts.length, ...sl.starts.flatMap(pos7)], 5000).catch(() => null);

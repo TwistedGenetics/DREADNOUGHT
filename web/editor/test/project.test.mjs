@@ -72,3 +72,33 @@ test("a 0.27 project's own chord shapes become the 15 chords (0.28)", async () =
   upChords(pat, [[4, 7, 0, 0, 0], [3, 8, 0, 0, 0], [1, 0, 0, 0, 0]]);
   assert.deepEqual([st[0].note, st[0].flags >> 4, st[1].note, st[1].flags >> 4, st[2].note, st[2].flags >> 4], [53, 2, 53, 2, 53, 0]);
 });
+
+test("a project from before 0.29: loop numbers lose the two built-in breaks", async () => {
+  const { upLoops, fwBefore } = await import("../project.js");
+  assert.equal(fwBefore({ firmware: "DREADNOUGHT 0.28" }, 0, 29), true);
+  assert.equal(fwBefore({ firmware: "DREADNOUGHT 0.29" }, 0, 29), false);
+  assert.equal(fwBefore({ firmware: "DREADNOUGHT 1.2" }, 0, 29), false);
+  const params = new Array(120).fill(0);
+  params[110] = 3;
+  const o = { firmware: "DREADNOUGHT 0.27.1", params, smp: { pads: [[0, 5], [4, 5], [-1, 5]], zones: [[1, 60], [2, 60]] } };
+  upLoops(o);
+  assert.equal(o.params[110], 1, "BREAKS on slot loop 2 (was 3)");
+  assert.deepEqual(o.smp.pads.map((p) => p[0]), [-1, 2, -1], "a built-in: none; 4 -> 2; none stays none");
+  assert.deepEqual(o.smp.zones.map((z) => z[0]), [-1, 0]);
+  upLoops(o);
+  assert.equal(o.params[110], 1, "only once");
+  const n = { firmware: "DREADNOUGHT 0.29", params: [...params], smp: { pads: [[4]], zones: [] } };
+  n.params[110] = 3;
+  upLoops(n);
+  assert.equal(n.params[110], 3, "a 0.29 project as it is");
+});
+
+test("a project whose slot 3 is fuller than 64 KB is packed again on its way to a 0.29 FM-1", async () => {
+  const { slotImage, imagesOf, slotSamples, slotMax } = await import("../media.js");
+  const z = (kb) => ({ adpcm: new Uint8Array(kb * 1024).fill(0x11), n: kb * 2048, rate: 22050 });
+  const old = [slotImage("SMP1", [z(30)]), slotImage("SMP2", [z(20)]), slotImage("SMP3", [z(70)])];
+  assert.ok(old[2].data.length > slotMax(2));
+  const ims = imagesOf(slotSamples(old).map(({ adpcm, n, rate }) => ({ adpcm, n, rate })));
+  assert.ok(ims.every((im, k) => !im || im.data.length <= slotMax(k)), "each fits its slot");
+  assert.deepEqual(slotSamples(ims).map((s) => s.n), slotSamples(old).map((s) => s.n), "the same samples, in order");
+});

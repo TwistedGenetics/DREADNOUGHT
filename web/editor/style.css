@@ -144,6 +144,18 @@ progress { width: 100%; }
 /* FM (0.25) */
 .dx7pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); width: 100%; box-sizing: border-box; gap: 4px 12px; padding: 8px 12px; font-size: 13px; }
 .dx7pick label { display: flex; align-items: center; gap: 4px; }
+/* (0.29) the FM tab's bank browser: a tile a voice */
+#fmBanks { margin-bottom: 16px; }
+.fmbank { margin-top: 12px; }
+.fmbank h3 { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; font-size: 14px; }
+.fmbank h3 .small { font-weight: normal; }
+.fmtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.fmtile { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: var(--bg, #fff); display: flex; flex-direction: column; gap: 4px; }
+.fmtile.kept { border-color: var(--blue-d); box-shadow: inset 0 0 0 1px var(--blue-d); }
+.fmtile .nm { font-family: ui-monospace, Menlo, monospace; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fmtile .nm b { color: var(--dim); font-weight: normal; margin-right: 4px; }
+.fmtile .acts { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.fmtile .acts label { margin-left: auto; display: flex; align-items: center; gap: 3px; }
 .opgrp h3 input { margin-left: 6px; vertical-align: middle; }
 
 /* the panel (0.26): the FM-1, big. Light (the page's colours); laid out as the FM-1 */

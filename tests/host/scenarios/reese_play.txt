@@ -51,13 +51,12 @@ shot ui-03-neuro.png
 # the tempo
 turn ALGO -2
 expect bpm 170
-# HOME holds a note
+# a held note (HOME no longer holds one: 0.29, HOME is the eight tracks)
 wav reese-hold.wav
-tap HOME
+key 0 down
 wait 800
 expect gate 1
-shot ui-04-hold.png
-tap HOME
+key 0 up
 wait 2000
 expect gate 0
 wavstop

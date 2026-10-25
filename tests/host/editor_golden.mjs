@@ -70,6 +70,12 @@ check("UI_STATE: REESE's OSC page, track 1, tabs with OSC lit, knob 1 and 4 name
   ui.page === 0 && ui.trk === 0 && ui.eng === 1 && ui.tag === "REESE" && ui.tabs[ui.tabSel] === "OSC" && ui.knobs[0].name === g.uiknob[0] &&
   ui.knobs[0].value === g.uiknob[1] && ui.knobs[3].name === g.uiknob[2] && ui.name === g.uiknob[3],
   `${ui.tag} ${ui.name} ${ui.tabs.join("/")} ${ui.knobs.map((k) => k && k.name).join(",")}`, `REESE ${g.uiknob[3]} OSC ${g.uiknob[0]}`);
+// 0.29: HOME's UI_STATE: tag HOME, the project's name, the eight tracks as tabs (track 1 lit), no knobs
+{
+  const h = parseUi(g.uihome);
+  check("UI_STATE on HOME: the eight tracks as tabs, track 1 lit, no knobs", h.tag === "HOME" && h.tabs.length === 8 && h.tabs[0] === "1 REESE" &&
+    h.tabs[1] === "2 BRK A" && h.tabSel === 0 && h.knobs.every((k) => !k), `${h.tag} ${h.tabs.join("/")} ${h.tabSel}`, "HOME 1 REESE/2 BRK A/... 0");
+}
 // 0.28: the 15 chords: the editor's table is the FM-1's
 check("chords: the editor's 15 (MIN .. 6) are the FM-1's", JSON.stringify(parseChords(g.chords)) === JSON.stringify(CHORDS),
   JSON.stringify(parseChords(g.chords)[0]), JSON.stringify(CHORDS[0]));

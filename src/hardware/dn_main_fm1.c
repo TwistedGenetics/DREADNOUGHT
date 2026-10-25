@@ -235,6 +235,26 @@ static uint32_t ed_unpack7(const uint8_t *a, uint32_t na, uint8_t *out, uint32_t
 }
 static uint8_t ed_smp_buf[512] __attribute__((aligned(4)));
 static uint32_t ed_smp_slot(uint32_t k) { return SMP_USER_BASE + k * SMP_USER_SIZE; }
+/* (0.29) slot 3 is 64 KB: its top 16 KB (0xD8000..0xDBFFF) holds the settings objects EXT0 / EXT1 (tools/dn_patches.py
+ * puts them there in X0X's storage.c). Slots 1 and 2 stay 80 KB. */
+#define DN_SLOT3_SIZE 0x10000u
+static uint32_t ed_slot_size(uint32_t k) { return k == 2u ? DN_SLOT3_SIZE : SMP_USER_SIZE; }
+/* the settings objects may be written: slot 3 empty, or its samples inside its 64 KB (one sent before 0.29 can reach
+ * further: until it is sent again, EXT0 / EXT1 are not written over it) */
+static int dn_ext_ok(void)
+{
+    const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip(2);
+    return !usr_nz[2] || h->data_len + SMP_USER_DATA <= DN_SLOT3_SIZE;
+}
+int dn_ext_load(uint32_t i, void *dst, uint32_t max) { return i < DN_NEXT ? plat_store_load(DN_OBJ_EXT0 + i, dst, max) : -1; }
+int dn_ext_save(uint32_t i, const void *src, uint32_t len)
+{
+    if (i >= DN_NEXT)
+        return -1;
+    if (!dn_ext_ok())
+        return -10;
+    return plat_store_save(DN_OBJ_EXT0 + i, src, len);
+}
 static void ed_smp_inval(uint32_t k)
 {
     fm1_irq_off();
@@ -247,7 +267,7 @@ static int ed_smp_erase(uint32_t k, uint32_t all)
     int rc = 0;
     dn_app_slots_changed(0);                        /* BREAKS lets go of uploaded loops first */
     usr_nz[k] = 0;
-    for (i = 0; i < (all ? SMP_USER_SIZE / 0x1000u : 1u) && !rc; i++) {
+    for (i = 0; i < (all ? ed_slot_size(k) / 0x1000u : 1u) && !rc; i++) {   /* (slot 3: not its settings) */
         audio_silence();
         rc = fl_erase4k(ed_smp_slot(k) + i * 0x1000u, &took);
         fm1_wdt_feed();
@@ -261,7 +281,7 @@ static int ed_smp_end(uint32_t k, const uint8_t *a, uint32_t na)
     if (ed_unpack7(a, na, ed_smp_buf, sizeof(smp_user_hdr_t)) != sizeof(smp_user_hdr_t))
         return 1;
     if (h->magic != SMP_USER_MAGIC || h->version != 1 || !h->nz || h->nz > 16u ||
-        h->data_len > SMP_USER_SIZE - SMP_USER_DATA)
+        h->data_len > ed_slot_size(k) - SMP_USER_DATA)
         return 2;
     ed_smp_inval(k);
     if (st_crc32(smp_user_xip(k) + SMP_USER_DATA, h->data_len) != h->crc)
@@ -302,7 +322,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)
             return;
         off = (uint32_t)a[1] | (uint32_t)a[2] << 7 | (uint32_t)a[3] << 14;
         len = ed_unpack7(a + 4, na - 4u, ed_smp_buf, 256u);
-        if (off < SMP_USER_DATA || (off & 0xFFu) || !len || off + len > SMP_USER_SIZE)
+        if (off < SMP_USER_DATA || (off & 0xFFu) || !len || off + len > ed_slot_size(a[0]))
             rc = 1;
         else if (usr_nz[a[0]])
             rc = 4;                                 /* (BEGIN first: it empties the slot) */
@@ -335,10 +355,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)
             return;
         off = (uint32_t)a[1] | (uint32_t)a[2] << 7 | (uint32_t)a[3] << 14;
         cnt = a[4] > ED_READ_MAX / 2u ? ED_READ_MAX : a[4] * 2u;
-        if (off >= SMP_USER_SIZE)
+        if (off >= ed_slot_size(a[0]))
             return;
-        if (cnt > SMP_USER_SIZE - off)
-            cnt = SMP_USER_SIZE - off;
+        if (cnt > ed_slot_size(a[0]) - off)
+            cnt = ed_slot_size(a[0]) - off;
         src = smp_user_xip(a[0]) + off;
         ed_b(a[0]);
         ed_b(off);

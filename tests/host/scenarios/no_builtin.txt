@@ -1,0 +1,41 @@
+# DREADNOUGHT host scenario (0.29): no built-in breaks. The breaks play the loops sent to the sample slots (the
+# simulator has ROLLER and STEPPER in slot 1); with no loops at all they are silent and nothing breaks.
+expect srccount 2
+expect bsrc.0 0
+expect bsrc.1 1
+expect bok.0 1
+# a loop number saved before 0.29 counted the two built-in loops first; 0.29's carry the top bit
+expect srcmap.0 0
+expect srcmap.1 0
+expect srcmap.2 0
+expect srcmap.3 1
+expect srcmap.7 5
+expect srcmap.128 0
+expect srcmap.131 3
+# the slots emptied: no loops; the breaks silent, their pages and HOME still there, playing still fine
+noloops 1
+expect srccount 0
+expect bok.0 0
+expect bok.1 0
+press SEQ
+tapkey 2 40
+release SEQ
+expect trk 2
+expect page 6
+shot noloop-brk.png
+tap HOME
+expect page 19
+shot noloop-home.png
+tap PLAY
+wait 600
+expect playing 1
+tap PLAY
+tap SAVE
+wait 300
+reboot
+expect bok.0 0
+# loops back: the breaks play them again
+noloops 0
+expect srccount 2
+expect bok.0 1
+expect bok.1 1

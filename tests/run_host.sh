@@ -56,6 +56,11 @@ build/host/fm_test build/host tests/host/fm_golden.txt
 # shellcheck disable=SC2086
 $CC $W -D_DEFAULT_SOURCE tests/host/smp_test.c src/dsp/dn_smp.c -o build/host/smp_test -lm
 build/host/smp_test
+# (0.29) X0X's storage.c as built (tools/dn_patches.py): the settings objects in slot 3's top 16 KB
+python3 tools/dn_patches.py storage x0x-firmware/firmware/src build/gen/storage_dn.c
+# shellcheck disable=SC2086
+$CC $W -Ix0x-firmware/firmware/src/app tests/host/store_test.c -o build/host/store_test
+build/host/store_test
 # shellcheck disable=SC2086
 $CC $W tests/host/slices_xcheck.c src/dsp/dn_breaks.c -o build/host/slices_xcheck
 build/host/slices_xcheck | node tests/host/slices_xcheck.mjs

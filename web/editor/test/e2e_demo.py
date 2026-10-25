@@ -457,6 +457,46 @@ with sync_playwright() as pw:
     names = p.evaluate("() => window.__dn.fmNames")
     check("DX7: sent, FM's voices now 10 + 5, BANK 01 first of them", len(names) == 15 and names[10] == "BANK 01", names[9:12])
     check("DX7: not taken for a loop (the breaks' list as it was)", p.evaluate("() => window.__dn.loops.length") == 2)
+    # (0.29) the FM tab's bank browser: a second bank loaded there, a voice heard here and on the FM-1, two kept, sent
+    bank2 = bytearray(bank)
+    for v in range(32):
+        bank2[6 + v * 128 + 118:6 + v * 128 + 128] = f"TWO {v + 1:02d}".ljust(10).encode()
+    d2 = bank2[6:6 + 4096]
+    bank2[6 + 4096] = (128 - (sum(d2) & 127)) & 127
+    p.click("#fmTabBtn")
+    p.wait_for_timeout(200)
+    check("FM banks: the voices kept before shown on the FM tab (5 of 32, on the FM-1)",
+          p.locator("#fmBankList .fmbank").count() >= 1 and "5 of 32 kept" in p.locator("#fmBankList .fmbank").first.inner_text(),
+          p.locator("#fmBankList").inner_text()[:120])
+    p.set_input_files("#fmBankFile", files=[{"name": "second.syx", "mimeType": "application/octet-stream", "buffer": bytes(bank2)}])
+    p.wait_for_timeout(300)
+    last = p.locator("#fmBankList .fmbank").last
+    check("FM banks: the loaded bank's 32 voices, none kept yet", last.locator(".fmtile").count() == 32 and "0 of 32 kept" in last.inner_text(),
+          last.locator(".fmtile").count())
+    p.evaluate("() => { window.__played = 0; }")
+    f0 = p.evaluate("() => window.__dn.mock.fmPlayed")
+    last.locator(".fmtile").nth(2).locator("button").first.click()
+    p.wait_for_timeout(300)
+    check("FM banks: ▶ plays voice 3 here (nothing sent)", p.evaluate("() => window.__played") == 1 and p.evaluate("() => window.__dn.mock.fmPlayed") == f0)
+    last.locator(".fmtile").nth(2).locator("button").nth(1).click()
+    p.wait_for_timeout(600)
+    check("FM banks: FM-1 makes voice 3 FM's voice there and plays it",
+          p.evaluate("() => String.fromCharCode(...window.__dn.mock.fm.voice.slice(145, 151))") == "TWO 03" and p.evaluate("() => window.__dn.mock.fmPlayed") > f0,
+          p.evaluate("() => String.fromCharCode(...window.__dn.mock.fm.voice.slice(145, 155))"))
+    last = p.locator("#fmBankList .fmbank").last
+    last.locator(".fmtile").nth(0).locator("input").check()
+    p.wait_for_timeout(100)
+    p.locator("#fmBankList .fmbank").last.locator(".fmtile").nth(1).locator("input").check()
+    p.wait_for_timeout(100)
+    check("FM banks: 7 voices kept, not sent yet", "7 voices kept" in p.locator("#fmKept").inner_text() and "not sent" in p.locator("#fmKept").inner_text(),
+          p.locator("#fmKept").inner_text())
+    p.screenshot(path=str(shots / "editor-fm-banks.png"), full_page=True)
+    p.click("#fmSendKept")
+    p.wait_for_timeout(3500)
+    names = p.evaluate("() => window.__dn.fmNames")
+    check("FM banks: sent: FM's voices 10 + 7, the two new ones after the five", len(names) == 17 and names[15] == "TWO 01" and names[16] == "TWO 02", names[9:])
+    check("FM banks: the samples kept (the breaks' list as it was)", p.evaluate("() => window.__dn.loops.length") == 2)
+    check("FM banks: nothing left to send", "not sent" not in p.locator("#fmKept").inner_text(), p.locator("#fmKept").inner_text())
     check("no page errors", not errs, errs)
     b.close()
 srv.shutdown()

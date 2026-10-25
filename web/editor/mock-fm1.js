@@ -77,7 +77,7 @@ export class MockFM1 {
     this.fmPlayed = 0;
     // the panel (0.26): a small FM-1 behind it: REESE's five sound pages and a sequencer page
     this.ui = { page: 0, back: 0, keys: 0, btn: 0, msg: "" };
-    this.slots = [0, 1, 2].map(() => ({ buf: new Uint8Array(0x14000).fill(0xFF), ok: false }));
+    this.slots = [0x14000, 0x14000, 0x10000].map((n) => ({ buf: new Uint8Array(n).fill(0xFF), ok: false }));   // (0.29: slot 3 64 KB)
     this.log = [];
     const self = this;
     this.input = { name: "DREADNOUGHT FM-1", state: "connected", onmidimessage: null, open: async () => {} };
@@ -246,7 +246,7 @@ export class MockFM1 {
         const used = this.slots.reduce((acc, sl) => acc + (sl.ok ? 512 + new DataView(sl.buf.buffer).getUint32(16, true) : 0), 0);
         const fxk = fxMem(P.fx[0][0], P.fx[1][0]);
         return [...nm, ...P.eng, ...P.send[0], ...P.send[1], ...P.ret, ...P.fx[0].slice(0, 4), ...P.fx[1].slice(0, 4), ...digits(used, 3),
-          ...digits(3 * (0x14000 - 512), 3), ...digits(fxk, 2), ...digits(FX_ARENA_KB, 2), 12, 8, FX_NAMES.length,
+          ...digits(2 * (0x14000 - 512) + 0x10000 - 512, 3), ...digits(fxk, 2), ...digits(FX_ARENA_KB, 2), 12, 8, FX_NAMES.length,
           ...P.fx[0].slice(4, 8), ...P.fx[1].slice(4, 8)];
       }
       case CMD.PROJ_SET: {
