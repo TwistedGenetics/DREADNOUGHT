@@ -34,6 +34,7 @@ async function guard(fn) {
 
 // ---- connecting -------------------------------------------------------------------------------------------------
 async function start(link, label) {
+  if (S.link && S.link !== link && S.link.close) S.link.close();   // (0.30: one connection at a time)
   S.link = link;
   say("Reading…");
   S.st = await link.state();

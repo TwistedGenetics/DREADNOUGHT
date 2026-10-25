@@ -313,7 +313,10 @@ export const PF = { eng: (t) => t, sendA: (t) => 8 + t, sendB: (t) => 16 + t, re
   fx: (k, i) => (i < 4 ? 26 + 4 * k + i : 34 + 4 * k + (i - 4)) };
 
 // ---- the link --------------------------------------------------------------------------------------------------
-// one request at a time; a reply is the next editor frame with the same command
+// one request at a time; a reply is the next editor frame with the same command (and, when the request says how,
+// the one that answers it: the slot commands' replies name their slot and place, so a late or stray copy of an
+// earlier one is passed over). A request that goes unanswered is sent again (0.30), except those that would act twice.
+const ONCE = new Set([66, 82, 86, 88]);                // (TRANSPORT, the two plays, a panel press: not repeated)
 export class Link {
   constructor(input, output) {
     this.input = input;
@@ -321,23 +324,44 @@ export class Link {
     this.wait = null;
     this.queue = Promise.resolve();
     this.tap = null;                                  // (the Diagnostics panel: every frame both ways)
+    this.closed = false;
     input.onmidimessage = (ev) => {
       const d = ev.data;
+      if (this.closed) return;
       if (this.tap && d[0] === 0xF0) this.tap("<", d);
       if (d[0] !== 0xF0 || d[1] !== HDR[0] || d[2] !== HDR[1] || d[3] !== HDR[2] || !this.wait || d[4] !== this.wait.cmd) return;
-      const w = this.wait;
+      const r = [...d.slice(5, d.length - 1)], w = this.wait;
+      if (w.match && !w.match(r)) { if (this.tap) this.tap("?", [w.cmd]); return; }   // (not this request's answer)
       this.wait = null;
       clearTimeout(w.timer);
-      w.resolve([...d.slice(5, d.length - 1)]);
+      w.resolve(r);
     };
   }
-  req(cmd, args = [], ms = 2000) {
-    const run = () => new Promise((resolve, reject) => {
-      this.wait = { cmd, resolve, timer: setTimeout(() => { this.wait = null; if (this.tap) this.tap("!", [cmd]); reject(new Error("The FM-1 stopped answering.")); }, ms) };
+  // (0.30) let go of the port: a link replaced by a new connection must not go on listening (its copies of every
+  // frame slowed the page and filled the diagnostics)
+  close() {
+    this.closed = true;
+    if (this.input.onmidimessage) this.input.onmidimessage = null;
+    if (this.wait) { clearTimeout(this.wait.timer); this.wait = null; }
+  }
+  req(cmd, args = [], ms = 2000, match = null) {
+    const once = (last) => new Promise((resolve, reject) => {
+      if (this.closed) { reject(new Error("Not connected (a newer connection took over).")); return; }
+      this.wait = { cmd, resolve, match, timer: setTimeout(() => {
+        this.wait = null;
+        if (this.tap) this.tap("!", [cmd]);
+        reject(new Error(last ? "The FM-1 stopped answering." : "retry"));
+      }, ms) };
       const f = [0xF0, ...HDR, cmd, ...args, 0xF7];
       if (this.tap) this.tap(">", f);
       this.output.send(f);
     });
+    const tries = ONCE.has(cmd) ? 1 : 3;
+    const run = async () => {
+      for (let k = 1; ; k++) {
+        try { return await once(k >= tries); } catch (e) { if (k >= tries || this.closed) throw e; }
+      }
+    };
     const p = this.queue.then(run, run);
     this.queue = p.catch(() => {});
     return p;

@@ -292,14 +292,16 @@ const u7 = (a) => {
   }
   return new Uint8Array(out);
 };
-async function retry(link, cmd, args, ms, tries = 3) {
-  for (let k = 1; ; k++) { try { return await link.req(cmd, args, ms); } catch (e) { if (k >= tries) throw e; } }
+async function retry(link, cmd, args, ms, tries = 3, match = null) {
+  for (let k = 1; ; k++) { try { return await link.req(cmd, args, ms, match); } catch (e) { if (k >= tries) throw e; } }
 }
 async function readBytes(link, k, off, n, onPart) {
   const out = new Uint8Array(n);
   for (let at = 0; at < n;) {
     const want = Math.min(224, n - at), adr = off + at;
-    const r = await retry(link, 16, [k, adr & 0x7F, (adr >> 7) & 0x7F, (adr >> 14) & 0x7F, (want + 1) >> 1], 3000);
+    const a7 = [adr & 0x7F, (adr >> 7) & 0x7F, (adr >> 14) & 0x7F];
+    const r = await retry(link, 16, [k, ...a7, (want + 1) >> 1], 3000, 3,
+      (x) => x[0] === k && x[1] === a7[0] && x[2] === a7[1] && x[3] === a7[2]);   // (0.30: this slot, this place)
     const b = u7(r.slice(4));
     if (!b.length) throw new Error("no sample data");
     out.set(b.subarray(0, Math.min(b.length, n - at)), at);
@@ -315,9 +317,15 @@ export async function readSlots(link, onPart = () => {}) {
   const dev = [null, null, null];
   for (let k = 0; k < NSLOT; k++) {
     if (!nz[k]) continue;
-    const hdr = await readBytes(link, k, 0, SLOT_HDR_LEN), h = parseSlot(hdr);
-    if (!h) continue;
-    dev[k] = { hdr, data: await readBytes(link, k, SLOT_DATA_OFF, h.dataLen, (f) => onPart((k + f) / NSLOT)) };
+    // (0.30) read back whole and checked against the slot's own CRC (twice if need be): a slot read wrong would be
+    // written back wrong, or left out, by the next send
+    for (let t = 1; ; t++) {
+      const hdr = await readBytes(link, k, 0, SLOT_HDR_LEN), h = parseSlot(hdr);
+      if (!h) throw new Error(`Slot ${k + 1} on the FM-1 couldn't be read (its header). Nothing was changed: try again.`);
+      const data = await readBytes(link, k, SLOT_DATA_OFF, h.dataLen, (f) => onPart((k + f) / NSLOT));
+      if (crc32(data) === new DataView(hdr.buffer, hdr.byteOffset).getUint32(20, true)) { dev[k] = { hdr, data }; break; }
+      if (t >= 2) throw new Error(`Slot ${k + 1} read back wrong twice (its check doesn't match). Nothing was changed: try again.`);
+    }
   }
   return dev;
 }
@@ -351,7 +359,9 @@ export async function writeSlots(link, images, dev, onPart = () => {}, say = () 
     say(`Sending slot ${k + 1}…`);
     for (let off = 0; off < im.data.length; off += 256) {
       const adr = SLOT_DATA_OFF + off;
-      const r = await retry(link, 12, [k, adr & 0x7F, (adr >> 7) & 0x7F, (adr >> 14) & 0x7F, ...p7(im.data.subarray(off, off + 256))], 3000);
+      const a7 = [adr & 0x7F, (adr >> 7) & 0x7F, (adr >> 14) & 0x7F];
+      const r = await retry(link, 12, [k, ...a7, ...p7(im.data.subarray(off, off + 256))], 3000, 3,
+        (x) => x[0] === k && x[1] === a7[0] && x[2] === a7[1] && x[3] === a7[2]);
       if (r[4]) throw new Error("Writing to the FM-1 failed.");
       sent += Math.min(256, im.data.length - off);
       onPart(sent / total);

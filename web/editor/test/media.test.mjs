@@ -121,3 +121,19 @@ test("slot 3 holds 64 KB (0.29): a sample that fits slots 1 and 2 but not 3 goes
   assert.deepEqual(packPlan(3, (i) => (i < 2 ? big : 0x10000 - 512)), [0, 1, 2], "exactly 64 KB less its header fits slot 3");
   assert.equal(packPlan(3, (i) => (i < 2 ? big : 0x10000 - 511)), null);
 });
+
+test("(0.30) read back right though stray copies of earlier replies arrive; a slot read wrong is refused", async () => {
+  const m = new MockFM1(), link = await connect(m.access);
+  const smp = { rate: 44100, ch: [sine(300, 44100, 0.5)], set: { rate: 16000, fold: "mix" } };
+  const c = convert(smp), part = { adpcm: imaEncode(c.s), n: c.s.length, rate: c.rate };
+  await writeSlots(link, imagesOf([part]), [null, null, null]);
+  let last = null;                                   // every slot read answered first by a copy of the one before
+  const reply = m.reply.bind(m);
+  m.reply = (cmd, bytes) => { if (cmd === 16 && last) reply(16, last); if (cmd === 16) last = bytes; reply(cmd, bytes); };
+  const dev = await readSlots(link);
+  assert.deepEqual([...slotSamples(dev)[0].adpcm], [...part.adpcm], "the samples as sent, the copies passed over");
+  m.reply = reply;
+  m.slots[0].buf[512 + 100] ^= 0x55;                 // a byte of the samples changed: the slot's CRC no longer fits
+  await assert.rejects(readSlots(link), /read back wrong/);
+  m.close();
+});

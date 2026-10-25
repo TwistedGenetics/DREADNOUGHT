@@ -615,3 +615,31 @@ tab's banks: load, ▶, FM-1, Keep, send).
 Tested: host scenario `skin.txt` (LIGHT from the start, DARK by SETUP + FX, kept over a reboot, back to LIGHT, an old
 save LIGHT); every page's screenshot looked at in both skins.
 
+## 0.30.1 — the editor: samples read and sent safely (2026-10-25)
+
+Jamie lost his samples from the FM-1, and loading a saved project didn't put them back. His diagnostics showed why:
+
+- Every press of **Connect** opened a new link to the FM-1 without letting go of the old one, so each frame from the
+  FM-1 was handled by every link (12 copies in his log). That slowed the page until requests timed out. The project
+  load stopped at a SAMPLER value, before it reached the samples.
+- A sample slot was read 224 bytes at a time, and each answer was taken as long as it was the right *kind* of answer.
+  After a timeout, the late answer to the first try was taken for the next piece, so the read shifted. Sending samples
+  after that (the Project tab, or the FM tab's kept DX7 voices, which read the slots first) could write the shifted
+  copy back.
+
+Fixed in the editor and on the breaks page:
+
+- A new connection closes the one before.
+- A slot read or write only takes the answer for its own slot and place. Late copies of earlier answers are passed
+  over.
+- Each slot read back is checked against the slot's own CRC (read again once if it doesn't match). If it still
+  doesn't match, nothing is written and the editor says so.
+- A request that goes unanswered is asked again (up to 3 times) before giving up. Playing a note, a panel press and
+  PLAY / STOP are never sent twice.
+
+The FM-1's firmware is unchanged from 0.30.
+
+Tested: editor unit tests (stray copies of earlier answers passed over and the samples read back as sent; a changed
+byte in a slot refused by its CRC; a lost answer asked again; a note never sent twice; a closed link lets go of the
+port), the editor end to end, the flasher's.
+

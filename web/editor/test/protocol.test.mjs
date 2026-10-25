@@ -131,3 +131,22 @@ test("chords (0.28): the 15, matched in any order or inversion as the FM-1 does"
     assert.deepEqual(chordMatch(chordNotes(st)), { c: i + 1, root: 50 }, CHORD_NAMES[i + 1]);
   });
 });
+
+test("(0.30) the link: a request unanswered is sent again; a closed link lets go of the port", async () => {
+  const m = new MockFM1(), link = await connect(m.access);
+  let dropped = 0;
+  const reply = m.reply.bind(m);
+  m.reply = (cmd, bytes) => { if (cmd === 60 && !dropped) { dropped++; return; } reply(cmd, bytes); };
+  const st = await link.req(60, [], 300);            // the first answer lost: asked again, answered
+  assert.ok(Array.isArray(st) && st.length > 0);
+  assert.equal(dropped, 1);
+  let played = 0;
+  m.reply = (cmd, bytes) => { if (cmd === 86) { played++; return; } reply(cmd, bytes); };
+  await assert.rejects(link.req(86, [60, 1], 200));   // a note played: never sent twice
+  assert.equal(played, 1);
+  m.reply = reply;
+  link.close();
+  assert.equal(m.input.onmidimessage, null);
+  await assert.rejects(link.req(60, [], 200), /newer connection/);
+  m.close();
+});
