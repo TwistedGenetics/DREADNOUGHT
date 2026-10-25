@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# DREADNOUGHT for iPad: the Xcode project, made by XcodeGen (brew install xcodegen; cd ios; xcodegen).
+# The app carries the repo's web/ folder as it is, so it's always the editor of the same commit.
+name: DreadnoughtEditor
+options:
+  bundleIdPrefix: com.twistedgenetics
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "0.35"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  DreadnoughtEditor:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Resources/bridge.js
+        buildPhase: resources
+      - path: Resources/Assets.xcassets
+      - path: ../web
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: DREADNOUGHT
+        PRODUCT_BUNDLE_IDENTIFIER: com.twistedgenetics.dreadnought.editor
+        TARGETED_DEVICE_FAMILY: "2"
+        SWIFT_VERSION: "5.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: DREADNOUGHT
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIRequiresFullScreen: false
+        UIStatusBarHidden: true
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+        # the app's folder in Files (On My iPad > DREADNOUGHT): downloads and the projects folder
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        ITSAppUsesNonExemptEncryption: false
+        # so the pages' file pickers can choose these (Files greys out a type it doesn't know)
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.twistedgenetics.dreadnought.project
+            UTTypeDescription: DREADNOUGHT project
+            UTTypeConformsTo: [public.json, public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [dnproj]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.twistedgenetics.dreadnought.syx
+            UTTypeDescription: MIDI SysEx (DX7 bank)
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [syx]
+          - UTTypeIdentifier: com.twistedgenetics.dreadnought.fwsc
+            UTTypeDescription: FM-1 firmware package
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [fwsc]

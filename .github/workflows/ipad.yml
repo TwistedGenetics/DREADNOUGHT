@@ -1,0 +1,160 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# DREADNOUGHT for iPad: the web editor (and the breaks page and flasher) as an iPad app, with CoreMIDI for the FM-1 on
+# USB (ios/, see ios/README.md). Every push that touches it tests the page bridge, builds the app, starts it in an iPad
+# simulator in demo mode and checks it came up. A push to main publishes the unsigned app (an .ipa, for SideStore /
+# AltStore to sign) on the rolling Release "ipad": a pre-release, so the firmware stays the repo's latest release and the
+# flasher's list is untouched.
+name: ipad
+
+on:
+  push:
+    branches: [main, ipad-app]
+    paths: ["ios/**", "web/**", ".github/workflows/ipad.yml", "VERSION"]
+  pull_request:
+    paths: ["ios/**", "web/**", ".github/workflows/ipad.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ipad-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Playwright
+        run: pip install playwright && python -m playwright install --with-deps chromium
+      - name: The page bridge, end to end (the editor through it to the simulated FM-1)
+        run: mkdir -p shots && python3 ios/test/bridge_e2e.py shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipad-bridge-${{ github.sha }}
+          path: shots/
+          if-no-files-found: ignore
+
+  app:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: XcodeGen
+        run: brew install xcodegen
+
+      - name: Version
+        id: ver
+        run: |
+          v=$(tr -d ' \n' < VERSION)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          xcodebuild -version
+
+      - name: The Xcode project
+        run: cd ios && xcodegen generate
+
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/DreadnoughtEditor.xcodeproj -scheme DreadnoughtEditor -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/sim \
+            MARKETING_VERSION=${{ steps.ver.outputs.version }} CURRENT_PROJECT_VERSION=${{ steps.ver.outputs.build }} \
+            CODE_SIGNING_ALLOWED=NO build | tail -40
+
+      - name: Start it on an iPad simulator, in demo mode, and check it came up
+        run: |
+          app=build/sim/Build/Products/Debug-iphonesimulator/DREADNOUGHT.app
+          dev=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)['devices']
+          ipads = [x for rt, xs in d.items() if 'iOS' in rt for x in xs if x['name'].startswith('iPad')]
+          print(ipads[-1]['udid'])")
+          echo "simulator $dev"
+          xcrun simctl boot "$dev" || true
+          xcrun simctl bootstatus "$dev" -b
+          xcrun simctl install "$dev" "$app"
+          xcrun simctl launch "$dev" com.twistedgenetics.dreadnought.editor -selftest
+          data=$(xcrun simctl get_app_container "$dev" com.twistedgenetics.dreadnought.editor data)
+          for i in $(seq 1 60); do [ -f "$data/Documents/selftest.png" ] && break; sleep 2; done
+          mkdir -p shots
+          cp "$data/Documents/selftest.png" shots/ipad-simulator.png 2>/dev/null || true
+          xcrun simctl io "$dev" screenshot shots/ipad-screen.png || true
+          cat "$data/Documents/selftest.json" | tee shots/selftest.json
+          python3 - shots/selftest.json <<'EOF'
+          import json, sys
+          r = json.load(open(sys.argv[1]))
+          ok = r.get("demo") and r.get("status", "").startswith("Demo") and r.get("midi") == "function" \
+               and r.get("dir") == "function" and r.get("panel") and "ports" in r
+          print("::notice title=iPad app::came up in the simulator: " + json.dumps(r))
+          sys.exit(0 if ok else 1)
+          EOF
+
+      - name: Build the app for iPad (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/DreadnoughtEditor.xcodeproj -scheme DreadnoughtEditor -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/dev \
+            MARKETING_VERSION=${{ steps.ver.outputs.version }} CURRENT_PROJECT_VERSION=${{ steps.ver.outputs.build }} \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -40
+          mkdir -p dist/Payload
+          cp -R build/dev/Build/Products/Release-iphoneos/DREADNOUGHT.app dist/Payload/
+          cd dist
+          name="DREADNOUGHT-iPad-${{ steps.ver.outputs.version }}.${{ steps.ver.outputs.build }}.ipa"
+          zip -qry "$name" Payload
+          rm -rf Payload
+          shasum -a 256 *.ipa > SHA256SUMS
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipad-app-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ipad-shots-${{ github.sha }}
+          path: shots/
+          if-no-files-found: ignore
+
+  release:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [bridge, app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ipad-app-${{ github.sha }}
+          path: dist
+      - name: Publish the rolling ipad pre-release (the newest app replaces the last)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ipa=$(ls dist/*.ipa)
+          cat > notes.md <<EOF
+          **DREADNOUGHT for iPad** — the web editor as an iPad app: the FM-1 on USB through CoreMIDI, so it works where
+          Safari can't (no Web MIDI there). Also the breaks page and the flasher. Built from ${GITHUB_SHA::7}.
+
+          **Install:** download \`$(basename "$ipa")\`, and add it in **SideStore** or **AltStore** on the iPad (they sign
+          it with your Apple ID). Or build it yourself with Xcode: see [ios/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/ios/README.md).
+
+          Connect the FM-1 with a USB-C cable (or a Lightning to USB 3 camera adapter), open the app, press **Connect FM-1**.
+          Saved files go to **Files › On My iPad › DREADNOUGHT**; the projects folder is **Projects** in there.
+
+          A beta: not yet tried with a real FM-1 on an iPad. The flasher especially: keep updating firmware from a computer
+          until it has been.
+          EOF
+          gh release delete ipad --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          gh release create ipad --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "DREADNOUGHT for iPad (beta)" --notes-file notes.md "$ipa" dist/SHA256SUMS
