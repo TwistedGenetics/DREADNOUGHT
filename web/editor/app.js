@@ -16,7 +16,7 @@ import { initPanel } from "./panel.js";
 import { sliceKey } from "../breaks/slices.js";
 import { audition as fmAudition } from "./fmsynth.js";
 import { readProject, writeProject, checkProject, mediaOf, FORMAT } from "./project.js";
-import { fromWav as wtFromWav, parseTable, render as wtRender, WT, wtMin, wtMax, wtText, WT_GROUPS, MAXF as WT_MAXF } from "./wavetable.js";
+import { fromWav as wtFromWav, parseTable, render as wtRender, WT, wtMin, wtMax, wtText, WT_GROUPS, WT_M0, WT_NMOD, SOURCES, DESTS, MAXF as WT_MAXF } from "./wavetable.js";
 import { parseSyx, zoneBytes, zoneVoices, unpack as fmUnpack, vname as fmVname, vmax as fmVmax, vtext as fmVtext, isCarrier, opFreq } from "./dx7.js";
 
 const $ = (id) => document.getElementById(id);
@@ -841,24 +841,45 @@ function buildWave() {
     const seq = S.wvSeq, nw = await S.link.wtGet();
     if (seq === S.wvSeq) { S.wave = nw; buildWave(); }
   });
-  ts.textContent = "";
-  S.wvTables.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `${i < w.factory ? "" : "★ "}${n}`; ts.appendChild(o); });
-  ts.value = w.p[0];
-  ts.onchange = () => { wvSet(0, +ts.value); };
+  for (const [sel, k] of [[ts, 0], [$("wvtableb"), 29]]) {   // (0.33: A's table and B's)
+    sel.textContent = "";
+    S.wvTables.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = `${i < w.factory ? "" : "★ "}${n}`; sel.appendChild(o); });
+    sel.value = w.p[k];
+    sel.onchange = () => { wvSet(k, +sel.value); };
+  }
   const t = S.proj ? S.proj.eng.indexOf(E.WAVE) : -1;
   $("wvwhere").textContent = t >= 0 ? `On track ${t + 1}.` : "On no track yet: put it on one on the Project tab.";
   box.textContent = "";
   for (const [title, ks] of WT_GROUPS) {
     const g = fmGroup(box, title);
     for (const k of ks) {
-      if (k === 0) continue;                         // (TABLE: the list above)
+      if (k === 0 || k === 29) continue;            // (TABLE, B TABLE: the lists above)
       const el = document.createElement("div");
       el.className = "prm";
       el.innerHTML = `<span class="nm">${WT[k]}</span><input type="range" min="${wtMin(k)}" max="${wtMax(k, S.wvTables.length)}" step="1"><span class="v"></span>`;
-      const r = el.querySelector("input"), v = el.querySelector(".v"), show = () => { v.textContent = wtText(k, +r.value, S.wvTables); };
+      const r = el.querySelector("input"), v = el.querySelector(".v"), show = () => { v.textContent = wtText(k, +r.value, S.wvTables, w.p); };
       r.value = w.p[k];
       show();
-      r.oninput = () => { show(); wvSet(k, +r.value); };
+      r.oninput = () => { show(); wvSet(k, +r.value); if (k === 45 || k === 49 || k === 53) buildWave(); };
+      g.appendChild(el);
+    }
+  }
+  {                                                  // (0.33) the matrix: 8 routes, a source to a destination by a depth
+    const g = fmGroup(box, "MATRIX");
+    g.classList.add("wvmx");
+    for (let j = 0; j < WT_NMOD; j++) {
+      const k = WT_M0 + 3 * j, el = document.createElement("div");
+      el.className = "mxrow";
+      el.innerHTML = `<b>${j + 1}</b><select></select><span>→</span><select></select><input type="range" min="-64" max="63" step="1"><span class="v"></span>`;
+      const [src, dst] = el.querySelectorAll("select"), r = el.querySelector("input"), v = el.querySelector(".v");
+      SOURCES.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = n; src.appendChild(o); });
+      DESTS.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = n; dst.appendChild(o); });
+      src.value = w.p[k], dst.value = w.p[k + 1], r.value = w.p[k + 2];
+      const show = () => { v.textContent = wtText(k + 2, +r.value); };
+      show();
+      src.onchange = () => wvSet(k, +src.value);
+      dst.onchange = () => wvSet(k + 1, +dst.value);
+      r.oninput = () => { show(); wvSet(k + 2, +r.value); };
       g.appendChild(el);
     }
   }

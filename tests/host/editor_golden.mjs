@@ -97,12 +97,12 @@ check("chords: the editor's 15 (MIN .. 6) are the FM-1's", JSON.stringify(parseC
 // names and values as the demo FM-1's
 {
   const w = parseWt(g.wtget), tabs = parseNames(g.wttables).names, pres = parseNames(g.wtpresets).names;
-  check("WT_GET: 28 values, SUPERSAW (the start), 12 sounds, 8 tables", w.p.length === 28 && w.preset === 1 && w.presets === 12 && w.tables === 8 && w.factory === 8,
-    `${w.p.length} ${w.preset} ${w.presets} ${w.tables} ${w.factory}`, "28 1 12 8 8");
+  check("WT_GET: 83 values, SUPERSAW (the start), 20 sounds, 8 tables", w.p.length === 83 && w.preset === 1 && w.presets === 20 && w.tables === 8 && w.factory === 8,
+    `${w.p.length} ${w.preset} ${w.presets} ${w.tables} ${w.factory}`, "83 1 20 8 8");
   let bad = [];
   for (const [k, name, min, max, texts] of g.wtdefs) {
     if (WT[k] !== name || wtMin(k) !== min || wtMax(k, tabs.length) !== max) { bad.push(`${k}: ${WT[k]} ${wtMin(k)}..${wtMax(k, tabs.length)} vs ${name} ${min}..${max}`); continue; }
-    for (const [v, t] of texts) if (wtText(k, v, tabs) !== t) { bad.push(`${name} ${v}: ${wtText(k, v, tabs)} vs ${t}`); break; }
+    for (const [v, t] of texts) if (wtText(k, v, tabs, w.p) !== t) { bad.push(`${name} ${v}: ${wtText(k, v, tabs)} vs ${t}`); break; }
   }
   check("WAVE's values: names, ranges and texts as the FM-1's", !bad.length, bad.slice(0, 3).join("; ") || "all", "all");
   check("WAVE's factory tables: the demo's are the FM-1's", JSON.stringify(tabs) === JSON.stringify(WT_TABLES), tabs.join(","), WT_TABLES.join(","));

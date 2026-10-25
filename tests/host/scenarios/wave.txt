@@ -1,7 +1,8 @@
 # DREADNOUGHT host scenario (0.32): WAVE, the wavetable synth, on track 8. Its pages (WAVE / OSC, FILTER, AMP / MOD
 # ENV, MOD, OUT; no LFO page), PRESETS over its factory sounds, the keys polyphonic (UNISON taking voices, MONO), a
 # table sent in a sample slot (not a loop), the sound kept over a reboot, the slots changing under it.
-# White keys (tracks 1..8): 0 2 4 6 7 9 11 12. Values (set ID V): 20 + WP_*: 20 TABLE, 24 UNISON, 45 VOICES.
+# White keys (tracks 1..8): 0 2 4 6 7 9 11 12. Values (set ID V): 300 + WP_* (0.33): 300 TABLE, 304 UNISON, 325 VOICES,
+# 328 OSC B, 329 B TABLE, 337 B MODE, 340 FILTER, 342 DIST, 359 the matrix's slot 1 SOURCE (360 DEST, 361 DEPTH).
 sysex 76 7 8 0
 expect eng.8 8
 press SEQ
@@ -33,7 +34,7 @@ key 7 up
 wait 3000
 expect wvv 0
 # UNISON 4: two voices at most (8 oscillators); MONO: one
-set 24 4
+set 304 4
 key 0 down
 wait 20
 key 4 down
@@ -45,8 +46,8 @@ key 0 up
 key 4 up
 key 7 up
 wait 3000
-set 24 1
-set 45 1
+set 304 1
+set 325 1
 key 0 down
 wait 20
 key 4 down
@@ -55,11 +56,17 @@ expect wvv 1
 key 0 up
 key 4 up
 wait 3000
-set 45 6
-# SEL again: OSC (unison, detune, spread, sub); again: WAVE
+set 325 6
+# SEL again: OSC A (unison, detune, spread, sub); again WAVE B, OSC B, B MIX, then WAVE A (0.33)
 tap SEL
 expect page 0
 shot wave-02-osc.png
+tap SEL
+shot wave-10-waveb.png
+tap SEL
+shot wave-11-oscb.png
+tap SEL
+shot wave-12-bmix.png
 tap SEL
 # KNOB 1 on WAVE: the table (VOCAL)
 turn K1 1
@@ -68,15 +75,35 @@ expect wvtname.0 86
 tap EDIT
 expect page 1
 shot wave-03-filter.png
+tap EDIT
+shot wave-13-drive.png
+tap EDIT
 tap ENV
 expect page 2
 shot wave-04-amp.png
 tap ENV
 shot wave-05-modenv.png
 tap ENV
+shot wave-14-env3.png
+tap ENV
 tap LFO
 expect page 3
 shot wave-06-mod.png
+tap LFO
+shot wave-15-lfo1.png
+tap LFO
+tap LFO
+tap LFO
+# MATRIX: KNOB 1 the slot (2), KNOB 2 its SOURCE (LFO 2), KNOB 3 DEST (POS A), DEPTH (+20, set)
+turn K1 1
+turn K2 2
+turn K3 1
+set 364 20
+expect wv.62 2
+expect wv.63 1
+expect wv.64 20
+shot wave-16-matrix.png
+tap LFO
 tap GLO
 expect page 4
 shot wave-07-out.png
@@ -89,13 +116,25 @@ expect page 0
 expect srccount 2
 wtslot MYTABLE
 expect srccount 2
-set 20 8
+set 300 8
 expect wv.0 8
 expect wvslot 1
 expect wvtab 99
 expect wvtname.0 77
 shot wave-08-slot-table.png
-# kept: SAVE, reboot (PPG BELL's values, the slot's table by its name)
+# OSC B on, its table the slot's too, RING; a filter, a drive (0.33)
+set 328 1
+set 329 8
+set 337 2
+set 340 1
+set 342 2
+expect wv.29 8
+key 0 down
+wait 50
+expect peak >500
+key 0 up
+wait 3000
+# kept: SAVE, reboot (PPG BELL's values, the slot's tables by their names)
 tap SAVE
 wait 300
 expect dirty 0
@@ -103,6 +142,10 @@ reboot
 expect eng.8 8
 expect wvpreset 3
 expect wv.0 8
+expect wv.29 8
+expect wv.28 1
+expect wv.37 2
+expect wv.62 2
 expect wvslot 1
 expect wvtab 99
 expect wvtname.0 77
@@ -110,9 +153,10 @@ expect wvtname.0 77
 fmbank 2
 expect wv.0 8
 expect wvtab 99
-# the table gone from the slots: the first factory one
+# the table gone from the slots: the first factory one (A's and B's)
 wtslot -
 expect wv.0 0
+expect wv.29 0
 expect wvslot 0
 expect wvtname.0 65
 # HOME shows it; the names the editor shows (kind 2) include it
@@ -123,3 +167,11 @@ sysex 69 2 0
 expect reply.0 9
 fitcheck
 expect fitbad 0
+# a sound saved by 0.32 (DVW1: 28 values, A's table) comes back, the rest as INIT
+wv1save
+reboot
+expect wvpreset 3
+expect wv.0 2
+expect wv.28 0
+expect wv.40 0
+expect wv.59 0

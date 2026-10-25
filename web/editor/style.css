@@ -244,3 +244,8 @@ progress { width: 100%; }
   .fm1-left { flex-direction: row; flex-wrap: wrap; justify-content: center; }
   .skn svg { width: 72px; height: 72px; }
 }
+/* (0.33) WAVE's matrix: a row a route */
+.wvmx { grid-column: 1 / -1; }
+.mxrow { display: grid; grid-template-columns: 24px minmax(110px, 160px) 18px minmax(110px, 160px) 1fr 52px; gap: 10px; align-items: center; padding: 4px 0; }
+.mxrow b { font-size: 16px; } .mxrow .v { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+

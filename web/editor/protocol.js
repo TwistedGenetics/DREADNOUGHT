@@ -550,15 +550,16 @@ export function parseWt(r) {
 export async function readWave(link) {
   try {
     const w = await link.wtGet(), names = await link.names(7);
-    return { p: w.p, preset: w.preset, table: names[w.p[0]] || "" };
+    return { p: w.p, preset: w.preset, table: names[w.p[0]] || "", tableB: names[w.p[29]] || "" };
   } catch (_) { return null; }
 }
 export async function writeWave(link, o) {
   if (!o || !o.p) return;
   await link.wtLoad(o.preset || 0);
-  const names = await link.names(7), t = names.indexOf(o.table);
-  for (let k = 1; k < o.p.length; k++) await link.wtSet(k, o.p[k]);
+  const names = await link.names(7), t = names.indexOf(o.table), tb = names.indexOf(o.tableB || "");
+  for (let k = 1; k < o.p.length; k++) if (k !== 29) await link.wtSet(k, o.p[k]);
   await link.wtSet(0, t >= 0 ? t : 0);
+  if (o.p.length > 29) await link.wtSet(29, tb >= 0 ? tb : 0);   // (0.33: B's table, by its name too)
 }
 
 // ---- the panel (0.26): what the FM-1's screen shows, and its controls pressed from the page ------------------------

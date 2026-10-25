@@ -173,7 +173,8 @@
 
   <section id="wavetab" class="tab">
     <div class="row"><label>Sound <select id="wvpreset"></select></label>
-      <label>Table <select id="wvtable"></select></label>
+      <label>Table A <select id="wvtable"></select></label>
+      <label>Table B <select id="wvtableb"></select></label>
       <span class="small" id="wvwhere"></span></div>
     <div class="row"><span class="small">On the FM-1 (hold):</span>
       <button class="quiet small wvkey" data-n="36">C1</button><button class="quiet small wvkey" data-n="48">C2</button>
@@ -193,10 +194,12 @@
       <div id="wvList"></div>
       <input type="file" id="wvFile" accept=".wav,audio/wav,audio/x-wav" multiple hidden>
     </div>
-    <p class="small">A wavetable synth: up to 6 voices (4 oscillators each in unison, 8 at most in all), a sine an octave
-      down, the phase warped before the table is read (SYNC, BEND, MIRROR, PWM, FM, CRUSH), a filter with drive, an amp
-      and a mod envelope, an LFO. POS ENV and POS LFO move through the table; CUT LFO the filter. On the FM-1: SEL again
-      for OSC (unison and sub), ENV again for the MOD ENV.</p>
+    <p class="small">A wavetable synth with two oscillators: A, and B (OSC B on) heard at B LEVEL and working on A by
+      B MODE: FM, RING, AM or SYNC (A starts again with B's cycle; MOD AMT sets how far above B it plays). Each warps its
+      phase (SYNC, BEND, MIRROR, PWM, FM, CRUSH). Then DIST (SOFT, HARD, FOLD, RECT, TUBE, BITS, RATE) into the FILTER
+      (LP12, LP24, HP, BP, NOTCH, COMB), SAT after. Three envelopes, three LFOs (synced to the tempo or free), and the
+      MATRIX: 8 routes from a source to a destination. The voices it can play depend on what's on (unison, B, the drive,
+      LP24): the FM-1 keeps it within its CPU. On the FM-1 each page button pressed again shows the page's next view.</p>
     <div id="wvEd" class="groups"></div>
   </section>
 

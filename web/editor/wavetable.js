@@ -156,22 +156,59 @@ export function render(t, pos, note = 48, secs = 1, rate = 44100) {
 
 // ---- WAVE's values (src/dsp/dn_wt.h WP_*: names, ranges and texts as the FM-1's; the host tests compare) --------
 export const WARPS = ["OFF", "SYNC", "BEND", "MIRROR", "PWM", "FM", "CRUSH"];
-export const WT = ["TABLE", "POS", "WARP", "AMOUNT", "UNISON", "DETUNE", "SPREAD", "SUB", "CUT", "RES", "ENV", "DRIVE",
-  "ATK", "DEC", "SUS", "REL", "M.ATK", "M.DEC", "M.SUS", "M.REL", "POS ENV", "POS LFO", "LFO RATE", "CUT LFO", "LEVEL",
-  "VOICES", "GLIDE", "TRANS"];
-export const WP = Object.fromEntries(WT.map((n, i) => [n.replace(/[ .]/g, "_"), i]));
-const WMIN = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, -64, 0, 0, 0, 0, 0, 0, 0, 0, 0, -64, 0, 0, 0, 0, 1, 0, -24];
-const WMAX = [0, 127, 6, 127, 4, 127, 127, 127, 127, 127, 63, 127, 127, 127, 127, 127, 127, 127, 127, 127, 63, 127, 127,
-  127, 127, 6, 127, 24];
+export const BMODES = ["MIX", "FM", "RING", "AM", "SYNC"];
+export const FTYPES = ["LP12", "LP24", "HP", "BP", "NOTCH", "COMB"];
+export const DTYPES = ["SOFT", "HARD", "FOLD", "RECT", "TUBE", "BITS", "RATE"];
+export const LSHAPES = ["SINE", "TRI", "SAW", "SQUARE", "S&H", "RANDOM"];
+export const SOURCES = ["OFF", "LFO 1", "LFO 2", "LFO 3", "MOD ENV", "ENV 3", "AMP ENV", "VEL", "KEY", "RANDOM"];
+export const DESTS = ["OFF", "POS A", "POS B", "WARP A", "WARP B", "PITCH", "PITCH B", "MOD AMT", "B LEVEL", "CUTOFF", "RES",
+  "DRIVE", "LEVEL", "PAN", "SUB", "NOISE", "L1 RATE", "L2 RATE", "DETUNE"];
+export const DIVS = ["4 BARS", "2 BARS", "1 BAR", "1/2", "1/4D", "1/2T", "1/4", "1/8D", "1/4T", "1/8", "1/16D", "1/8T", "1/16",
+  "1/16T", "1/32", "1/32T"];
+export const WT = ["TABLE","POS","WARP","AMOUNT","UNISON","DETUNE","SPREAD","SUB","CUT","RES","ENV","DRIVE","ATK","DEC","SUS","REL","M.ATK","M.DEC","M.SUS","M.REL","POS ENV","POS LFO","L1 RATE","CUT LFO","LEVEL","VOICES","GLIDE","TRANS","OSC B","B TABLE","B POS","B WARP","B AMT","B OCT","B SEMI","B FINE","B LEVEL","B MODE","MOD AMT","NOISE","FILTER","KEY","DIST","SAT","L1 SHAPE","L1 SYNC","L1 MODE","L2 SHAPE","L2 RATE","L2 SYNC","L2 MODE","L3 SHAPE","L3 RATE","L3 SYNC","L3 MODE","E3 ATK","E3 DEC","E3 SUS","E3 REL","SOURCE","DEST","DEPTH","SOURCE","DEST","DEPTH","SOURCE","DEST","DEPTH","SOURCE","DEST","DEPTH","SOURCE","DEST","DEPTH","SOURCE","DEST","DEPTH","SOURCE","DEST","DEPTH","SOURCE","DEST","DEPTH"];
+export const WT_M0 = 59, WT_NMOD = 8;
+const I = Object.fromEntries(["TABLE", "POS", "WARP", "AMOUNT", "UNISON", "DETUNE", "SPREAD", "SUB", "CUT", "RES", "FENV", "DRIVE",
+  "ATK", "DEC", "SUS", "REL", "MATK", "MDEC", "MSUS", "MREL", "PENV", "PLFO", "LRATE", "CLFO", "LEVEL", "VOICES", "GLIDE", "TRANS",
+  "OSCB", "BTAB", "BPOS", "BWARP", "BWAMT", "BOCT", "BSEMI", "BFINE", "BLEVEL", "BMODE", "BAMT", "NOISE", "FTYPE", "FKEY", "DTYPE",
+  "SAT", "L1SHAPE", "L1SYNC", "L1MODE", "L2SHAPE", "L2RATE", "L2SYNC", "L2MODE", "L3SHAPE", "L3RATE", "L3SYNC", "L3MODE",
+  "E3ATK", "E3DEC", "E3SUS", "E3REL"].map((n, i) => [n, i]));
+export const WP = I;
+const WMIN = [0,0,0,0,1,0,0,0,0,0,-64,0,0,0,0,0,0,0,0,0,-64,0,0,0,0,1,0,-24,0,0,0,0,0,-3,-12,-50,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,-64,0,0,-64,0,0,-64,0,0,-64,0,0,-64,0,0,-64,0,0,-64,0,0,-64];
+const WMAX = [0,127,6,127,4,127,127,127,127,127,63,127,127,127,127,127,127,127,127,127,63,127,127,127,127,6,127,24,1,0,127,6,127,3,12,50,127,4,127,127,5,127,6,127,5,1,1,5,127,1,1,5,127,1,1,127,127,127,127,9,18,63,9,18,63,9,18,63,9,18,63,9,18,63,9,18,63,9,18,63,9,18,63];
 export const wtMin = (k) => WMIN[k];
-export const wtMax = (k, ntab = 8) => (k === 0 ? ntab - 1 : WMAX[k]);
-export function wtText(k, v, tables = []) {
-  if (k === 0) return (tables[v] || "-").slice(0, 7);
-  if (k === 2) return WARPS[Math.max(0, Math.min(6, v))];
-  if (k === 25 && v === 1) return "MONO";
-  if ((k === 10 || k === 20 || k === 27) && v > 0) return `+${v}`;
+export const wtMax = (k, ntab = 8) => (k === I.TABLE || k === I.BTAB ? ntab - 1 : WMAX[k]);
+const RATE_OF = { [I.LRATE]: I.L1SYNC, [I.L2RATE]: I.L2SYNC, [I.L3RATE]: I.L3SYNC };
+const f = Math.fround;
+// a value as the FM-1 shows it (tables: the names of the tables; p: the sound, for an LFO's RATE: synced or not)
+export function wtText(k, v, tables = [], p = null) {
+  const cl = (a, n) => a[Math.max(0, Math.min(n.length - 1, v))];
+  if (k === I.TABLE || k === I.BTAB) return (tables[v] || "-").slice(0, 7);
+  if (k === I.WARP || k === I.BWARP) return cl(WARPS, WARPS);
+  if (k === I.BMODE) return cl(BMODES, BMODES);
+  if (k === I.FTYPE) return cl(FTYPES, FTYPES);
+  if (k === I.DTYPE) return cl(DTYPES, DTYPES);
+  if (k === I.L1SHAPE || k === I.L2SHAPE || k === I.L3SHAPE) return cl(LSHAPES, LSHAPES);
+  if (k === I.OSCB) return v ? "ON" : "OFF";
+  if (k === I.L1SYNC || k === I.L2SYNC || k === I.L3SYNC) return v ? "SYNC" : "FREE";
+  if (k === I.L1MODE || k === I.L2MODE || k === I.L3MODE) return v ? "RETRIG" : "FREE";
+  if (k >= WT_M0 && (k - WT_M0) % 3 === 0) return cl(SOURCES, SOURCES);
+  if (k >= WT_M0 && (k - WT_M0) % 3 === 1) return cl(DESTS, DESTS);
+  if (k in RATE_OF) {
+    if (p && p[RATE_OF[k]]) return DIVS[Math.floor((Math.max(0, Math.min(127, v)) * 16) / 128)];
+    let hz = f(0.05);
+    for (let i = 0; i < v; i++) hz = f(hz * f(1.048309));
+    let c = Math.trunc(f(f(hz * 100) + 0.5));
+    if (c < 1000) return `${Math.floor(c / 100)}.${Math.floor(c / 10) % 10}${c % 10}Hz`;
+    c = Math.floor((c + 5) / 10);
+    return `${Math.floor(c / 10)}.${c % 10}Hz`;
+  }
+  if (k === I.VOICES && v === 1) return "MONO";
+  if ((k === I.FENV || k === I.PENV || k === I.TRANS || k === I.BOCT || k === I.BSEMI || k === I.BFINE ||
+       (k >= WT_M0 && (k - WT_M0) % 3 === 2)) && v > 0) return `+${v}`;
   return `${v}`;
 }
-// the pages, as the FM-1 groups them (SEL: WAVE / OSC, EDIT: FILTER, ENV: AMP / MOD ENV, LFO: MOD, GLO: OUT)
-export const WT_GROUPS = [["WAVE", [0, 1, 2, 3]], ["OSC", [4, 5, 6, 7]], ["FILTER", [8, 9, 10, 11]], ["AMP", [12, 13, 14, 15]],
-  ["MOD ENV", [16, 17, 18, 19]], ["MOD", [20, 21, 22, 23]], ["OUT", [24, 25, 26, 27]]];
+// the pages, as the FM-1 groups them (each button again: its next view)
+export const WT_GROUPS = [["WAVE A", [0, 1, 2, 3]], ["OSC A", [4, 5, 6, 7]], ["WAVE B", [29, 30, 31, 32]], ["OSC B", [28, 33, 34, 35]],
+  ["B MIX", [36, 37, 38, 39]], ["FILTER", [40, 8, 9, 10]], ["DRIVE", [42, 11, 43, 41]], ["AMP", [12, 13, 14, 15]],
+  ["MOD ENV", [16, 17, 18, 19]], ["ENV 3", [55, 56, 57, 58]], ["MOD", [20, 21, 22, 23]], ["LFO 1", [44, 22, 45, 46]],
+  ["LFO 2", [47, 48, 49, 50]], ["LFO 3", [51, 52, 53, 54]], ["OUT", [24, 25, 26, 27]]];

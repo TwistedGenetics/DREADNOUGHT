@@ -756,3 +756,35 @@ Jamie: "the wavetable sometimes seems a bit buzzy on all oscs, especially with w
 Tested on the host: every warp's aliasing at C5 and the envelope zipper measured (new checks), all the earlier
 checks, the whole app. Not yet tested: on a real FM-1.
 
+## 0.33 — WAVE 2: two oscillators, filters, drives, LFOs and a matrix (2026-10-25)
+
+Jamie: "more lfo's and destinations, more filter types and distortions, saturations etc. anything you suggest to
+mangle the sound, maybe two waves so they can be fm'ed".
+
+- **Oscillator B:** OSC B ON gives every voice a second wavetable oscillator with its own table (the factory's or
+  yours), POS, WARP and AMOUNT, octave, semitones and cents. B LEVEL is how much of it you hear; **B MODE** is what it
+  does to A: **FM** (B moves A's phase, MOD AMT how far), **RING** (A x B), **AM**, or **SYNC** (A starts again with
+  each of B's cycles, MOD AMT how far above B it plays: up to 4 octaves). Unison goes with it (2 at most with B on).
+- **Filters:** LP12 (as before), LP24, HP, BP, NOTCH, COMB (a delay tuned to the cutoff, RES its feedback). KEY makes
+  the cutoff follow the note.
+- **Drives:** DIST picks SOFT (as before), HARD, FOLD (a wavefolder), RECT (full-wave: an octave up), TUBE
+  (lopsided), BITS (fewer bits) or RATE (fewer samples); DRIVE how hard. SAT saturates after the filter. HARD and
+  FOLD are worked out by their integrals and FOLD at twice the rate, so they fold back less noise.
+- **Modulation:** a third envelope (ENV 3); three LFOs, each SINE TRI SAW SQUARE S&H RANDOM, free in Hz or synced to
+  the tempo (4 bars … 1/32T), FREE (one for all the voices) or RETRIG (each note its own). A **matrix** of 8 routes:
+  LFO 1-3, MOD ENV, ENV 3, AMP ENV, VEL, KEY, RANDOM to POS A / B, WARP A / B, PITCH, PITCH B, MOD AMT, B LEVEL,
+  CUTOFF, RES, DRIVE, LEVEL, PAN, SUB, NOISE, L1 / L2 RATE, DETUNE, each by -64..+63. And NOISE.
+- **Pages:** each button pressed again shows the page's next view (the tab names it): SEL WAVE A, OSC A, WAVE B, OSC B,
+  B MIX; EDIT FILTER, DRIVE; ENV AMP, MOD ENV, ENV 3; LFO MOD, LFO 1-3, MATRIX (KNOB 1 the slot).
+- **20 factory sounds:** the 12, plus FM BELL, SYNC SWEEP, RING DRONE, COMB PLUCK, FOLD BASS, HOOVER, BIT WOBBLE, S&H TWIST.
+- **Within the CPU:** what's switched on decides how many voices WAVE plays, so it never costs more than 0.32's
+  heaviest: plain 6, UNISON 2 3, OSC B on 3, B and a drive 2 (VOICES is the most it will use).
+- Sounds saved by 0.32 come back as they were, the new values as INIT has them. The editor's WAVE tab has every value,
+  B's table and the matrix; project files keep B's table by its name.
+
+Tested on the host: each filter (LP24 darker than LP12, HP brighter), every drive at full (sounding, no DC), each B
+MODE (RING takes away A's own pitch, SYNC plays at B's, AM keeps it, FM spreads it), the matrix (VEL to LEVEL), a synced
+LFO's speed and its text, the CPU budget over 20000 random sounds, the 20 factory sounds, 0.32's aliasing and zipper
+checks, a 0.32 save read back; the whole app (every view, MATRIX, B on a slot's table, SAVE and reboot); the editor in
+Chromium (B's table and a matrix route sent). Not yet tested: on a real FM-1 — how it sounds and what it costs there.
+

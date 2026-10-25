@@ -522,7 +522,7 @@ with sync_playwright() as pw:
     # heard here (nothing sent), sent: a table of the FM-1's after the factory's, its zone 2-byte aligned, then picked
     p.click("#waveTabBtn")
     p.wait_for_timeout(300)
-    check("WAVE: the 12 factory sounds and 8 tables", p.locator("#wvpreset option").count() == 12 and p.locator("#wvtable option").count() == 8,
+    check("WAVE: the 20 factory sounds and 8 tables", p.locator("#wvpreset option").count() == 20 and p.locator("#wvtable option").count() == 8,
           (p.locator("#wvpreset option").count(), p.locator("#wvtable option").count()))
     p.select_option("#wvpreset", "3")
     p.wait_for_timeout(400)
@@ -553,6 +553,17 @@ with sync_playwright() as pw:
     p.select_option("#wvtable", "8")
     p.wait_for_timeout(400)
     check("WAVE: TABLE MYREESE on the FM-1", p.evaluate("() => window.__dn.mock.wave.p[0]") == 8, p.evaluate("() => window.__dn.mock.wave.p[0]"))
+    # (0.33) WAVE 2 on the tab: B's table, the matrix's first route
+    p.select_option("#wvtableb", "3")
+    p.wait_for_timeout(300)
+    row = p.locator(".mxrow").first
+    row.locator("select").nth(0).select_option("2")
+    row.locator("select").nth(1).select_option("9")
+    row.locator("input").evaluate("(e) => { e.value = 30; e.dispatchEvent(new Event('input')); }")
+    p.wait_for_timeout(400)
+    check("WAVE 2: B's table and the matrix's first route (LFO 2 to CUTOFF +30) on the FM-1",
+          p.evaluate("() => window.__dn.mock.wave.p.slice(59, 62).join() + ' ' + window.__dn.mock.wave.p[29]") == "2,9,30 3",
+          p.evaluate("() => window.__dn.mock.wave.p.slice(59, 62).join() + ' ' + window.__dn.mock.wave.p[29]"))
     p.screenshot(path=str(shots / "editor-wave-sent.png"), full_page=True)
     check("no page errors", not errs, errs)
     b.close()

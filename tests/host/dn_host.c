@@ -653,14 +653,16 @@ int main(int argc, char **argv)
                                                  * every page of every track's instrument: does it fit a BLOCKS tile? */
             static const uint8_t PG[] = {0, 1, 2, 3, 4, DN_PG_SET, DN_PG_LFO, DN_PG_SOSC2, DN_PG_DIRT, DN_PG_FENV,
                                          DN_PG_BRK, DN_PG_BRK2, DN_PG_SLICE, DN_PG_MIDI, DN_PG_PROJ};
-            uint8_t sp = dn.page, st = dn.trk, sa = dn.fm_alt, swv = dn.wv_alt, sl = dn.lfo_view, sm = dn_sm.p.mode;
+            uint8_t sp = dn.page, st = dn.trk, sa = dn.fm_alt, sl = dn.lfo_view, sm = dn_sm.p.mode, swv[DN_NPAGES];
+            memcpy(swv, dn.wv_view, sizeof swv);
             fit_bad = 0;
             for (uint32_t t = 0; t < 8u; t++)
                 for (uint32_t pi = 0; pi < sizeof PG; pi++)
-                    for (uint32_t alt = 0; alt < 4u; alt++) {
+                    for (uint32_t alt = 0; alt < 5u; alt++) {
                         dn.trk = (uint8_t)t, dn.page = PG[pi];
-                        dn.fm_alt = dn.wv_alt = alt & 1u ? 0x1Fu : 0u, dn.lfo_view = (uint8_t)(alt & 1u);
-                        dn_sm.p.mode = (uint8_t)(alt >> 1);
+                        dn.fm_alt = alt & 1u ? 0x1Fu : 0u, dn.lfo_view = (uint8_t)(alt & 1u);
+                        memset(dn.wv_view, (int)alt, sizeof dn.wv_view);
+                        dn_sm.p.mode = (uint8_t)((alt >> 1) & 1u);
                         for (uint32_t k = 0; k < 4u; k++) {
                             uint32_t id = dn_dial(k);
                             int32_t lo, hi, step;
@@ -723,7 +725,8 @@ int main(int argc, char **argv)
                         }
                     }
             }
-            dn.page = sp, dn.trk = st, dn.fm_alt = sa, dn.wv_alt = swv, dn.lfo_view = sl, dn_sm.p.mode = sm;
+            dn.page = sp, dn.trk = st, dn.fm_alt = sa, dn.lfo_view = sl, dn_sm.p.mode = sm;
+            memcpy(dn.wv_view, swv, sizeof swv);
             printf("  fitcheck: %u too wide\n", fit_bad);
         } else if (!strcmp(a, "noloops") && n >= 2) {   /* (0.29) noloops 1: slot 1 empty (no loops at all) */
             sim_noloops = (uint32_t)atoi(b);
@@ -760,6 +763,14 @@ int main(int argc, char **argv)
             }
             dn_app_slots_changed(1);
             run(5);
+        } else if (!strcmp(a, "wv1save")) {   /* (0.33) a WAVE sound as 0.32 saved it: PPG BELL, its table PPG */
+            struct { uint32_t magic; uint8_t preset, tslot, pad[2]; char tname[8]; int16_t p[28]; } o;
+            int16_t pv[WP_N];
+            memset(&o, 0, sizeof o);
+            o.magic = 0x31575644u, o.preset = 3, memcpy(o.tname, "PPG", 3);
+            dn_wt_preset(3, pv);
+            memcpy(o.p, pv, sizeof o.p);
+            dn_ext_save(0, &o, sizeof o);
         } else if (!strcmp(a, "set") && n >= 3) {   /* set ID V: a value as the knobs set it (0.23) */
             dn_set((uint32_t)atoi(b), atoi(c));
             run(5);
@@ -883,9 +894,9 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "fmpreset")) got = dn.fm_preset;
             else if (!strcmp(b, "wvv")) got = (long)dn_wt_sounding(&dn_wv);   /* WAVE (0.32): voices sounding */
             else if (!strcmp(b, "wvpreset")) got = dn.wv_preset;
-            else if (!strcmp(b, "wvslot")) got = dn.wv_tslot;   /* its table is a slot's */
+            else if (!strcmp(b, "wvslot")) got = dn.wv_tslot[0];   /* its table is a slot's */
             else if (!strcmp(b, "wvtab")) got = dn_wv.tab == sim_wt ? 99 : dn_wv.tab ? 1 : 0;   /* 99 the slot's */
-            else if (!strncmp(b, "wvtname.", 8)) got = (unsigned char)dn.wv_tname[atoi(b + 8) % 9];
+            else if (!strncmp(b, "wvtname.", 8)) got = (unsigned char)dn.wv_tname[0][atoi(b + 8) % 9];
             else if (!strncmp(b, "wv.", 3)) got = dn_wv.p[atoi(b + 3) % WP_N];   /* wv.K: value WP_K */
             else if (!strcmp(b, "fmop")) got = dn.fm_op + 1;
             else if (!strncmp(b, "fmname.", 7)) got = dn_fm_base[DN_FMV_NAME + atoi(b + 7)];

@@ -393,26 +393,52 @@ def body():
        "then your DX7 voices. BRIGHT, TIME, ATTACK and RELEASE sit on top of the voice without changing it."))
     o.append(shots(("fm-01-voice.png", "VOICE."), ("fm-02-op.png", "OP: the operator's frequency."), ("fm-04-eg.png", "EG: OP3's rates.")))
 
-    o.append(chapter("WAVE", 4, "A wavetable synth (new in 0.32): 8 factory tables and your own Serum tables, morphing "
-                     "through the frames, the phase warped, unison, a sub, a filter with drive."))
+    o.append(chapter("WAVE", 4, "A wavetable synth with two oscillators (0.33): 8 factory tables and your own Serum "
+                     "tables, A and B, FM, ring, AM and sync between them, warps, six filters, seven drives, three envelopes, "
+                     "three LFOs and a matrix of 8 routes."))
+    o.append("<p>Each page button pressed again shows the page's next view; the tab names it. " + k("SEL") + ": WAVE A, OSC A, "
+             "WAVE B, OSC B, B MIX. " + k("EDIT") + ": FILTER, DRIVE. " + k("ENV") + ": AMP, MOD ENV, ENV 3. " + k("LFO") +
+             ": MOD, LFO 1, LFO 2, LFO 3, MATRIX.</p>")
     o.append(knobs([
-        ("WAVE", k("SEL"), "TABLE", "POS: through the frames", "WARP: OFF SYNC BEND MIRROR PWM FM CRUSH", "AMOUNT"),
-        ("OSC", k("SEL") + " again", "UNISON 1-4", "DETUNE", "SPREAD: stereo", "SUB: a sine an octave down"),
-        ("FILTER", k("EDIT"), "CUT", "RES", "ENV: mod env on the cutoff", "DRIVE"),
+        ("WAVE A", k("SEL"), "TABLE", "POS: through the frames", "WARP: OFF SYNC BEND MIRROR PWM FM CRUSH", "AMOUNT"),
+        ("OSC A", k("SEL") + " ×2", "UNISON 1-4", "DETUNE", "SPREAD: stereo", "SUB: a sine an octave down"),
+        ("WAVE B", k("SEL") + " ×3", "B TABLE", "B POS", "B WARP", "B AMT"),
+        ("OSC B", k("SEL") + " ×4", "OSC B: OFF / ON", "B OCT", "B SEMI", "B FINE"),
+        ("B MIX", k("SEL") + " ×5", "B LEVEL: B heard", "B MODE: MIX FM RING AM SYNC", "MOD AMT", "NOISE"),
+        ("FILTER", k("EDIT"), "FILTER: LP12 LP24 HP BP NOTCH COMB", "CUT", "RES", "ENV: mod env on the cutoff"),
+        ("DRIVE", k("EDIT") + " ×2", "DIST: SOFT HARD FOLD RECT TUBE BITS RATE", "DRIVE", "SAT: after the filter", "KEY: cutoff follows the note"),
         ("AMP", k("ENV"), "ATK", "DEC", "SUS", "REL"),
-        ("MOD ENV", k("ENV") + " again", "M.ATK", "M.DEC", "M.SUS", "M.REL"),
-        ("MOD", k("LFO"), "POS ENV", "POS LFO", "LFO RATE", "CUT LFO"),
+        ("MOD ENV", k("ENV") + " ×2", "M.ATK", "M.DEC", "M.SUS", "M.REL"),
+        ("ENV 3", k("ENV") + " ×3", "E3 ATK", "E3 DEC", "E3 SUS", "E3 REL"),
+        ("MOD", k("LFO"), "POS ENV", "POS LFO", "L1 RATE", "CUT LFO"),
+        ("LFO 1-3", k("LFO") + " ×2-4", "SHAPE: SINE TRI SAW SQUARE S&amp;H RANDOM", "RATE: Hz, or a length", "SYNC: FREE / SYNC", "MODE: FREE / RETRIG"),
+        ("MATRIX", k("LFO") + " ×5", "SLOT 1-8", "SOURCE", "DEST", "DEPTH"),
         ("OUT", k("GLO"), "LEVEL", "VOICES 1-6 (1: MONO)", "GLIDE", "TRANS"),
-    ], "PRESETS: INIT, SUPERSAW, REESE, PPG BELL, VOX PAD, SYNC LEAD, PWM STRNG, GRIT BASS, ORGAN, FM GROWL, BENT KEYS, CRUSHER."))
-    o.append(shots(("wave-01-wave.png", "WAVE."), ("wave-02-osc.png", "OSC (SEL again)."), ("wave-06-mod.png", "MOD.")))
+    ], "PRESETS: INIT, SUPERSAW, REESE, PPG BELL, VOX PAD, SYNC LEAD, PWM STRNG, GRIT BASS, ORGAN, FM GROWL, BENT KEYS, CRUSHER, "
+       "FM BELL, SYNC SWEEP, RING DRONE, COMB PLUCK, FOLD BASS, HOOVER, BIT WOBBLE, S&amp;H TWIST."))
+    o.append(shots(("wave-01-wave.png", "WAVE A."), ("wave-12-bmix.png", "B MIX (SEL ×5)."), ("wave-13-drive.png", "DRIVE (EDIT again)."),
+                   ("wave-16-matrix.png", "MATRIX (LFO ×5).")))
+    o.append(table([
+        ("MIX", "B is only heard, at B LEVEL."),
+        ("FM", "B moves A's phase: MOD AMT is how far. Bells, growls, metal. B LEVEL 0 to hear only A."),
+        ("RING", "A times B: their sum and difference, A's own pitch gone at MOD AMT 127. Clangs and drones."),
+        ("AM", "B moves A's level: tremolo at low B pitches, sidebands at high ones."),
+        ("SYNC", "A starts again with each of B's cycles. A plays MOD AMT above B (up to 4 octaves): sweep MOD AMT (the matrix: MOD ENV to MOD AMT) for the classic sync scream."),
+    ], head=["B MODE", "WHAT IT DOES"]))
+    o.append(table([
+        ("Sources", "LFO 1-3, MOD ENV, ENV 3, AMP ENV, VEL (velocity), KEY (the note), RANDOM (one per note)."),
+        ("Destinations", "POS A, POS B, WARP A, WARP B (their AMOUNTs), PITCH, PITCH B, MOD AMT, B LEVEL, CUTOFF, RES, DRIVE, LEVEL, PAN, SUB, NOISE, L1 RATE, L2 RATE, DETUNE."),
+        ("Depth", "-64 to +63: how far, either way. Routes add up."),
+    ], head=["MATRIX", ""]))
     o.append(table([
         ("ANALOG", "Sine, to triangle, to square, to saw."), ("REESE", "A saw with notches that move: two detuned saws, frozen."),
         ("PPG", "A band of harmonics stepping up, on a thin saw."), ("VOCAL", "The vowels A E I O U, one into the next."),
         ("SYNC", "Hard sync: a saw restarting 1 to 8 times a cycle."), ("PWM", "A pulse from 50 % down to 4 %."),
         ("GRIT", "A sine folded harder and harder."), ("HOLLOW", "Odd harmonics, drawbars moving: an organ going hollow."),
     ], head=["TABLE", "POS 0 → 127"]))
-    o.append(tip("WAVE plays 8 oscillators at most: UNISON 1 gives 6 voices, UNISON 2 gives 4, UNISON 3 or 4 gives 2. "
-                 "Watch CPU on PROJECT when everything plays at once.", 4, "NOTE"))
+    o.append(tip("The voices WAVE plays depend on what's switched on, so the FM-1 never runs out of time: UNISON, OSC B, a "
+                 "DIST, LP24, SAT and stereo (SPREAD, PAN) each cost some. Plain: 6 voices. UNISON 2: 3, UNISON 4: 2. OSC B on: 3, and "
+                 "unison 2 at most. B on with a drive: 2. VOICES is the most it will use; watch CPU on PROJECT.", 4, "VOICES"))
 
     o.append(chapter("MIDI TRACKS", 5, "Tracks set to MIDI play your other gear over USB, each on its channel.", brk=False))
     o.append(knobs([("MIDI", k("GLO") + " ×4", "MIDI: which (1-5…)", "CHANNEL 1-16", "OVERLAP: SLIDE / CUT", "")],
