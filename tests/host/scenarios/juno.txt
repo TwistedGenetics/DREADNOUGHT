@@ -2,6 +2,8 @@
 # (SEL: DCO, DCO 2; EDIT: VCF, VCF 2; ENV: ENV, VCA; LFO; GLO: OUT), PRESETS over its factory sounds, the keys
 # polyphonic, the sequencer playing it, the sound kept over a reboot.
 # Values (set ID V): 400 + JP_*: 408 CUT, 409 RES, 426 CHORUS, 428 VOICES.
+# (0.40) the whole run recorded: run_host.sh plays it again on one core, and the two must match to the bit
+wav cores-juno.wav
 tap HOME
 turn SELECT 5
 expect trk 6
@@ -82,3 +84,4 @@ reboot
 expect eng.6 9
 expect jupreset 2
 expect ju.26 3
+wavstop

@@ -1008,54 +1008,148 @@ static void dn_click_render(int32_t *lr, uint32_t n)
 static uint32_t dn_beat_samples(void) { return 2646000u / (dn_sq.bpm ? dn_sq.bpm : 120u); }   /* 44100 * 60 / BPM */
 
 /* the instruments, each into its own buffer, then into the mix and, at its track's sends, into FX A / B; the FX
- * after (k <= 32 frames: the LFOs' tick cuts every render there) */
+ * after (k <= 32 frames: the LFOs' tick cuts every render there).
+ *
+ * (0.40) Both cores: the FM-1's second core (X0X's fm1_cpu1.h: one job at a time, handed over and waited for inside
+ * the audio interrupt) renders some of the instruments while this one renders the others, then FX B while this one
+ * runs FX A. Which instruments go where is weighed afresh every 128 frames from what each took (TIMER4, both cores'
+ * clock): the heaviest first, each to the lighter side. Every sum is of integers, so the mix is the same to the bit
+ * on one core or two. If the second core is off (it would not start, or gave up: X0X's checks), everything here. */
 #define DN_MIXN 32u
+typedef struct {
+    int32_t lr[2u * DN_MIXN], sa[2u * DN_MIXN], sb[2u * DN_MIXN], ib[2u * DN_MIXN];
+} dn_mixb_t;
+static dn_mixb_t dn_mx0, dn_mx1;                    /* this core's, the second core's */
+static uint32_t dn_c2_mask;                         /* the instruments the second core renders (bit e) */
+static uint32_t dn_cost[DN_E_N + 2u];               /* what each took lately (TIMER4 ticks a 128 frames, smoothed);
+                                                     * then FX A, FX B */
+static uint32_t dn_cacc[DN_E_N + 2u];               /* ... this 128 frames' so far */
+static uint32_t dn_c2_k;                            /* (the job's stretch) */
+static uint8_t dn_cores;                            /* 2: the second core took the last job */
+static void dn_eng_render(uint32_t e, dn_mixb_t *m, uint32_t k)
+{
+    uint32_t i, t, a, b, t0 = plat_ticks24();
+    int32_t *ib = m->ib;
+    for (i = 0; i < 2u * k; i++)
+        ib[i] = 0;
+    if (e == DN_E_REESE)
+        reese_render(&dn_rs, ib, k);
+    else if (e == DN_E_SUB)
+        dn_sub_render(&dn_sb, ib, k);
+    else if (e == DN_E_SMP || e == DN_E_SMP2)
+        dn_smp_render(&dn_smx[e == DN_E_SMP2], ib, k);
+    else if (e == DN_E_FM)
+        dn_fm_render(&dn_fmx, ib, k);
+    else if (e == DN_E_WAVE)
+        dn_wt_render(&dn_wv, ib, k);
+    else if (e == DN_E_JUNO)
+        dn_ju_render(&dn_ju, ib, k);
+    else
+        dn_brk_render(&dn_bk[e - DN_E_BRKA], ib, k);   /* (a break on no track: only chop mode's loop) */
+    t = dn_trk_of(e);
+    a = t < 8u ? dn_send[0][t] : 0u;
+    b = t < 8u ? dn_send[1][t] : 0u;
+    for (i = 0; i < 2u * k; i++)
+        m->lr[i] += ib[i];
+    if (a)
+        for (i = 0; i < 2u * k; i++)
+            m->sa[i] += (ib[i] * (int32_t)a) >> 7;
+    if (b)
+        for (i = 0; i < 2u * k; i++)
+            m->sb[i] += (ib[i] * (int32_t)b) >> 7;
+    dn_cacc[e] += plat_ticks24() - t0;
+}
+static void dn_mixb_clear(dn_mixb_t *m, uint32_t k)
+{
+    uint32_t i;
+    for (i = 0; i < 2u * k; i++)
+        m->lr[i] = m->sa[i] = m->sb[i] = 0;
+}
+static void dn_c2_engines(uint32_t k)               /* the second core's first job: its instruments */
+{
+    uint32_t e;
+    dn_mixb_clear(&dn_mx1, k);
+    for (e = DN_E_REESE; e < DN_E_N; e++)
+        if (e != DN_E_MIDI && (dn_c2_mask >> e & 1u))
+            dn_eng_render(e, &dn_mx1, k);
+}
+static void dn_c2_fxb(uint32_t k)                   /* its second: FX B, into its own (zeroed) mix */
+{
+    uint32_t i, t0 = plat_ticks24();
+    for (i = 0; i < 2u * k; i++)
+        dn_mx1.lr[i] = 0;
+    dn_fx_run(&dn_fxs[1], &dn_fxp[1], dn_mx0.sb, dn_mx1.lr, k, dn_sq.bpm, dn_ret[1]);
+    dn_cacc[DN_E_N + 1u] += plat_ticks24() - t0;
+}
+static void dn_c2_job(uint32_t arg)
+{
+    if (arg & 0x100u)
+        dn_c2_fxb(dn_c2_k);
+    else
+        dn_c2_engines(dn_c2_k);
+}
+/* every 128 frames: the costs smoothed, the instruments shared out again (the heaviest first, to the lighter core) */
+static void dn_cores_weigh(void)
+{
+    uint32_t e, load0 = 0, load1 = 0, mask = 0, done = 0;
+    for (e = 0; e < DN_E_N + 2u; e++) {
+        dn_cost[e] = dn_cost[e] - (dn_cost[e] >> 3) + (dn_cacc[e] >> 3);
+        dn_cacc[e] = 0;
+    }
+    for (;;) {
+        uint32_t best = DN_E_N, bc = 0;
+        for (e = DN_E_REESE; e < DN_E_N; e++)
+            if (e != DN_E_MIDI && !(done >> e & 1u) && (best == DN_E_N || dn_cost[e] > bc))
+                best = e, bc = dn_cost[e];
+        if (best == DN_E_N)
+            break;
+        done |= 1u << best;
+        if (load1 < load0)                          /* (a tie stays here) */
+            load1 += bc, mask |= 1u << best;
+        else
+            load0 += bc;
+    }
+    dn_c2_mask = mask;
+}
 static void dn_mix_render(int32_t *lr, uint32_t k)
 {
-    static int32_t ib[2u * DN_MIXN], sa[2u * DN_MIXN], sb[2u * DN_MIXN];
-    uint32_t e, i, t, na = 0, nb = 0;
+    uint32_t e, i, two, t0;
     if (k > DN_MIXN)
         k = DN_MIXN;
-    for (i = 0; i < 2u * k; i++)
-        sa[i] = sb[i] = 0;
-    for (e = DN_E_REESE; e < DN_E_N; e++) {
-        if (e == DN_E_MIDI)
-            continue;
-        uint32_t a, b;
-        for (i = 0; i < 2u * k; i++)
-            ib[i] = 0;
-        if (e == DN_E_REESE)
-            reese_render(&dn_rs, ib, k);
-        else if (e == DN_E_SUB)
-            dn_sub_render(&dn_sb, ib, k);
-        else if (e == DN_E_SMP || e == DN_E_SMP2)
-            dn_smp_render(&dn_smx[e == DN_E_SMP2], ib, k);
-        else if (e == DN_E_FM)
-            dn_fm_render(&dn_fmx, ib, k);
-        else if (e == DN_E_WAVE) {
-            dn_wv.bpm = dn_sq.bpm;                  /* (0.33: the synced LFOs) */
-            dn_wt_render(&dn_wv, ib, k);
-        } else if (e == DN_E_JUNO) {
-            dn_ju.bpm = dn_sq.bpm;                  /* (its synced LFO) */
-            dn_ju_render(&dn_ju, ib, k);
-        }
-        else
-            dn_brk_render(&dn_bk[e - DN_E_BRKA], ib, k);   /* (a break on no track: only chop mode's loop) */
-        t = dn_trk_of(e);
-        a = t < 8u ? dn_send[0][t] : 0u;
-        b = t < 8u ? dn_send[1][t] : 0u;
-        for (i = 0; i < 2u * k; i++)
-            lr[i] += ib[i];
-        if (a)
-            for (i = 0, na = 1; i < 2u * k; i++)
-                sa[i] += (ib[i] * (int32_t)a) >> 7;
-        if (b)
-            for (i = 0, nb = 1; i < 2u * k; i++)
-                sb[i] += (ib[i] * (int32_t)b) >> 7;
+    dn_wv.bpm = dn_sq.bpm;                          /* (0.33: WAVE's synced LFOs; JUNO's) */
+    dn_ju.bpm = dn_sq.bpm;
+    dn_c2_k = k;
+    two = dn_c2_mask && plat_cpu2_run(dn_c2_job, 0u);
+    dn_mixb_clear(&dn_mx0, k);
+    for (e = DN_E_REESE; e < DN_E_N; e++)
+        if (e != DN_E_MIDI && (!two || !(dn_c2_mask >> e & 1u)))
+            dn_eng_render(e, &dn_mx0, k);
+    if (two && plat_cpu2_wait() != 0) {             /* it failed (and is off now): its share here */
+        two = 0;
+        for (e = DN_E_REESE; e < DN_E_N; e++)
+            if (e != DN_E_MIDI && (dn_c2_mask >> e & 1u))
+                dn_eng_render(e, &dn_mx0, k);
     }
-    (void)na, (void)nb;                             /* (the effects run on: their tails ring out) */
-    dn_fx_run(&dn_fxs[0], &dn_fxp[0], sa, lr, k, dn_sq.bpm, dn_ret[0]);
-    dn_fx_run(&dn_fxs[1], &dn_fxp[1], sb, lr, k, dn_sq.bpm, dn_ret[1]);
+    if (two)
+        for (i = 0; i < 2u * k; i++) {
+            dn_mx0.lr[i] += dn_mx1.lr[i];
+            dn_mx0.sa[i] += dn_mx1.sa[i];
+            dn_mx0.sb[i] += dn_mx1.sb[i];
+        }
+    for (i = 0; i < 2u * k; i++)
+        lr[i] += dn_mx0.lr[i];
+    /* the effects (their tails ring out whatever is sent): FX B on the second core while this one runs FX A */
+    two = plat_cpu2_on() && dn_fxs[1].type != DN_FX_OFF && plat_cpu2_run(dn_c2_job, 0x100u);
+    t0 = plat_ticks24();
+    dn_fx_run(&dn_fxs[0], &dn_fxp[0], dn_mx0.sa, lr, k, dn_sq.bpm, dn_ret[0]);
+    dn_cacc[DN_E_N] += plat_ticks24() - t0;
+    if (two && plat_cpu2_wait() != 0)
+        two = 0, dn_c2_fxb(k);
+    else if (!two)
+        dn_c2_fxb(k);
+    for (i = 0; i < 2u * k; i++)
+        lr[i] += dn_mx1.lr[i];
+    dn_cores = (uint8_t)(plat_cpu2_on() ? 2u : 1u);
 }
 
 /* The master limiter (0.16.1): with the reverbs' and MASSIVE's returns on top of the engines a mix went past full
@@ -1136,6 +1230,7 @@ void dn_app_render(int32_t *lr, uint32_t n)
         }
         off += k;
     }
+    dn_cores_weigh();                               /* (0.40) the instruments shared out between the cores again */
     dn_master_limit(lr, n);                         /* (0.16.1: peaks turned down, not clipped) */
     for (i = 0; i < 2u * n; i++) {                  /* the master: a soft knee at the top, nothing ever wraps */
         if (lr[i] > 24576 || lr[i] < -24576) {
@@ -7338,10 +7433,12 @@ static void dn_draw_bottom(void)
     }
     if (dn.page == DN_PG_PROJ) {                    /* PROJECT: the samples' memory, the FX memory, the load (0.35:
                                                      * four tiles; the tracks' instruments are picked on HOME) */
-        static const char *const N[4] = {"SAMPLES", "FX MEM", "CPU", "PEAK"};
+        const char *N[4] = {"SAMPLES", "FX MEM", "CPU x1", "PEAK"};   /* (0.40: x2 on both cores) */
         uint32_t used = dn_smp_used(), cap = dn_smp_cap(), fxb = dn_fxs[0].bytes + dn_fxs[1].bytes;
         uint32_t cpu = plat_cpu_pct(), pk = plat_cpu_peak_pct(), k;
         char v[4][8];
+        if (dn_cores == 2u)
+            N[2] = "CPU x2";
         int32_t q[4];
         dn_num(v[0], (int32_t)(used / 1024u)), dn_cat(v[0], "K");
         dn_num(v[1], (int32_t)(fxb / 1024u)), dn_cat(v[1], "K");

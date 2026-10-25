@@ -95,6 +95,33 @@ int plat_store_save(uint32_t obj, const void *src, uint32_t len)
     store_len[obj] = (int)len;
     return 0;
 }
+/* (0.40) the second core, simulated: a job handed over runs when it is waited for (after this core's own share: what
+ * the FM-1 might do at the latest); `cores 1|2` in a scenario; a fake clock so the costs can be weighed */
+static int sim_two = 1;                         /* (DN_CORES=1 in the environment: one core) */
+static void (*sim_c2_fn)(uint32_t);
+static uint32_t sim_c2_arg, sim_c2_jobs, sim_ticks;
+int plat_cpu2_on(void) { return sim_two; }
+static void sim_cores_env(void)
+{
+    const char *e = getenv("DN_CORES");
+    if (e && *e == '1')
+        sim_two = 0;
+}
+int plat_cpu2_run(void (*fn)(uint32_t), uint32_t arg)
+{
+    if (!sim_two)
+        return 0;
+    sim_c2_fn = fn, sim_c2_arg = arg;
+    return 1;
+}
+int plat_cpu2_wait(void)
+{
+    if (sim_c2_fn)
+        sim_c2_fn(sim_c2_arg), sim_c2_jobs++;
+    sim_c2_fn = 0;
+    return 0;
+}
+uint32_t plat_ticks24(void) { return sim_ticks += 7u; }
 uint32_t plat_cpu_pct(void) { return 0; }         /* (the simulator does not measure the FM-1's load) */
 uint32_t plat_cpu_peak_pct(void) { return 0; }
 uint32_t plat_xruns(void) { return 0; }
@@ -359,6 +386,7 @@ int main(int argc, char **argv)
     const char *dir = argc > 2 ? argv[2] : "build/host";
     int fails = 0, lineno = 0;
     FILE *sc;
+    sim_cores_env();
     if (argc < 2 || !(sc = fopen(argv[1], "r"))) {
         fprintf(stderr, "usage: dn_host SCRIPT [OUTDIR]\n");
         return 2;
@@ -883,6 +911,8 @@ int main(int argc, char **argv)
             else if (!strcmp(b, "slsel")) got = dn.sl_sel;
             else if (!strcmp(b, "cursor")) got = (long)dn.sl_cur;
             else if (!strncmp(b, "bon.", 4)) got = dn_bk[atoi(b + 4) - 1].on;   /* BREAKS A (1) / B (2) sounding */
+            else if (!strcmp(b, "c2jobs")) got = (long)sim_c2_jobs;   /* (0.40) jobs the second core ran */
+            else if (!strcmp(b, "c2mask")) got = (long)dn_c2_mask;
             else if (!strncmp(b, "hfx.", 4)) got = dn_bk[atoi(b + 4) - 1].hfx.type;   /* (0.39) its hit's FX now */
             else if (!strncmp(b, "pos.", 4)) got = (long)dn_brk_pos(&dn_bk[atoi(b + 4) - 1]);  /* where K plays */
             else if (!strncmp(b, "aud.", 4)) got = dn_bk[atoi(b + 4) - 1].aud;

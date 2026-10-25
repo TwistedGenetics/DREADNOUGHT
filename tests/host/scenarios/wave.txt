@@ -3,6 +3,8 @@
 # table sent in a sample slot (not a loop), the sound kept over a reboot, the slots changing under it.
 # White keys (tracks 1..8): 0 2 4 6 7 9 11 12. Values (set ID V): 300 + WP_* (0.33): 300 TABLE, 304 UNISON, 325 VOICES,
 # 328 OSC B, 329 B TABLE, 337 B MODE, 340 FILTER, 342 DIST, 359 the matrix's slot 1 SOURCE (360 DEST, 361 DEPTH).
+# (0.40) the whole run recorded: run_host.sh plays it again on one core, and the two must match to the bit
+wav cores-wave.wav
 sysex 76 7 8 0
 expect eng.8 8
 press SEQ
@@ -175,3 +177,4 @@ expect wv.0 2
 expect wv.28 0
 expect wv.40 0
 expect wv.59 0
+wavstop

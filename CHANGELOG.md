@@ -955,3 +955,18 @@ repeat, the tape stop's half speed half a beat in, octaves, joins declicked, the
 scenario `hitfx.txt` (the page, a 1:2 condition on the FX only: stretched, plain, stretched); the editor's end-to-end
 run (a break step's STR 1/2 and 1:2 on the FX only reach the FM-1). Not yet tried on the FM-1.
 
+## 0.40 — both cores (2026-10-25)
+
+- **The second core renders.** Up to 0.39 everything ran on one of the FM-1's two cores, and a full project reached
+  98 % and froze. Now, inside each audio block, the second core renders some of the instruments while the first
+  renders the rest, then runs FX B while the first runs FX A. What each instrument costs is timed (the shared 24 MHz
+  timer) and the split is weighed again every 128 frames: the heaviest first, each to the lighter core. All the sums
+  are integers, so the mix is the same to the bit on one core or two.
+- Started as X0X starts it (at power-on, before the audio), with X0X's safety: a unit whose second core misreads
+  memory, or a job that doesn't finish, puts everything back on one core until power-off; not after a failed start.
+- PROJECT's CPU tile reads **CPU x2** with both cores working, **CPU x1** on one.
+
+Tested on the host: every scenario now runs with a simulated second core (its jobs run when waited for), and eight
+of them (FX, JUNO, FM, WAVE, SAMPLER 2, hit FX, breaks, LFOs) are played again on one core: the 11 recordings match to
+the bit. Not yet tried on the FM-1: how much it saves depends on the project (one heavy instrument can't be split).
+

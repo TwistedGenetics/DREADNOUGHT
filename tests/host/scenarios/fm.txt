@@ -3,6 +3,8 @@
 # the keys polyphonic, the macros on top of the voice, the voice kept over a reboot.
 # White keys (tracks 1..8): 0 2 4 6 7 9 11 12. Values (set ID V): 60 ALGO, 62 BRIGHT, 64 ATTACK, 66 OP, 78 + an
 # operator's value (DN_FMO_*: 16 LEVEL, 18 COARSE).
+# (0.40) the whole run recorded: run_host.sh plays it again on one core, and the two must match to the bit
+wav cores-fm.wav
 sysex 76 6 7 0
 expect eng.7 7
 press SEQ
@@ -115,3 +117,4 @@ sysex 86 60 0
 sysex 69 6 0
 expect reply.0 13
 expect reply.2 68
+wavstop

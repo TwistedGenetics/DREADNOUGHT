@@ -608,6 +608,11 @@ static void fm1_main(void)
     led_pos_init();
     plat_perf_init();
     dn_dbg.stage = 1;                               /* breadcrumbs: a WDT reset leaves the last one */
+    if (!bootguard.failed && !plat_cpu2_barred())   /* (0.40) the second core, as X0X starts it: at power-on, before
+                                                     * the audio and the timers (later, it does not reach its entry).
+                                                     * Not after a failed start, nor once it has been given up or
+                                                     * crashed (until power-off); if it does not answer: one core */
+        plat_cpu2_set(1);
     audio_init();
     usb_start();
 #if X0X_TRS

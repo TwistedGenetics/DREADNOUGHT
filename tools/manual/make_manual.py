@@ -614,7 +614,7 @@ def body():
         ("Patterns", "8 per instrument, 64 steps each; notes of all 64 patterns share memory (about 1 680). The sequencer page shows how full it is."),
         ("Samples", "224 KB in three slots, shared by loops, samples, DX7 voices and wavetables."),
         ("Effects", "176 KB between FX A and FX B."),
-        ("CPU", f"PROJECT shows the load and its peak (CPU 40 PK 62%). Too much at once: the status line says AUDIO LATE: CPU FULL. Fewer voices, less unison or a smaller reverb bring it back."),
+        ("CPU", f"PROJECT shows the load and its peak. From 0.40 the FM-1's two cores share the work: the instruments are split between them (weighed again all the time, the heaviest first) and FX B runs beside FX A. The tile reads CPU x2 then; CPU x1 if the second core is off (it didn't start, or it gave up: one core until you power off). Too much at once: the status line says AUDIO LATE: CPU FULL. Fewer voices, less unison or a smaller reverb bring it back."),
     ]))
 
     # ---- recovery

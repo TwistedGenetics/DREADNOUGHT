@@ -2,6 +2,8 @@
 # track 6 (ONE-SHOT), SAMPLER 2 on track 7 from HOME's picker (KEYS); each plays its own; the sequencer plays both;
 # both kept over a reboot; the editor reads SAMPLER 2's values (kinds 4-7).
 # White keys (tracks 1..8): 0 2 4 6 7 9 11 12. Values (set ID V): 164 MODE, 220 pad 1's SAMPLE, 236 zone 1's SAMPLE.
+# (0.40) the whole run recorded: run_host.sh plays it again on one core, and the two must match to the bit
+wav cores-sampler2.wav
 sysex 76 5 6 0
 expect eng.6 6
 tap HOME
@@ -73,3 +75,4 @@ expect eng.7 10
 expect smmode.1 0
 expect smmode.2 1
 expect smzs.2 0
+wavstop

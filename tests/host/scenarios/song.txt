@@ -56,3 +56,6 @@ expect songon 1
 expect song.2.1 2
 expect song.2.2 0
 expect song.1.9 1
+# (0.40) the second core took jobs, and some instruments
+expect c2jobs >100
+expect c2mask >0

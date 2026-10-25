@@ -79,5 +79,14 @@ $CC $W -Wno-unused-parameter -Wno-sign-compare tests/host/dn_host.c src/dsp/rees
 for s in tests/host/scenarios/*.txt; do
     build/host/dn_host "$s" build/host
 done
+# (0.40) the second core: the same scenarios on one core make the same sound, to the bit
+mkdir -p build/host/one
+for s in fx juno fm wave sampler2 hitfx breaks lfo_wav; do
+    DN_CORES=1 build/host/dn_host "tests/host/scenarios/$s.txt" build/host/one >/dev/null
+done
+for w in build/host/one/*.wav; do
+    cmp -s "$w" "build/host/$(basename "$w")" || { echo "FAIL two cores vs one: $(basename "$w") differs"; exit 1; }
+done
+echo "ok   two cores vs one: $(ls build/host/one/*.wav | wc -l) recordings the same to the bit"
 node tests/host/editor_golden.mjs build/host/editor-golden.json
 echo "host tests: all ok"
