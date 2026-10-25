@@ -864,8 +864,9 @@ Jamie: "tests done and seem ok, please build the juno and sampler 2".
 - **SAMPLER 2**: a second sampler on a track of its own, with its own pads or key map and settings, the same pages as
   SAMPLER (SMPL 2 on the top line). The two share the samples' decoder checkpoints, so a sample on both costs no more.
 - HOME's picker shows all eleven instruments; one on another track shows that track's number in a dark badge.
-- Memory: WAVE's state (8 KB) moved to the pool, which pays for SAMPLER 2 and JUNO in main RAM. JUNO and SAMPLER 2
-  are kept in the second settings object (slot 3's top), as WAVE is in the first.
+- Memory: SAMPLER 2 in main RAM, JUNO in the pool (which keeps its 8 KB headroom); WAVE's and JUNO's save buffers
+  now borrow the sound's save scratch, SAMPLER's sample table is built on the stack, JUNO's chorus line is 16-bit. JUNO
+  and SAMPLER 2 are kept in the second settings object (slot 3's top), as WAVE is in the first.
 - **Web editor:** a JUNO tab (every value, the factory sounds, keys to hear it on the FM-1); the SAMPLER tab picks
   SAMPLER or SAMPLER 2 when both exist; project files keep JUNO and SAMPLER 2.
 

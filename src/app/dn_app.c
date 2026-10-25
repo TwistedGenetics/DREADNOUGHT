@@ -390,8 +390,8 @@ static uint8_t dn_smc;                              /* (0.36) the one the pages 
 #define dn_sm (dn_smx[dn_smc])
 static void dn_smc_sync(void);
 static dn_fm_t dn_fmx;                              /* FM (0.25) */
-static dn_wt_t dn_wv X0X_POOL;                      /* WAVE (0.32; 0.36: in the pool, 8 KB off .bss) */
-static dn_ju_t dn_ju;                               /* JUNO (0.36) */
+static dn_wt_t dn_wv;                              /* WAVE (0.32) */
+static dn_ju_t dn_ju X0X_POOL;                      /* JUNO (0.36: the pool keeps its 8 KB headroom beside it) */
 /* chords (0.27): 15 of them (a step's flags pick one: DN_ST_CHORD), each its notes above the step's, and the chord
  * each sounding note of each track started with (so its note-off lets go of the whole chord) */
 static const int8_t dn_chord[DN_CHORDS][DN_CHORD_N] = {
@@ -1425,7 +1425,7 @@ static void dn_brk_select(uint32_t k, uint32_t src)
  * runs (a short lock each side). */
 static void dn_sm_resolve(int remap)
 {
-    static dn_smp_src_t ns[2][DN_SMP_NSRC];
+    dn_smp_src_t ns[2][DN_SMP_NSRC];                /* (on the main loop's stack: ~1 KB) */
     uint32_t i, j, c, d, used = 0, nsrc = dn_src_count();
     for (c = 0; c < 2u; c++) {                      /* (0.36: both samplers; a sample in both shares its checkpoints) */
         dn_smp_t *sm = &dn_smx[c];
@@ -2246,11 +2246,14 @@ typedef struct {
     char tname[2][8];
     int16_t p[WP_N];
 } dn_wv_save_t;
+typedef char dn_wv_fits[2u * sizeof(dn_wv_save_t) <= sizeof(dn_save_t) ? 1 : -1];
 static int dn_wv_keep(void)                         /* 0 kept (or unchanged), else the refusal */
 {
-    static dn_wv_save_t w, old;
+    dn_wv_save_t *wp = (dn_wv_save_t *)(void *)&dn_sv, *op = wp + 1;   /* (dn_sv: free until dn_save fills it) */
     uint32_t k, b;
     int rc;
+#define w (*wp)
+#define old (*op)
     w.magic = DN_WV_MAGIC;
     w.preset = dn.wv_preset, w.np = WP_N;
     for (b = 0; b < 2u; b++) {
@@ -2266,10 +2269,12 @@ static int dn_wv_keep(void)                         /* 0 kept (or unchanged), el
     rc = dn_ext_save(0, &w, sizeof w);
     dn_flash_t = plat_ms();
     return rc;
+#undef w
+#undef old
 }
 static void dn_wv_restore(void)                     /* (start-up) the kept sound, else SUPERSAW */
 {
-    static union { dn_wv_save_t w; dn_wv_save1_t w1; } u;
+    union { dn_wv_save_t w; dn_wv_save1_t w1; } u;   /* (on the stack: start-up) */
     uint32_t k, b;
     int got;
     dn_wt_init(&dn_wv);
@@ -2325,11 +2330,10 @@ typedef struct {
     int16_t ju[JP_N];
     dn_smp_keep_t smp2;                             /* SAMPLER 2's settings */
 } dn_x1_save_t;
-typedef char dn_x1_fits[sizeof(dn_x1_save_t) <= PLAT_STORE_MAX ? 1 : -1];
-static dn_x1_save_t dn_x1_buf[2];                   /* (what SAVE writes, what's there: RAM shared by keep / restore) */
+typedef char dn_x1_fits[sizeof(dn_x1_save_t) <= PLAT_STORE_MAX && 2u * sizeof(dn_x1_save_t) <= sizeof(dn_save_t) ? 1 : -1];
 static int dn_x1_keep(void)                         /* 0 kept (or unchanged), else the refusal */
 {
-    dn_x1_save_t *wp = &dn_x1_buf[0], *op = &dn_x1_buf[1];
+    dn_x1_save_t *wp = (dn_x1_save_t *)(void *)&dn_sv, *op = wp + 1;   /* (dn_sv: free until dn_save fills it) */
     uint32_t k;
     int rc;
 #define w (*wp)
@@ -2350,7 +2354,7 @@ static int dn_x1_keep(void)                         /* 0 kept (or unchanged), el
 }
 static void dn_x1_restore(void)                     /* (start-up) JUNO's kept sound, else JUNO PAD; SAMPLER 2's */
 {
-    dn_x1_save_t *up = &dn_x1_buf[0];
+    dn_x1_save_t ub, *up = &ub;                     /* (on the stack: the main loop's, at start-up) */
     uint32_t k;
 #define u (*up)
     dn_ju_init(&dn_ju);

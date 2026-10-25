@@ -48,7 +48,7 @@ typedef struct {
     uint8_t nheld;
     uint16_t bpm;                                   /* (the app's tempo: a synced LFO) */
     float hlp;                                      /* the HPF's state */
-    float cb[DN_JU_CB];                             /* the chorus: its delay line, where it writes, its LFO, the
+    int16_t cb[DN_JU_CB];                           /* the chorus: its delay line (Q14), where it writes, its LFO, the
                                                      * delayed sound's low-pass (a BBD's darkness), L and R */
     uint32_t cw, cph;
     float clp[2];

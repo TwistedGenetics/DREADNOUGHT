@@ -422,15 +422,17 @@ void dn_ju_render(dn_ju_t *s, int32_t *lr, uint32_t n)
                 if (ch) {
                     float t, tri2, dl, dr, fl, fr;
                     uint32_t il, ir, w = s->cw;
-                    s->cb[w & (DN_JU_CB - 1u)] = x;
+                    s->cb[w & (DN_JU_CB - 1u)] = (int16_t)(x > 1.99f ? 32600 : x < -1.99f ? -32600 : (int32_t)(x * 16384.0f));
                     s->cph += cinc;
                     t = (float)(s->cph >> 8) * (1.0f / 16777216.0f);
                     tri2 = 4.0f * fm_fabsf(t - 0.5f) - 1.0f;
                     dl = 155.0f + cdep * tri2, dr = 155.0f - cdep * tri2;
                     il = (uint32_t)dl, ir = (uint32_t)dr;
                     fl = dl - (float)il, fr = dr - (float)ir;
-                    L = s->cb[(w - il) & (DN_JU_CB - 1u)] * (1.0f - fl) + s->cb[(w - il - 1u) & (DN_JU_CB - 1u)] * fl;
-                    R = s->cb[(w - ir) & (DN_JU_CB - 1u)] * (1.0f - fr) + s->cb[(w - ir - 1u) & (DN_JU_CB - 1u)] * fr;
+                    L = ((float)s->cb[(w - il) & (DN_JU_CB - 1u)] * (1.0f - fl) + (float)s->cb[(w - il - 1u) & (DN_JU_CB - 1u)] * fl)
+                      * (1.0f / 16384.0f);
+                    R = ((float)s->cb[(w - ir) & (DN_JU_CB - 1u)] * (1.0f - fr) + (float)s->cb[(w - ir - 1u) & (DN_JU_CB - 1u)] * fr)
+                      * (1.0f / 16384.0f);
                     cl += 0.63f * (L - cl), cr += 0.63f * (R - cr);   /* (the BBD's darkness: ~7 kHz) */
                     s->cw = w + 1u;
                     L = 0.72f * (x + cl), R = 0.72f * (x + cr);
