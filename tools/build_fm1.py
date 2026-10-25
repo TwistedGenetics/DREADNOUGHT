@@ -58,15 +58,15 @@ def overlay(b, gen):
     inc = lambda p: f'#include "{p.as_posix()}"\n'
     # usb.c with our names: a copy next to the unity file, included in place of X0X's
     usb = (b.FW / "src" / "usb.c").read_text()
-    for old, new in USB:
-        if usb.count(old) != 1:
-            raise SystemExit(f"build_fm1: X0X's usb.c changed, no '{old[:40]}...'")
-        usb = usb.replace(old, new)
     # (0.42) USB audio's ten channels (uac_multi, uac_tap_mc: tools/usb_mc.json, X0X's text -> ours, in order)
     import json
     for old, new in json.loads((REPO / "tools" / "usb_mc.json").read_text()):
         if usb.count(old) != 1:
             raise SystemExit(f"build_fm1: X0X's usb.c changed, no '{old.strip()[:40]}...' (tools/usb_mc.json)")
+        usb = usb.replace(old, new)
+    for old, new in USB:
+        if usb.count(old) != 1:
+            raise SystemExit(f"build_fm1: X0X's usb.c changed, no '{old[:40]}...'")
         usb = usb.replace(old, new)
     (gen / "usb_dn.c").write_text(usb)
     text = "".join(cut)
