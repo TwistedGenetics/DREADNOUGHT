@@ -728,3 +728,14 @@ Serum, 24-bit stereo of 80 frames, 32-bit float single cycle, no clm chunk: iden
 (a sound picked, a value moved, a Serum table loaded, drawn, heard and sent, then picked). Not yet tested: on a
 real FM-1 — how it sounds and what it costs there.
 
+### The manual, and the editor in the FM-1's colours (2026-10-25)
+
+- **A manual** (`docs/manual/DREADNOUGHT-manual.pdf`, 27 pages, A4) in the BLOCKS skin's colours on a light page, in the
+  FM-1's own font: a quick start first (six walks round the box, each a drawing of the FM-1 with numbered arrows to
+  what to press, and the screen you should see), then the panel, the screen, tracks and HOME, every instrument's pages
+  knob by knob, LFOs, chop mode, the sequencer, the effects, SETUP and skins, saving, the web editor, memory and CPU,
+  recovery, and a one-page quick reference. Made by `tools/manual/make_manual.py` from the host tests' screens.
+- **The web editor in BLOCKS:** warm paper, ink type and Barlow Semi Condensed (the FM-1's font, shipped with the
+  page); the four knob colours as blocks (the panel's knobs each in its colour, the value big under it); orange
+  buttons and tabs with dark type; the piano roll's notes in the skin's blue. Light only, as before.
+

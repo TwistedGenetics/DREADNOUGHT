@@ -11,6 +11,8 @@ REESE, tracks 2 and 3 chop breaks (two built in, or your own from the [breaks pa
 tracks 4–8 play other gear over MIDI until their engines arrive. Every push builds a `.fwsc` in GitHub Actions and publishes it as a
 download (below).
 
+**Manual:** [docs/manual/DREADNOUGHT-manual.pdf](docs/manual/DREADNOUGHT-manual.pdf) — a quick start, then everything.
+
 ## Web editor
 
 **The FM-1 on your computer's screen (0.26).** The editor opens on a big copy of the FM-1: the screen (what the FM-1's

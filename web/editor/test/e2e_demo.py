@@ -146,6 +146,7 @@ with sync_playwright() as pw:
     p.wait_for_timeout(300)
     z = p.evaluate("() => { const S = window.__dn; return {x0: S.x0, zoom: S.zoom, lo: S.lo}; }")
     check("1 bar in view of 2", z["zoom"] == 16 and z["x0"] == 0, z)
+    box = p.locator("#roll").bounding_box()            # (again: the tool row above may have wrapped since)
     cw = (box["width"] - 46) / 16
     XZ = lambda step, frac=0.5: box["x"] + 46 + (step - p.evaluate("() => window.__dn.x0") + frac) * cw
     YZ = lambda note: box["y"] + ((p.evaluate("() => window.__dn.lo") + 35) - note) * 14 + 7

@@ -318,24 +318,24 @@ function drawRoll() {
   for (let r = 0; r < rows(); r++) {                 // rows: piano keys (black keys darker), or slices
     const v = valOf(r), y = r * g.rh, pc = (((v + trans()) % 12) + 12) % 12;
     const black = !isBrk() && [1, 3, 6, 8, 10].includes(pc);
-    c.fillStyle = black ? "#e6e9ee" : "#fbfcfd";
+    c.fillStyle = black ? "#e6e4dc" : "#fdfcf9";
     c.fillRect(GUT, y, g.W - GUT, g.rh);
-    c.fillStyle = black ? "#2b2f36" : "#ffffff";
+    c.fillStyle = black ? "#8c8f97" : "#ffffff";
     c.fillRect(0, y, GUT - 2, g.rh - 1);
     if (isBrk() || pc === 0) {
       c.fillStyle = black ? "#fff" : "#6b7280";
       c.font = "10px -apple-system, Helvetica, Arial";
       c.fillText(isBrk() ? `SL ${v + 1}` : noteName(v + trans()), 4, y + g.rh - 3);
-      if (!isBrk()) { c.fillStyle = "#d9dde3"; c.fillRect(GUT, y + g.rh - 1, g.W - GUT, 1); }
+      if (!isBrk()) { c.fillStyle = "#dedcd3"; c.fillRect(GUT, y + g.rh - 1, g.W - GUT, 1); }
     }
   }
   c.beginPath(); c.rect(GUT, 0, g.W - GUT, g.H); c.clip();   // (zoomed in: the notes outside stay outside)
   for (let s = g.x0; s <= g.x0 + g.n; s++) {          // steps; beats stronger, bars strongest
-    c.fillStyle = s % 16 === 0 ? "#9aa3ad" : s % 4 === 0 ? "#c5cbd3" : "#e9ecf0";
+    c.fillStyle = s % 16 === 0 ? "#9e9b91" : s % 4 === 0 ? "#cfccc2" : "#ecebe5";
     c.fillRect(Math.round(g.x(s)), 0, 1, g.H);
   }
   if (S.playStep >= 0) {
-    c.fillStyle = "rgba(208,64,42,.10)";
+    c.fillStyle = "rgba(255,106,43,.12)";
     c.fillRect(g.x(S.playStep), 0, g.cw, g.H);
   }
   let prev = null;
@@ -351,34 +351,34 @@ function drawRoll() {
       ns.forEach((n) => {
         const cr = rowOf(n), cy = cr * g.rh + 1;
         if (cr < 0 || cr >= rows()) return;
-        c.fillStyle = st.flags & ST_ACC ? "#1b5c99" : "#4b93cf";
+        c.fillStyle = st.flags & ST_ACC ? "#1f4fa8" : "#8fb9ff";
         c.fillRect(x0, cy, Math.max(3, x1 - x0), g.rh - 2);
       });
       const rs = [r, ...ns.map(rowOf)].filter((q) => q >= 0 && q < rows());
-      if (rs.length > 1) { c.fillStyle = "#1b5c99"; c.fillRect(x0, Math.min(...rs) * g.rh + g.rh / 2, 2, (Math.max(...rs) - Math.min(...rs)) * g.rh); }
+      if (rs.length > 1) { c.fillStyle = "#1f4fa8"; c.fillRect(x0, Math.min(...rs) * g.rh + g.rh / 2, 2, (Math.max(...rs) - Math.min(...rs)) * g.rh); }
     }
     if (r >= 0 && r < rows()) {
-      c.fillStyle = st.flags & ST_ACC ? "#1b5c99" : "#2f7fc1";
+      c.fillStyle = st.flags & ST_ACC ? "#1f4fa8" : "#5b9bff";
       c.fillRect(x0, y, Math.max(3, x1 - x0), g.rh - 2);
       c.fillStyle = "rgba(255,255,255,.55)";
       c.fillRect(x1 - 3, y + 2, 2, g.rh - 6);       // the handle that sets the length
-      if (st.cond) { c.fillStyle = "#d0402a"; c.beginPath(); c.moveTo(x0, y); c.lineTo(x0 + 7, y); c.lineTo(x0, y + 7); c.fill(); }
+      if (st.cond) { c.fillStyle = "#e8471c"; c.beginPath(); c.moveTo(x0, y); c.lineTo(x0 + 7, y); c.lineTo(x0, y + 7); c.fill(); }
       if (st.flags & ST_RTRG) {                      // the retrigs: ticks where they fall
         const iv = (16 * g.cw) / RTIM_DEN[st.rtim] , end = g.x(i) + (g.cw * (st.rlen || st.len)) / LEN_STEP;
         c.fillStyle = "rgba(255,255,255,.8)";
         for (let x = g.x(i) + iv; x < Math.min(end, x1) && iv > 1; x += iv) c.fillRect(Math.round(x), y + 2, 1, g.rh - 6);
       }
-      if (i === S.selNote) { c.strokeStyle = "#d0402a"; c.lineWidth = 2; c.strokeRect(x0, y, Math.max(3, x1 - x0), g.rh - 2); }
+      if (i === S.selNote) { c.strokeStyle = "#e8471c"; c.lineWidth = 2; c.strokeRect(x0, y, Math.max(3, x1 - x0), g.rh - 2); }
       if ((st.flags & ST_SLIDE) && isBrk()) {        // a break step's slide is REVERSE: an arrow back
         c.fillStyle = "#fff";
         c.beginPath(); c.moveTo(x0 + 9, y + 2); c.lineTo(x0 + 3, y + g.rh / 2 - 1); c.lineTo(x0 + 9, y + g.rh - 4); c.fill();
       }
     } else {                                         // out of view: a mark at the edge
-      c.fillStyle = "#2f7fc1";
+      c.fillStyle = "#5b9bff";
       c.fillRect(x0, r < 0 ? 0 : g.H - 3, Math.max(3, x1 - x0), 3);
     }
     if (!isBrk() && prev && prev.end === i && ((st.flags & ST_SLIDE) || overlapSlide(S.pat, S.sel, i))) {
-      c.strokeStyle = "#d0402a"; c.lineWidth = 2;      // a slide (flagged, or the note before reaches past): a ramp
+      c.strokeStyle = "#e8471c"; c.lineWidth = 2;      // a slide (flagged, or the note before reaches past): a ramp
       c.beginPath(); c.moveTo(g.x(i) - 6, prev.r * g.rh + g.rh / 2); c.lineTo(g.x(i) + 6, r * g.rh + g.rh / 2); c.stroke();
     }
     prev = { end, r };
@@ -391,13 +391,13 @@ function drawVel() {
   const c = cv.getContext("2d"), { n, x0 } = span(), cw = (W - GUT) / n;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, W, H);
-  c.fillStyle = "#fbfcfd";
+  c.fillStyle = "#fdfcf9";
   c.fillRect(GUT, 0, W - GUT, H);
   for (let i = 0; i < tr.len; i++) {
     const st = tr.steps[i];
     if (!(st.flags & ST_ON)) continue;
     const v = st.flags & ST_ACC ? 127 : st.vel, h = (H - 16) * v / 127;
-    c.fillStyle = st.flags & ST_ACC ? "#1b5c99" : "#2f7fc1";
+    c.fillStyle = st.flags & ST_ACC ? "#1f4fa8" : "#5b9bff";
     if (i >= x0 && i < x0 + n) c.fillRect(GUT + (i - x0) * cw + cw * 0.3, H - 4 - h, Math.max(3, cw * 0.4), h);
   }
 }
@@ -880,7 +880,7 @@ function wvDraw(cv, bytes, pos) {
   if (!t) return;
   const nf = t.frames, dx = nf > 1 ? (W * 0.25) / (nf - 1) : 0, dy = nf > 1 ? (H * 0.35) / (nf - 1) : 0, w = W * 0.75, h = H * 0.6;
   const at = Math.round(pos * (nf - 1)), css = getComputedStyle(document.body);
-  const fg = css.getPropertyValue("--fg").trim() || "#222", acc = css.getPropertyValue("--blue").trim() || "#2f7fc1";
+  const fg = css.getPropertyValue("--fg").trim() || "#222", acc = css.getPropertyValue("--blue").trim() || "#5b9bff";
   for (let f = nf - 1; f >= 0; f--) {
     const fr = t.frame(f, 1), x0 = f * dx, y0 = H - h / 2 - 4 - f * dy;
     g.beginPath();
@@ -1267,25 +1267,25 @@ function drawLfos() {
     const c = cv.getContext("2d"), L = S.lfo[k], n = L.npts;
     const p = { shape: S.params[lfoIndex(k, 0)], phase: S.params[lfoIndex(k, 5)], smooth: S.params[lfoIndex(k, 7)], npts: n, pts: L.pts };
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    c.fillStyle = "#fbfcfd"; c.fillRect(0, 0, W, H);
-    c.fillStyle = "#e9ecf0";
+    c.fillStyle = "#fdfcf9"; c.fillRect(0, 0, W, H);
+    c.fillStyle = "#ecebe5";
     for (let i = 0; i <= n; i++) c.fillRect(Math.round((i * W) / n), 0, 1, H);
-    c.fillStyle = "#c5cbd3"; c.fillRect(0, H / 2, W, 1);
+    c.fillStyle = "#cfccc2"; c.fillRect(0, H / 2, W, 1);
     if (p.shape === 7) {                             // DRAW: the points as bars
-      c.fillStyle = "#cfe3f5";
+      c.fillStyle = "#b8d3ff";
       for (let i = 0; i < n; i++) {
         const y = H / 2 - (L.pts[i] / 100) * (H / 2 - 4);
         c.fillRect((i * W) / n + 2, Math.min(y, H / 2), W / n - 4, Math.abs(H / 2 - y));
       }
     }
-    c.strokeStyle = "#2f7fc1"; c.lineWidth = 2; c.beginPath();
+    c.strokeStyle = "#5b9bff"; c.lineWidth = 2; c.beginPath();
     for (let x = 0; x <= W; x++) {
       const y = H / 2 - lfoShapeAt(p, x / W) * (H / 2 - 4);
       if (x) c.lineTo(x, y); else c.moveTo(x, y);
     }
     c.stroke();
     const now = S.lfoNow && S.lfoNow[k];
-    if (now) { c.fillStyle = "#d0402a"; c.fillRect(Math.round(now.phase * W), 0, 2, H); }
+    if (now) { c.fillStyle = "#e8471c"; c.fillRect(Math.round(now.phase * W), 0, 2, H); }
   });
 }
 
