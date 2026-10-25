@@ -891,3 +891,26 @@ Tested: `ios/test/bridge_e2e.py` (the editor through the bridge to the simulated
 SHIFT / DELETE / double tap on the roll, a project saved to the folder, listed and loaded back, a download, the
 clipboard); the app built in Actions and started in an iPad simulator in demo mode (its self-test). Not yet tried on an
 iPad with the FM-1.
+
+## 0.37 — quick ones: mutes, colours, shifting, copying, ranges (2026-10-25)
+
+Jamie: "I want the drums to instantly stop when mute them in seq window", "The seq window should match the colour of the
+instrument", "shift all the notes in the sequencer so that they wrap round to the start", "holding SAVE, pressing white
+key 1, then white key 5" (the copy), and the probabilities to drop notes every 2 / 4 / 8 bars.
+
+- **Mutes cut:** muting a track (black keys 1-8 on ROLL / DRUM) stops what it's playing at once: a break mid-loop, a
+  pad, a held note.
+- **The sequencer in the instrument's colour** (BLOCKS): the notes on ROLL and DRUM, the overview, the instrument's
+  heading and the top line's tag take HOME's colour for it (JUNO cyan, WAVE pink, SUB green ...), darker when softer.
+- **Shift the notes round:** a bar key (black 10 or 11) held + SELECT moves every step of the track a step later or
+  earlier, + OCT− / OCT+ a bar; what falls off the end comes round to the start.
+- **Copy a pattern in one move:** SAVE held, white key A held, white key B: pattern A into pattern B. A tap of a white
+  key with SAVE still switches pattern (now as it comes up).
+- **A range of steps:** hold the first step, hold REC, press the last (the velocity ramp's move): KNOB 1 now sets the
+  CONDITION of every note in the range at once (!4:4: they drop out every 4th time round; 1:2 every other), KNOB 2 their
+  LENGTH; KNOB 3 / 4 the ramp as before. The status line names it STEPS 3-9.
+
+Tested: host scenario `quick037.txt` (BREAKS A playing, muted: silent at once; REESE's steps shifted 2 later round the
+track and a bar back; pattern 1 copied into 5 without leaving 1; a range's condition on its notes only); every earlier
+scenario. Not yet tried on the FM-1.
+

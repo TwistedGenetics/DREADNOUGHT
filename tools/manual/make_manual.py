@@ -483,6 +483,8 @@ def body():
         ("Black keys 1-8", "Mute / unmute tracks 1-8 (lit: playing)."),
         ("Black key 9, held 1 s", "Clear the track."),
         ("Black keys 10 / 11", "The bar in view: steps 1-16, 17-32, 33-48, 49-64."),
+        ("Black key 10 or 11 held + " + k("SELECT"), "Every step moves a step later / earlier, round the track (a part on the wrong bar)."),
+        ("Black key 10 or 11 held + " + k("OCT-") + " / " + k("OCT+"), "Every step a bar earlier / later, round the track."),
         ("Black key 10 or 11 held + white key 1-4", "The track 1, 2, 3 or 4 bars long."),
         (k("KNOB 1") + " – " + k("KNOB 4") + " (ROLL)", "Scroll the pitches, transpose the track, its length (1-64), the steps in view."),
         (k("KNOB 1") + " – " + k("KNOB 4") + " (DRUM)", "The slice row, length, swing, the steps in view."),
@@ -501,7 +503,7 @@ def body():
     o.append(table([
         ("Move a note", "Hold its step and press the step it should go to (black keys 10 / 11: another bar; onto a note: they swap). Or turn SELECT. OCT- / OCT+: an octave."),
         ("Copy a note", "As moving, with SAVE held."),
-        ("Velocity ramp", "Hold the first step, hold REC, press the last; KNOB 3 / 4 the ramp's start and end."),
+        ("A range of steps", "Hold the first step, hold REC, press the last: KNOB 1 the notes' CONDITION (e.g. !4:4 to drop them every 4th time round), KNOB 2 their LENGTH, KNOB 3 / 4 a velocity ramp's start and end."),
         ("Retrigs", "RETRIG on: the step repeats at RATE (1/16 a step, 1/32 two …) for RT LEN, its velocity fading (RT VEL): rolls and builds."),
         ("Chords", "FM, WAVE, SAMPLER's keys and MIDI: 15 chords (MIN, MAJ, MIN7, MAJ7, 7, MIN9, MAJ9, ADD9, SUS2, SUS4, 5, DIM, AUG, MIN6, 6). Hold a step and turn PRESETS, or CHORD on page 3, or record keys held together."),
         ("Conditions", "COND: a % chance; FILL / !FILL; PRE / !PRE (the track's last condition); NEI / !NEI (the track before's); 1ST / !1ST; LST / !LST; A:B (the A-th of every B passes)."),
@@ -511,6 +513,7 @@ def body():
              "queued one flashing, ones with notes marked, and how full pattern memory is.</p>")
     o.append(table([
         (k("SAVE") + " + white key 1-8", "This instrument's pattern 1-8: stopped, at once; playing, when the current one ends."),
+        (k("SAVE") + " + white key A held + white key B", "Pattern A copied into pattern B (you stay on the one playing)."),
         (k("SAVE") + " + black key 10 / 11", "Copy this pattern / paste into this one."),
         (k("SAVE") + " + " + k("OCT-") + " / " + k("OCT+"), "Copy / paste the bar in view."),
         (k("SAVE") + " + " + k("REC"), "×2: the bars with notes copied into the empty bars after them; a full track doubles (16 → 32 → 64 steps)."),

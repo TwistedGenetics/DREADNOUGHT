@@ -1,0 +1,78 @@
+# DREADNOUGHT host scenario (0.37): a mute stops the track at once; the sequencer in the instrument's colour; every
+# step shifted round the track (a bar key + SELECT / OCT); SAVE + white key A held + white key B: pattern A into B;
+# a range of steps (first held, REC, last): K1 their condition, K2 their length.
+# White keys (steps 1-16): 0 2 4 6 7 9 11 12 14 16 18 19 21 23 24 26. Black keys 1-11: 1 3 5 8 10 13 15 17 20 22 25.
+# BREAKS A (track 2): every step on (SAVE + FX: the break straight), PLAY: it sounds; black key 2: muted, silent now
+tap ARP
+tap SEQ
+expect page 8
+expect trk 2
+press SAVE
+tap FX
+release SAVE
+expect on.2 16
+tap PLAY
+wait 300
+expect bon.1 1
+tapkey 3 30
+expect mute.2 1
+wait 5
+expect bon.1 0
+wait 300
+expect bon.1 0
+tapkey 3 30
+expect mute.2 0
+tap PLAY
+# REESE's roll (track 1, the demo: steps 1, 4, 7, 8, 11, 13, 15); a bar key held + SELECT 2: two steps later, round the
+# track (15 comes round to 1, 1 goes to 3); + OCT- (a bar earlier: round 16, the same)
+press SEQ
+tapkey 0 40
+release SEQ
+expect page 7
+expect trk 1
+expect len.1 16
+shot q37-01-roll-colour.png
+expect st.1.1 1
+key 22 down
+turn SELECT 2
+key 22 up
+expect view 0
+expect st.1.1 5
+expect st.1.3 1
+expect st.1.2 0
+key 22 down
+tap OCT-
+key 22 up
+expect st.1.3 1
+# pattern 1 into pattern 5 in one move (still on 1): SAVE, white key 1 held, white key 5
+expect pat.1 1
+press SAVE
+key 0 down
+tapkey 7 40
+key 0 up
+release SAVE
+expect pat.1 1
+press SAVE
+tapkey 7 40
+release SAVE
+expect pat.1 5
+expect st.1.3 1
+press SAVE
+tapkey 0 40
+release SAVE
+expect pat.1 1
+# a range: step 3 held, REC held, step 9 pressed; K1 the condition (24 detents on), K2 the length: the notes in it
+# (3, 6, 9) take it, the empty steps don't
+key 4 down
+press REC
+tapkey 14 40
+release REC
+turn K1 24
+turn K2 1
+shot q37-02-range.png
+key 4 up
+expect cd.1.3 24
+expect cd.1.6 24
+expect cd.1.9 24
+expect cd.1.7 0
+expect cd.1.11 0
