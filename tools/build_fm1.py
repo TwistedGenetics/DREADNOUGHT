@@ -255,6 +255,8 @@ def sizes(b, out):
         print(f"::notice title=App slot::{img} B of {slot} B used, {slot - img} B free")
         print(f"::notice title=RAM::.data+.bss {ram} B of 98304; pool {pool} B of {0x54000} ({0x54000 - pool} free)")
         print("::notice title=Biggest::" + "; ".join(f"{n} {s} {sz}" for sz, s, n in rows[:12]))
+        rr = [(sz, s, n) for sz, s, n in rows if s in (".data", ".bss", "COMMON")]
+        print("::notice title=Biggest in RAM::" + "; ".join(f"{n} {sz}" for sz, s, n in rr[:40]))
         if os.environ.get("GITHUB_STEP_SUMMARY"):
             with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
                 f.write("\n".join(md) + "\n")
