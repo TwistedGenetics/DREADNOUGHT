@@ -1,0 +1,4 @@
+# (made by XcodeGen from project.yml)
+*.xcodeproj/
+Info.plist
+build/
