@@ -178,8 +178,27 @@ def main():
         finally:
             b.FW = fw
 
+    # (0.43) X0X's loader with the header written last (tools/dn_patches.py LDR_CORE), built from a copy of its tree
+    # first, on its own (X0X's main builds it beside the app, in another thread: b.FW must not change under that)
+    sys.path.insert(0, str(REPO / "tools"))
+    import dn_patches
+    fw = b.FW
+    shadow = b.OUT / "dreadnought" / "ldr_fw"
+    shutil.rmtree(shadow, ignore_errors=True)
+    for d in ("hal", "src", "loader"):
+        shutil.copytree(fw / d, shadow / d)
+    (shadow / "loader" / "ldr_core.c").write_text(dn_patches.ldr_core(fw / "loader"))
+    b.FW = shadow
+    try:
+        ota = b.build_loader()
+    finally:
+        b.FW = fw
+    if len(ota) > 7936:                                 # stock V15 stages a loader in 7,936 B below its record
+        raise SystemExit(f"build_fm1: the update loader's ota.bin is {len(ota)} B, over 7,936 B")
+
     real_build_app = b.build_app
     b.generate, b.build_app, b.mmio_check = generate, build_app, mmio_check
+    b.build_loader = lambda: ota
     a.out.mkdir(parents=True, exist_ok=True)
     for old in a.out.glob("*.fwsc"):                    # never leave an older package to be installed by mistake
         old.unlink()

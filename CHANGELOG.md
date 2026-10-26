@@ -1006,3 +1006,21 @@ Tested on the host: the setting kept by SAVE and read at start; the arena 131 KB
 carry REESE on channel 1, silence on an empty track's channel, FX A's return on 9 and 10. Not yet tried with a
 computer: it needs the FM-1 (and a DAW) to show the ten inputs.
 
+## 0.43 — an install cut off can't leave a dead FM-1 (2026-10-26)
+
+- **The update loader writes the firmware's first sector last.** It used to write from the start up, so an install
+  cut part-way (a pulled cable, a flat battery) left a valid-looking firmware header over a half-written firmware. The
+  FM-1's boot stage starts any firmware whose header is valid, even with an update still pending, so the unit started
+  the broken firmware: a black screen, no USB, no update mode (a unit was lost that way on 2026-10-25). Now the
+  header is erased before anything else is written and written back last, so a cut install leaves no firmware to
+  start: the FM-1 comes back in its update loader and the flasher finishes the job. After Skiff's loader
+  (illuminus5), which found the same on the SMK-37 Pro.
+- CI cuts a simulated install at about 400 points (between every few flash operations, some in the middle of a
+  page): never a valid header over a half-written firmware, the flash head never touched, and each one finishes when
+  run again. The old loader failed 399 of them.
+- The loader is checked to fit the 7,936 bytes the stock firmware gives it.
+- The running firmware stages the loader that comes in the new package, so installing 0.43 already uses it. Keep
+  the battery charged anyway.
+- docs/RECOVERY.md: what to do when a unit shows nothing at all (the FM-1 Transporter on an RP2040 board), and how
+  to write DREADNOUGHT straight back with it.
+

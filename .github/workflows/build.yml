@@ -72,6 +72,18 @@ jobs:
             exit 1
           fi
 
+      - name: The update loader cut off at every point of an install (0.43)
+        run: |
+          set -o pipefail
+          core=x0x-firmware/build/dreadnought/ldr_fw/loader/ldr_core.c
+          cc -O2 -std=c99 -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter \
+            -DLDR_CORE="\"../../$core\"" tests/host/ldr_cut_test.c -o build/ldr_cut_test
+          if ! build/ldr_cut_test "build/fm1/DREADNOUGHT-${{ steps.ver.outputs.version }}.fwsc" 2>&1 | tee ldr.log; then
+            echo "::error title=update loader::$(grep -E 'FAIL' ldr.log | head -5 | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "::notice title=Update loader::$(tail -4 ldr.log | head -3 | tr '\n' ' ')"
+
       - name: Collect the package
         run: |
           mkdir -p dist
