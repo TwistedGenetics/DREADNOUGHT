@@ -93,4 +93,8 @@ node tests/host/editor_golden.mjs build/host/editor-golden.json
 # shellcheck disable=SC2086
 $CC $W -Wno-unused-parameter -Wno-sign-compare -DDN_VERSION="\"$(tr -d ' \n' < VERSION)\"" plugin/core/dnc_test.c plugin/core/dn_core.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c src/dsp/dn_wt.c src/dsp/dn_ju.c -lm -o build/host/dnc_test
 build/host/dnc_test build/host/plugin-core.ppm
+# (0.45) the web editor's own code against the plugin's core, through a pipe (as through the plugin's MIDI port)
+# shellcheck disable=SC2086
+$CC $W -Wno-unused-parameter -Wno-sign-compare -D_DEFAULT_SOURCE -DDN_VERSION="\"$(tr -d ' \n' < VERSION)\"" plugin/core/dnc_pipe.c plugin/core/dn_core.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c src/dsp/dn_wt.c src/dsp/dn_ju.c -lm -o build/host/dnc_pipe
+node tests/host/plugin_editor.mjs build/host/dnc_pipe
 echo "host tests: all ok"

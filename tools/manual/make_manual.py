@@ -687,9 +687,12 @@ def body():
         ("MIDI from the DAW", "Channels 1-8 play tracks 1-8; channels 9-16 play the track on the screen. BREAKS and SAMPLER's pads: C1 (note 36) is the first slice."),
         ("FOLLOW THE HOST", "On: the sequencer starts and stops with the DAW, at its tempo. Off: PLAY on the panel, at its own."),
         ("MIDI tracks", "Their notes go out of the plugin to the DAW: route them to another instrument."),
-        ("Saving", "The project is kept in the DAW's project: the plugin does SAVE when the DAW saves."),
+        ("Saving", "The project is kept in the DAW's project, samples and all: the plugin does SAVE when the DAW saves."),
+        ("The web editor", "macOS and Linux: the plugin opens a MIDI port, DREADNOUGHT Plugin. Press OPEN THE WEB EDITOR, then Connect: the plugin shows WEB EDITOR: CONNECTED. Everything in the web editor chapter then works on the plugin: your own samples, slices, DX7 banks, wavetables, and .dnproj projects, the same files as the FM-1's."),
     ], head=["", "HOW"]))
-    o.append(tip("For now: one DREADNOUGHT per project, the two built-in loops (ROLLER, STEPPER), and the sequencer starts "
+    o.append(tip("Take a project from the FM-1 to the DAW: save it to the computer from the web editor (Project tab) with "
+                 "the FM-1 connected, then connect the plugin and load it. And back the same way.", 5, "BOX TO DAW"))
+    o.append(tip("For now: one DREADNOUGHT per project, no editor port on Windows, and the sequencer starts "
                  "from its bar 1 when the DAW plays: start the DAW on a bar. On a Mac the files aren't signed by Apple yet: "
                  "the README in the zip says how to let them open.", 2, "BETA"))
 

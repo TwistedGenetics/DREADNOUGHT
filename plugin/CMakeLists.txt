@@ -100,7 +100,8 @@ if(DN_SHOT)
     juce_add_console_app(dn_shot PRODUCT_NAME "dn_shot")
     target_sources(dn_shot PRIVATE src/Shot.cpp src/PluginProcessor.cpp src/PluginEditor.cpp)
     target_compile_definitions(dn_shot PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 DN_VERSION_STR="${DN_VERSION}"
-                                               JucePlugin_Name="DREADNOUGHT" DN_NO_PLUGIN_ENTRY=1)
+                                               JucePlugin_Name="DREADNOUGHT" DN_NO_PLUGIN_ENTRY=1
+                                               DN_NO_EDITOR_PORT=1)
     if(DN_X11_MIN)
         target_compile_definitions(dn_shot PRIVATE JUCE_USE_XRANDR=0 JUCE_USE_XINERAMA=0 JUCE_USE_XCURSOR=0)
     endif()

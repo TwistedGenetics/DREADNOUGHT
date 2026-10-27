@@ -3,6 +3,10 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "dn_core.h"
+#ifndef DN_NO_EDITOR_PORT
+#include <juce_audio_devices/juce_audio_devices.h>
+#endif
+#include <cstring>
 
 namespace
 {
@@ -20,6 +24,110 @@ constexpr uint32_t stateMagic = 0x4C504E44u;        // "DNPL"
 constexpr int chunkFrames = 32;
 }
 
+// ------------------------------------------------------------------------------------------------ FrameFifo ---
+void FrameFifo::put(const uint8_t* d, int n)
+{
+    const auto w = fifo.write(n);
+    if (w.blockSize1 > 0)
+        std::memcpy(buf.data() + w.startIndex1, d, (size_t)w.blockSize1);
+    if (w.blockSize2 > 0)
+        std::memcpy(buf.data() + w.startIndex2, d + w.blockSize1, (size_t)w.blockSize2);
+}
+void FrameFifo::get(uint8_t* d, int n)
+{
+    const auto r = fifo.read(n);
+    if (r.blockSize1 > 0)
+        std::memcpy(d, buf.data() + r.startIndex1, (size_t)r.blockSize1);
+    if (r.blockSize2 > 0)
+        std::memcpy(d + r.blockSize1, buf.data() + r.startIndex2, (size_t)r.blockSize2);
+}
+bool FrameFifo::push(const uint8_t* d, int n)
+{
+    if (n <= 0 || n > 65535 || fifo.getFreeSpace() < n + 2)
+        return false;
+    const uint8_t h[2] = { (uint8_t)n, (uint8_t)(n >> 8) };
+    put(h, 2);
+    put(d, n);
+    return true;
+}
+int FrameFifo::pop(uint8_t* out, int max)
+{
+    if (fifo.getNumReady() < 2)
+        return 0;
+    uint8_t h[2];
+    get(h, 2);
+    const int n = h[0] | h[1] << 8;
+    if (n > max) {                                  // (too long: skipped)
+        std::vector<uint8_t> skip((size_t)n);
+        get(skip.data(), n);
+        return 0;
+    }
+    get(out, n);
+    return n;
+}
+
+// ------------------------------------------------------------------------------------------- the editor's port ---
+// (0.45) a MIDI port the web editor finds, as it finds the FM-1's: its frames go to the core (on the audio thread,
+// between blocks, or here when the host is quiet) and the answers come back out through this thread
+#ifndef DN_NO_EDITOR_PORT
+class EditorLink : public juce::MidiInputCallback, private juce::Thread
+{
+public:
+    explicit EditorLink(DreadnoughtProcessor& p) : juce::Thread("DREADNOUGHT editor port"), proc(p)
+    {
+        out = juce::MidiOutput::createNewDevice(name);
+        if (out != nullptr)
+            in = juce::MidiInput::createNewDevice(name, this);
+        if (in != nullptr) {
+            in->start();
+            startThread();
+        } else {
+            out.reset();
+        }
+    }
+    ~EditorLink() override
+    {
+        if (in != nullptr)
+            in->stop();
+        stopThread(1000);
+        in.reset();
+        out.reset();
+    }
+    bool ok() const { return in != nullptr && out != nullptr; }
+    void wake() { notify(); }
+    const juce::String name { "DREADNOUGHT Plugin" };
+
+private:
+    void handleIncomingMidiMessage(juce::MidiInput*, const juce::MidiMessage& m) override
+    {
+        if (m.isSysEx())
+            proc.editorFrame(m.getRawData(), m.getRawDataSize());
+    }
+    void run() override
+    {
+        std::vector<uint8_t> f(70000);
+        while (!threadShouldExit()) {
+            wait(20);
+            int n;
+            while ((n = proc.editorReply(f.data(), (int)f.size())) > 0)
+                if (out != nullptr)
+                    out->sendMessageNow(juce::MidiMessage(f.data(), n));
+        }
+    }
+    DreadnoughtProcessor& proc;
+    std::unique_ptr<juce::MidiInput> in;
+    std::unique_ptr<juce::MidiOutput> out;
+};
+#else
+class EditorLink                                    // (dn_shot: no port; its frames are handed in directly)
+{
+public:
+    bool ok() const { return false; }
+    void wake() {}
+    const juce::String name { "DREADNOUGHT Plugin" };
+};
+#endif
+
 DreadnoughtProcessor::DreadnoughtProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
@@ -34,12 +142,55 @@ DreadnoughtProcessor::DreadnoughtProcessor()
         dnc_init();
         publishScreen();
     }
+#ifndef DN_NO_EDITOR_PORT
+    if (owner)
+        link = std::make_unique<EditorLink>(*this);
+#endif
 }
 
 DreadnoughtProcessor::~DreadnoughtProcessor()
 {
+    link.reset();
     if (owner)
         coreTaken = false;
+}
+
+DreadnoughtProcessor::LinkState DreadnoughtProcessor::linkState() const
+{
+    if (link == nullptr || !link->ok())
+        return linkNone;
+    return juce::Time::getMillisecondCounterHiRes() - lastFrameMs.load() < 3000.0 ? linkTalking : linkReady;
+}
+juce::String DreadnoughtProcessor::linkPortName() const { return link != nullptr ? link->name : juce::String(); }
+
+void DreadnoughtProcessor::editorFrame(const uint8_t* d, int n)
+{
+    if (!owner || !edIn.push(d, n))
+        return;
+    lastFrameMs = juce::Time::getMillisecondCounterHiRes();
+    if (juce::Time::getMillisecondCounterHiRes() - lastProcessMs.load() > 250.0) {   // (the host quiet: answered here)
+        const juce::SpinLock::ScopedLockType l(coreLock);
+        serveEditor();
+    }
+}
+
+int DreadnoughtProcessor::editorReply(uint8_t* out, int max) { return edOut.pop(out, max); }
+
+void DreadnoughtProcessor::serveEditor()
+{
+    if (edIn.empty())
+        return;
+    static uint8_t f[70000], r[2048];
+    int n, k = 0;
+    while (k++ < 64 && (n = edIn.pop(f, (int)sizeof f)) > 0) {
+        dnc_sysex(f, (uint32_t)n);
+        uint32_t m;
+        while ((m = dnc_sysex_out(r, sizeof r)) > 0)
+            edOut.push(r, (int)m);
+    }
+    slotsUsed = dnc_slots_used();
+    if (link != nullptr)
+        link->wake();
 }
 
 bool DreadnoughtProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -151,6 +302,7 @@ void DreadnoughtProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         }
     }
     applyEvents();
+    serveEditor();
 
     juce::MidiBuffer in;
     in.swapWith(midi);
@@ -208,6 +360,7 @@ void DreadnoughtProcessor::idleTick()
     idleLastMs = now;
     const juce::SpinLock::ScopedLockType l(coreLock);
     applyEvents();
+    serveEditor();
     if (ms > 0)
         dnc_idle((uint32_t)ms);
     publishScreen();
@@ -250,6 +403,7 @@ void DreadnoughtProcessor::setStateInformation(const void* data, int sizeInBytes
     if (dnc_state_load(core.data(), (uint32_t)n) == 0) {
         dnc_init();
         publishScreen();
+        slotsUsed = dnc_slots_used();
     }
 }
 

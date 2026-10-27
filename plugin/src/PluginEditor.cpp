@@ -246,6 +246,9 @@ struct DreadnoughtEditor::Panel : juce::Component
     std::array<PanelButton, 14> btn;
     Keys keys;
     juce::ToggleButton sync { "FOLLOW THE HOST (play, stop, tempo)" };
+    juce::TextButton openEd { "OPEN THE WEB EDITOR" };
+    int linkShown = -1;
+    uint32_t kbShown = 0xFFFFFFFFu;
 
     explicit Panel(DreadnoughtProcessor& p) : proc(p)
     {
@@ -272,6 +275,11 @@ struct DreadnoughtEditor::Panel : juce::Component
         sync.setColour(juce::ToggleButton::tickDisabledColourId, cSoft);
         sync.onClick = [this] { proc.syncToHost = sync.getToggleState(); };
         addAndMakeVisible(sync);
+        openEd.setColour(juce::TextButton::buttonColourId, cFace);
+        openEd.setColour(juce::TextButton::textColourOffId, cInk);
+        openEd.setColour(juce::ComboBox::outlineColourId, cEdge);
+        openEd.onClick = [] { juce::URL("https://twistedgenetics.github.io/DREADNOUGHT/editor/").launchInDefaultBrowser(); };
+        addAndMakeVisible(openEd);
     }
 
     void resized() override
@@ -289,7 +297,8 @@ struct DreadnoughtEditor::Panel : juce::Component
             btn[(size_t)i].setBounds(740 + i * 59, 214, 57, 76);
             btn[(size_t)(6 + i)].setBounds(740 + i * 59, 296, 57, 76);
         }
-        sync.setBounds(736, 392, 356, 30);
+        sync.setBounds(736, 388, 356, 30);
+        openEd.setBounds(740, 452, 200, 34);
         keys.setBounds(28, 584, 1056, 124);
     }
 
@@ -304,16 +313,27 @@ struct DreadnoughtEditor::Panel : juce::Component
         g.drawText("v" DN_VERSION_STR "   jungle / drum & bass groovebox", 238, 16, 480, 30,
                    juce::Justification::centredLeft);
         g.setColour(cInk);
+        g.setFont(bold(16.0f));
+        const auto st = proc.linkState();
+        juce::String ed = st == DreadnoughtProcessor::linkTalking ? "WEB EDITOR: CONNECTED"
+                        : st == DreadnoughtProcessor::linkReady ? "WEB EDITOR: CONNECT TO \"" + proc.linkPortName().toUpperCase() + "\""
+#if JUCE_WINDOWS
+                        : juce::String("WEB EDITOR: macOS / LINUX FOR NOW");
+#else
+                        : juce::String("WEB EDITOR: NO MIDI PORT");
+#endif
+        g.drawText(ed, 740, 424, 352, 24, juce::Justification::centredLeft);
+        g.setColour(cSoft);
+        g.drawText("SAMPLES " + juce::String(proc.slotsKB()) + " / 224 KB", 950, 452, 142, 34,
+                   juce::Justification::centredRight);
+        g.setColour(cInk);
         g.setFont(bold(15.0f));
         juce::String help;
-        help << "MIDI CHANNELS 1-8: TRACKS 1-8\n"
-             << "CHANNELS 9-16: THE TRACK SHOWN\n"
-             << "BREAKS / PADS: C1 = THE FIRST SLICE\n\n"
-             << "KEYS: Z S X D C ... / Q 2 W 3 E ...\n"
-             << "KNOBS: DRAG OR SCROLL (SHIFT: x4)\n"
-             << "SHIFT-CLICK A BUTTON: HOLD IT DOWN\n"
-             << "(SAVE + FX, HOME + SELECT ...)";
-        g.drawFittedText(help, 740, 430, 352, 136, juce::Justification::topLeft, 8, 1.0f);
+        help << "MIDI CH 1-8: TRACKS 1-8.  9-16: THE TRACK SHOWN\n"
+             << "BREAKS / PADS: C1 = THE FIRST SLICE\n"
+             << "KEYS: Z S X D C.. / Q 2 W 3 E..  KNOBS: DRAG\n"
+             << "SHIFT-CLICK A BUTTON: HOLD IT (SAVE + FX ..)";
+        g.drawFittedText(help, 740, 494, 352, 72, juce::Justification::topLeft, 4, 1.0f);
         if (!proc.active()) {
             g.setColour(cBg.withAlpha(0.94f));
             g.fillRect(getLocalBounds());
@@ -342,6 +362,12 @@ struct DreadnoughtEditor::Panel : juce::Component
             keys.lit = kl;
             keys.dim = kd;
             keys.repaint();
+        }
+        const int ls = (int)proc.linkState();
+        if (ls != linkShown || proc.slotsKB() != kbShown) {
+            linkShown = ls;
+            kbShown = proc.slotsKB();
+            repaint(736, 420, 360, 70);
         }
         if (sync.getToggleState() != proc.syncToHost.load())
             sync.setToggleState(proc.syncToHost.load(), juce::dontSendNotification);

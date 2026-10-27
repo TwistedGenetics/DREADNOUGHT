@@ -48,6 +48,12 @@ uint32_t dnc_state_max(void);
 uint32_t dnc_state_save(uint8_t *out, uint32_t max);
 int dnc_state_load(const uint8_t *in, uint32_t n);    /* 0 = ok */
 
+/* (0.45) the web editor's frames (F0 7D 46 4C cmd args F7: the FM-1's), from the plugin's MIDI port: 1 = one of
+ * them (answered); the answers, one frame at a time (its length; 0: none) */
+int dnc_sysex(const uint8_t *msg, uint32_t n);
+uint32_t dnc_sysex_out(uint8_t *out, uint32_t max);
+uint32_t dnc_slots_used(void);                       /* KB the sample slots hold */
+
 const char *dnc_version(void);
 
 #ifdef __cplusplus

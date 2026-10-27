@@ -1043,3 +1043,22 @@ computer: it needs the FM-1 (and a DAW) to show the ten inputs.
 - Firmware: SAVE zeroes WAVE's and JUNO's records before filling them, so an unchanged sound no longer counts as
   changed (their padding held the last record's bytes) and isn't written to the flash again.
 - For now: one per project; the two built-in loops only; the sequencer starts from its bar 1 when the DAW plays.
+
+## 0.45 — the web editor on the plugin, your own samples (2026-10-27)
+
+- **The plugin opens a MIDI port, "DREADNOUGHT Plugin"** (macOS and Linux), and answers the web editor's frames as the
+  FM-1 does: the app's own commands (every sound, the patterns, the song, the panel), and the sample slots, three in
+  RAM with the FM-1's sizes (80, 80, 64 KB) and layout, and the slices. So the editor works on the plugin unchanged:
+  send your own samples (WAV, MP3, AIFF … on the Project tab), set slices on the breaks page, load DX7 banks and Serum
+  wavetables, and save or load whole `.dnproj` projects, the same files as the FM-1's: a project moves between the
+  FM-1 and the DAW both ways.
+- The plugin shows WEB EDITOR: CONNECTED (or the port to pick) and how much sample memory is used; OPEN THE WEB EDITOR
+  opens the page. The editor's frames are answered on the audio thread between blocks (or at once when the DAW is
+  quiet), the answers sent from a thread of their own.
+- The samples are kept in the DAW's project with the rest (the state's version 2); a 0.44 state still loads. A new
+  plugin starts with ROLLER and STEPPER in slot 1, packed as the editor packs samples, so the editor lists them and
+  you can send yours over them.
+- Tests: the core answers the editor's frames (INFO, a sample sent as the editor sends one, SMP_INFO, ERASE, the
+  slots kept by the state and brought back the same); and the web editor's own code (protocol.js, media.js,
+  project.js) against the core through a pipe: it connects, reads the slots (CRC checked), sends a new sample as the
+  Project tab does and reads it back, sets its slices, reads a whole project, and writes it back over changes.

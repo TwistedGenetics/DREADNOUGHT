@@ -40,10 +40,24 @@ PLAYING IT
 - The project (sounds, patterns, song, settings) is saved with the DAW's project: the plugin does SAVE for you
   when the DAW saves.
 
+YOUR SAMPLES, THE WEB EDITOR (macOS, Linux)
+-------------------------------------------
+The plugin opens a MIDI port called "DREADNOUGHT Plugin", and the web editor talks to it as it talks to an FM-1:
+  1. Open the plugin (in the DAW, or the standalone app).
+  2. Press OPEN THE WEB EDITOR (or go to twistedgenetics.github.io/DREADNOUGHT/editor in Chrome or Edge).
+  3. Connect. The editor finds "DREADNOUGHT Plugin" (if it picks another port first, choose it in Diagnostics).
+     The plugin shows WEB EDITOR: CONNECTED.
+Then everything the editor does works on the plugin: drop WAV / MP3 / AIFF files on the Project tab and send them
+(they play on BREAKS and SAMPLER), set slices on the breaks page, load DX7 banks and Serum wavetables, edit every
+sound, the patterns and the song, and save or load whole projects (.dnproj): the same files as the FM-1's, so a
+project moves between the FM-1 and the DAW both ways. The samples are kept in the DAW's project with the rest.
+The sample memory is the FM-1's (224 KB), so what you make in the plugin fits on the FM-1.
+On Windows there is no port yet (Windows can't make one without an extra driver).
+
 FOR NOW
 -------
 - One DREADNOUGHT per project (a second one says so and stays quiet).
-- The loops are the two built-in ones (ROLLER, STEPPER); sending your own samples to the plugin comes later.
+- A new plugin starts with the two built-in loops (ROLLER, STEPPER) in its first sample slot: send your own over them.
 - The sequencer starts from its bar 1 when the DAW plays: start the DAW on a bar.
 
 Source, licence (GPL-3.0; JUCE under AGPL-3.0): https://github.com/TwistedGenetics/DREADNOUGHT

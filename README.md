@@ -63,8 +63,11 @@ app for Windows and Linux: `DREADNOUGHT-plugin-X.Y-macOS.zip` (or `-Windows`, `-
   take C1 as the first slice.
 - **FOLLOW THE HOST** (on by default): the sequencer starts and stops with the DAW, at its tempo.
 - MIDI tracks send their notes out to the DAW. The project is saved with the DAW's project.
-- For now: one per project, the two built-in loops (your own samples come later), and the sequencer starts from its
-  bar 1 when the DAW plays.
+- **The web editor connects to the plugin (0.45, macOS and Linux):** the plugin opens a MIDI port, "DREADNOUGHT
+  Plugin", and the editor finds it as it finds an FM-1. Your own samples, slices, DX7 banks, wavetables, every sound,
+  pattern and the song, and whole `.dnproj` projects: the same files as the FM-1's, so a project moves between the
+  box and the DAW both ways. Samples are kept in the DAW's project, within the FM-1's 224 KB.
+- For now: one per project, no editor port on Windows, and the sequencer starts from its bar 1 when the DAW plays.
 
 Build it: `cmake -S plugin -B build/plugin -DCMAKE_BUILD_TYPE=Release && cmake --build build/plugin --config Release`
 (JUCE is fetched; Python 3 with numpy and Pillow makes the engines' tables).

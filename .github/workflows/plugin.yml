@@ -97,6 +97,11 @@ jobs:
             src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c \
             src/dsp/dn_wt.c src/dsp/dn_ju.c -lm -o build/plug/dnc_test
           build/plug/dnc_test
+          cc $W -D_DEFAULT_SOURCE -DDN_VERSION='"${{ steps.ver.outputs.version }}"' plugin/core/dnc_pipe.c plugin/core/dn_core.c \
+            src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c \
+            src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c \
+            src/dsp/dn_wt.c src/dsp/dn_ju.c -lm -o build/plug/dnc_pipe
+          node tests/host/plugin_editor.mjs build/plug/dnc_pipe
           EOF
           tools/ci_step.sh "core (${{ matrix.name }})" bash core.sh
 

@@ -70,6 +70,16 @@ int main(int argc, char** argv)
                         (int)st.getSize());
             fails += !same;
         }
+        {                                           // (0.45) the web editor's INFO, as the port hands it in
+            const uint8_t info[] = { 0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7 };
+            proc.editorFrame(info, (int)sizeof info);
+            play(proc, 30);
+            uint8_t r[256];
+            const int n = proc.editorReply(r, (int)sizeof r);
+            const bool ok = n > 10 && juce::String((const char*)r + 5, (size_t)juce::jmin(24, n - 5)).contains("PLUGIN");
+            std::printf("%s the web editor's INFO answered (%d bytes)\n", ok ? "  ok  " : "  FAIL", n);
+            fails += !ok;
+        }
         for (int i = 2; i < argc; ++i) {
             const auto a = juce::StringArray::fromTokens(argv[i], ":", "");
             if (a[0] == "ms")

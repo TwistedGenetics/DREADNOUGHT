@@ -8,6 +8,23 @@
 #include <atomic>
 #include <vector>
 
+// frames of bytes through a lock-free ring (one thread writes, one reads): each a length (2 bytes), then its bytes
+class FrameFifo
+{
+public:
+    explicit FrameFifo(int size) : fifo(size), buf((size_t)size) {}
+    bool push(const uint8_t* d, int n);
+    int pop(uint8_t* out, int max);                  // a frame's length (0: none)
+    bool empty() const { return fifo.getNumReady() == 0; }
+private:
+    void put(const uint8_t* d, int n);
+    void get(uint8_t* d, int n);
+    juce::AbstractFifo fifo;
+    std::vector<uint8_t> buf;
+};
+
+class EditorLink;
+
 class DreadnoughtProcessor : public juce::AudioProcessor
 {
 public:
@@ -50,8 +67,17 @@ public:
     std::atomic<bool> syncToHost { true };           // the sequencer starts and stops with the host, at its tempo
     void idleTick();                                 // the editor's timer: the panel and screen while the host is quiet
 
+    // (0.45) the web editor over the plugin's MIDI port ("DREADNOUGHT Plugin": macOS, Linux)
+    enum LinkState { linkNone, linkReady, linkTalking };
+    LinkState linkState() const;
+    juce::String linkPortName() const;
+    uint32_t slotsKB() const { return slotsUsed.load(); }
+    void editorFrame(const uint8_t* d, int n);       // (the port's thread) a frame from the editor
+    int editorReply(uint8_t* out, int max);          // (the port's thread) an answer to send
+
 private:
     void applyEvents();
+    void serveEditor();                              // (the core's lock held) the editor's frames answered
     void publishScreen();
     void renderChunk();
 
@@ -75,4 +101,9 @@ private:
     std::array<float, 64> chunk {};
     std::atomic<double> lastProcessMs { 0.0 };
     double idleLastMs = 0.0;
+
+    FrameFifo edIn { 1 << 18 }, edOut { 1 << 18 };
+    std::atomic<double> lastFrameMs { -1.0e9 };
+    std::atomic<uint32_t> slotsUsed { 0 };
+    std::unique_ptr<EditorLink> link;
 };
