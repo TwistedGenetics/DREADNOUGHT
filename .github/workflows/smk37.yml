@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# DREADNOUGHT on the M-VAVE SMK-37 Pro and Elite (smk/): built with M-VAVE's SMK37 OPEN SDK (m-vave/smk37_open, pinned)
+# and JieLi's Windows toolchain 2.5.3, which the SDK's build script checks file by file. A run with
+# `baseline: true` builds the SDK's own APP unchanged (the sizes to compare against).
+name: smk37
+
+on:
+  push:
+    branches: [smk37]
+    paths: ["smk/**", "src/**", "tools/**", ".github/workflows/smk37.yml"]
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: "build the SDK's own APP, unchanged"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  firmware:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [pro, elite]
+    env:
+      SDK_COMMIT: b2d6bcb
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: m-vave/smk37_open
+          path: sdkkit
+          fetch-depth: 0
+      - name: Pin the SDK
+        shell: bash
+        run: cd sdkkit && git checkout -q "$SDK_COMMIT" && git log --oneline -1
+
+      - name: JieLi toolchain 2.5.3
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force C:\JL | Out-Null
+          curl.exe --fail --location --retry 3 --output C:\JL\2.5.3.exe https://jl-update.oss-cn-shenzhen.aliyuncs.com/2.5.3.exe
+          (Get-FileHash C:\JL\2.5.3.exe -Algorithm SHA256).Hash
+          & 7z x -y -oC:\JL\x C:\JL\2.5.3.exe | Out-Null
+          $clang = Get-ChildItem -Recurse -Path C:\JL\x -Filter clang.exe | Where-Object { $_.FullName -match 'pi32' } | Select-Object -First 1
+          if (!$clang) { Get-ChildItem -Recurse C:\JL\x | Select-Object -First 80 FullName; throw 'no pi32 clang.exe in the installer' }
+          $pi32 = Split-Path -Parent (Split-Path -Parent $clang.FullName)
+          "FM1_PI32_TOOLCHAIN=$pi32" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          Write-Host "pi32: $pi32"
+
+      - name: Put DREADNOUGHT in as the APP
+        if: ${{ !inputs.baseline }}
+        shell: bash
+        run: |
+          pip install pillow numpy >/dev/null
+          python tools/smk_assemble.py sdkkit
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cd sdkkit
+          .\sdk\Build.ps1 -Model ${{ matrix.model }} -FirmwareOnly -Toolchain $env:FM1_PI32_TOOLCHAIN
+
+      - name: Reports
+        if: always()
+        shell: bash
+        run: |
+          cd sdkkit/build/${{ matrix.model }} 2>/dev/null || exit 0
+          cat firmware-report.json package-report.json 2>/dev/null | head -80
+          ls -la generated || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smk37-${{ matrix.model }}${{ inputs.baseline && '-baseline' || '' }}
+          path: |
+            sdkkit/build/${{ matrix.model }}/generated/*.fwsc
+            sdkkit/build/${{ matrix.model }}/*.json
+            sdkkit/build/${{ matrix.model }}/sdk.map
+          if-no-files-found: warn

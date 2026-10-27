@@ -424,7 +424,9 @@ static dn_brk_t dn_bk[DN_NBRK] DN_POOL;
 static dn_lfo_p_t dn_lp[DN_NLFO_ALL];               /* their settings ... */
 static dn_lfo_s_t dn_ls[DN_NLFO_ALL];               /* ... and where each one is (audio) */
 /* ---- the project (0.12): its name, each track's sends, the FX rack (two send slots in one memory arena) ---- */
-#define DN_FX_ARENA (176u * 1024u)                  /* (0.16: DELAY's 96 KB and the biggest reverb's, now 72 KB) */
+#ifndef DN_FX_ARENA                                 /* (a target with less RAM may give less: the SMK-37) */
+#define DN_FX_ARENA (176u * 1024u)                /* (0.16: DELAY's 96 KB and the biggest reverb's, now 72 KB) */
+#endif
 static uint32_t dn_fx_mem[DN_FX_ARENA / 4u] DN_POOL;
 /* (0.42) USB audio's ten channels (tracks 1-8, each mono and dry; then FX A + B's returns, L R) borrow the arena's top:
  * the USB ring (2048 frames) and the block the mix fills for it (256 frames). The effects get what's left. */
