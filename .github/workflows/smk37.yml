@@ -88,6 +88,11 @@ jobs:
         run: |
           cd sdkkit/build/${{ matrix.model }} 2>/dev/null || exit 0
           cat firmware-report.json package-report.json 2>/dev/null | head -80
+          if [ -f sdk.map ]; then
+            python ../../../tools/smk_mapsum.py sdk.map > ramsum.txt || true
+            m=$(head -70 ramsum.txt | tr -d '\r'); m=${m//'%'/'%25'}; m=${m//$'\n'/'%0A'}
+            echo "::notice title=RAM ${{ matrix.model }}::$m"
+          fi
           r=$(cat firmware-report.json package-report.json 2>/dev/null | tr -d '\r' | grep -E '"(passed|app_image_bytes|allocated_image_bytes|runtime_heap_bytes|FLASH_BIN_SIZE|VM_REAL_SIZE|fits)"' | tr '\n' ' ')
           echo "::notice title=sizes ${{ matrix.model }}::$r"
           ls -la generated || true

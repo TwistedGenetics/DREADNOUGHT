@@ -1497,9 +1497,9 @@ static void dn_man_restore(dn_brk_t *b)
     dn_unlock();
 }
 /* the voice's manual slices into the store (the newest last; full: the oldest goes) */
-static void dn_man_keep(const dn_brk_t *b)
+static void dn_man_keep_of(uint32_t key, uint32_t n, const uint32_t *start)   /* a loop's manual slices kept */
 {
-    dn_man_t *m = dn_man_find(b->key);
+    dn_man_t *m = dn_man_find(key);
     uint32_t i;
     if (!m) {
         if (dn_man.count >= DN_MAN_N) {
@@ -1508,12 +1508,13 @@ static void dn_man_keep(const dn_brk_t *b)
             dn_man.count = DN_MAN_N - 1u;
         }
         m = &dn_man.t[dn_man.count++];
-        m->key = b->key;
+        m->key = key;
     }
-    m->n = b->n_man;
-    for (i = 0; i < b->n_man; i++)
-        m->st[i] = (uint16_t)(b->man_start[i] / 4u);
+    m->n = (uint8_t)n;
+    for (i = 0; i < n; i++)
+        m->st[i] = (uint16_t)(start[i] / 4u);
 }
+static void dn_man_keep(const dn_brk_t *b) { dn_man_keep_of(b->key, b->n_man, b->man_start); }
 
 /* the breaks page (web/breaks) reads and writes a loop's manual slices over SysEx (src/hardware: ED_SLICE_*) */
 uint32_t dn_app_slices_get(uint32_t key, uint32_t *starts)
@@ -1541,18 +1542,13 @@ static void dn_step_drop(uint32_t to);
 
 int dn_app_slices_set(uint32_t key, uint32_t n, const uint32_t *starts)
 {
-    dn_brk_t tmp;                                   /* (only key, n_man, man_start are read by dn_man_keep) */
     uint32_t i, k;
     if (n > DN_BRK_MAXSL)
         return 1;
     for (i = 1; i < n; i++)
         if (starts[i] <= starts[i - 1u])
             return 2;                               /* in order, or not at all */
-    tmp.key = key;
-    tmp.n_man = (uint8_t)n;
-    for (i = 0; i < n; i++)
-        tmp.man_start[i] = starts[i];
-    dn_man_keep(&tmp);
+    dn_man_keep_of(key, n, starts);                  /* (0.46: no 12 KB loop on the stack, for the SMK's tasks) */
     {
         uint32_t old_n = 0;                         /* the steps keep their audio (the nearest new chop) */
         for (k = 0; k < DN_NBRK; k++)
@@ -6037,9 +6033,20 @@ static void dn_polar(int32_t cx, int32_t cy, int32_t r, int32_t a, int32_t *x, i
     *y = cy - ((dn_sine(ph + 0x40000000u) * r + 16384) >> 15);
 }
 
+#ifdef DN_GFX_BAND_ROWS                              /* (src/core/dn_gfx.h banded: a disc is written down as one call) */
+static void dn_disc(int32_t cx, int32_t cy, int32_t r, uint16_t c);
+static void dn_disc_call(const int32_t *a) { dn_disc(a[0], a[1], a[2], (uint16_t)a[3]); }
+#endif
 static void dn_disc(int32_t cx, int32_t cy, int32_t r, uint16_t c)
 {
     int32_t y, x;
+#ifdef DN_GFX_BAND_ROWS
+    if (!dg_replaying) {
+        const int32_t a[4] = {cx, cy, r, c};
+        cv_call(dn_disc_call, a, 4);
+        return;
+    }
+#endif
     for (y = -r; y <= r; y++)
         for (x = -r; x <= r; x++)
             if (x * x + y * y <= r * r + r)
@@ -6047,9 +6054,20 @@ static void dn_disc(int32_t cx, int32_t cy, int32_t r, uint16_t c)
 }
 
 /* the arc from angle a0 to a1 (1/1024 turn), radii r0..r1 */
+#ifdef DN_GFX_BAND_ROWS
+static void dn_arc(int32_t cx, int32_t cy, int32_t r0, int32_t r1, int32_t a0, int32_t a1, uint16_t c);
+static void dn_arc_call(const int32_t *a) { dn_arc(a[0], a[1], a[2], a[3], a[4], a[5], (uint16_t)a[6]); }
+#endif
 static void dn_arc(int32_t cx, int32_t cy, int32_t r0, int32_t r1, int32_t a0, int32_t a1, uint16_t c)
 {
     int32_t a, r, x, y;
+#ifdef DN_GFX_BAND_ROWS
+    if (!dg_replaying) {
+        const int32_t v[7] = {cx, cy, r0, r1, a0, a1, c};
+        cv_call(dn_arc_call, v, 7);
+        return;
+    }
+#endif
     if (a1 < a0) { a = a0; a0 = a1; a1 = a; }
     for (a = a0; a <= a1; a += 3)
         for (r = r0; r <= r1; r++) {

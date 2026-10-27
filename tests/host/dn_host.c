@@ -1075,6 +1075,15 @@ int main(int argc, char **argv)
         fclose(wavf);
     }
     fclose(sc);
+#ifdef DN_GFX_BAND_ROWS
+    /* (the SMK's banded screen: what the busiest screen needed, and nothing lost) */
+    printf("bands: %u ops, %u characters at most (room for %u, %u)\n", (unsigned)dg_ops_peak, (unsigned)dg_chars_peak,
+           (unsigned)DN_GFX_OPS, (unsigned)DN_GFX_CHARS);
+    if (dg_lost) {
+        printf("FAIL bands: %u ops did not fit\n", (unsigned)dg_lost);
+        fails++;
+    }
+#endif
     printf("%s: %s\n", argv[1], fails ? "FAILED" : "all ok");
     return fails ? 1 : 0;
 }

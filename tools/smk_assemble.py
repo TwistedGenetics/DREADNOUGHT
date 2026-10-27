@@ -86,7 +86,9 @@ def main():
     (dn / "dn_smk_version.h").write_text(
         "/* made by tools/smk_assemble.py */\n#pragma once\n"
         f'#define DN_VERSION "{ver}"\n'
-        "#define DN_FX_ARENA (112u * 1024u)                  /* (the SMK's RAM: less than the FM-1's 176 KB) */\n")
+        "#define DN_FX_ARENA (112u * 1024u)                  /* (the SMK's RAM: less than the FM-1's 176 KB) */\n"
+        "#define DN_GFX_BAND_ROWS 24                         /* (the screen drawn in bands: src/core/dn_gfx.h) */\n"
+        "#define DN_GFX_OPS 640u\n#define DN_GFX_CHARS 2048u\n#define DN_GFX_ARGS 512u\n")
 
     # the audio interrupt renders DREADNOUGHT
     audio = app / "board" / "audio.c"
