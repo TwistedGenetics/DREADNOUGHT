@@ -216,7 +216,7 @@ static inline int32_t dn_fx_c16(int32_t v)
 #else
 static inline int32_t dn_fx_c16(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : v; }
 #endif
-/* Q15 multiply rounding toward zero (Carnac: a feedback gain under 1 then always shrinks a value, so tails die) */
+/* Q15 multiply rounding toward zero (a feedback gain under 1 then always shrinks a value, so tails die) */
 static inline int32_t dn_fx_mz(int32_t a, int32_t b)
 {
     int32_t t = a * b;

@@ -1,34 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * DREADNOUGHT: SAMPLER (dn_smp.h says what it does). Copyright (C) 2026 Jamie (TwistedGenetics).
- * The IMA ADPCM step is the standard one, as dn_breaks.c has it (after Felucca's eng_sample.c, Leo Kuroshita,
- * Hügelton Instruments, GPL-3.0-only): low nibble first. */
+ * The IMA ADPCM step is dn_ima.h's (DREADNOUGHT's own, from the 1992 IMA recommendation): low nibble first. */
 #include "dn_smp.h"
 #include "dn_dsp.h"
+#include "dn_ima.h"
 #include "dsp/fastmath.h"
 
 #define SM_FS 44100.f
 #define SM_CTL 32u                                  /* the envelopes: once every 32 samples, the amp ramped between */
 #define SM_FULL (1 << 24)
 
-static const int16_t SM_STEP[89] = {
-    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107,
-    118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876, 963,
-    1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894,
-    6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
-    32767};
-static const int8_t SM_IDXT[8] = {-1, -1, -1, -1, 2, 4, 6, 8};
-
-static inline int32_t sm_dec(const uint8_t *d, uint32_t i, int32_t *pred, int32_t *idx)
-{
-    uint32_t code = (i & 1u) ? (d[i >> 1] >> 4) : (d[i >> 1] & 15u);
-    int32_t step = SM_STEP[*idx], diff = step >> 3;
-    if (code & 4u) diff += step;
-    if (code & 2u) diff += step >> 1;
-    if (code & 1u) diff += step >> 2;
-    *pred = dn_clamp((code & 8u) ? *pred - diff : *pred + diff, -32768, 32767);
-    *idx = dn_clamp(*idx + SM_IDXT[code & 7u], 0, 88);
-    return *pred;
-}
+#define sm_dec dn_ima
 
 uint32_t dn_smp_checkpoints(const uint8_t *adpcm, uint32_t n, uint32_t *ck, uint32_t max)
 {
