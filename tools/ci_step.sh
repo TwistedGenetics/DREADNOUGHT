@@ -6,11 +6,12 @@ title=$1
 shift
 log=$(mktemp)
 set -o pipefail
-if "$@" 2>&1 | tee "$log"; then
+"$@" 2>&1 | tee "$log"
+rc=$?                                               # (the command's, through pipefail; 0.46: was the if's, always 0)
+if [ $rc -eq 0 ]; then
     rm -f "$log"
     exit 0
 fi
-rc=$?
 msg=$( (grep -E "error|Error|FAIL|fatal" "$log" | head -20; echo ---; tail -30 "$log") | cut -c1-300)
 msg=${msg//'%'/'%25'}
 msg=${msg//$'\r'/}

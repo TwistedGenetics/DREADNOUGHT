@@ -63,6 +63,7 @@ jobs:
         run: cd sdkkit && git checkout -q "$SDK_COMMIT" && git log --oneline -1
 
       - name: JieLi toolchain 2.5.3
+        timeout-minutes: 20
         shell: bash
         run: bash tools/ci_step.sh "toolchain" pwsh -NoProfile -File tools/smk_toolchain.ps1
 
