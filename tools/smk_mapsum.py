@@ -8,7 +8,8 @@ import sys
 from collections import defaultdict
 
 LO, HI = 0x1C00000, 0x1C80000
-rows, by_file = [], defaultdict(int)
+ROM_LO, ROM_HI = 0x2000000, 0x2200000
+rows, by_file, rom_file = [], defaultdict(int), defaultdict(int)
 pending = None
 for line in open(sys.argv[1], errors="replace"):
     m = re.match(r"^ (\.\S+)\s*$", line)
@@ -20,9 +21,12 @@ for line in open(sys.argv[1], errors="replace"):
         name = m.group(1) or pending
         pending = None
         addr, size, src = int(m.group(2), 16), int(m.group(3), 16), m.group(4).strip()
+        base = re.sub(r".*[\\/]", "", src)
         if LO <= addr < HI and size and name:
             rows.append((size, name, src))
-            by_file[re.sub(r".*[\\/]", "", src)] += size
+            by_file[base] += size
+        elif ROM_LO <= addr < ROM_HI and size and name:
+            rom_file[base] += size
 total = sum(s for s, _, _ in rows)
 print(f"internal RAM taken by input sections: {total} bytes")
 for s, n, src in sorted(rows, reverse=True)[:45]:
@@ -30,4 +34,7 @@ for s, n, src in sorted(rows, reverse=True)[:45]:
     print(f"{s:7d} {n[:48]:48s} {base[:40]}")
 print("by file:")
 for f, s in sorted(by_file.items(), key=lambda x: -x[1])[:15]:
+    print(f"{s:7d} {f}")
+print(f"flash (code and constants): {sum(rom_file.values())} bytes; by file:")
+for f, s in sorted(rom_file.items(), key=lambda x: -x[1])[:15]:
     print(f"{s:7d} {f}")

@@ -14,6 +14,10 @@ on:
         description: "build the SDK's own APP, unchanged"
         type: boolean
         default: false
+      fx_kb:
+        description: "the FX arena, KB (a RAM experiment)"
+        type: string
+        default: "112"
 
 permissions:
   contents: read
@@ -74,6 +78,8 @@ jobs:
       - name: Put DREADNOUGHT in as the APP
         if: ${{ !inputs.baseline }}
         shell: bash
+        env:
+          SMK_FX_KB: ${{ inputs.fx_kb || '112' }}
         run: bash tools/ci_step.sh "assemble" python tools/smk_assemble.py sdkkit gen
 
       - name: Build
@@ -90,7 +96,7 @@ jobs:
           cat firmware-report.json package-report.json 2>/dev/null | head -80
           if [ -f sdk.map ]; then
             python ../../../tools/smk_mapsum.py sdk.map > ramsum.txt || true
-            m=$(head -70 ramsum.txt | tr -d '\r'); m=${m//'%'/'%25'}; m=${m//$'\n'/'%0A'}
+            m=$(head -90 ramsum.txt | tr -d '\r'); m=${m//'%'/'%25'}; m=${m//$'\n'/'%0A'}
             echo "::notice title=RAM ${{ matrix.model }}::$m"
           fi
           r=$(cat firmware-report.json package-report.json 2>/dev/null | tr -d '\r' | grep -E '"(passed|app_image_bytes|allocated_image_bytes|runtime_heap_bytes|FLASH_BIN_SIZE|VM_REAL_SIZE|fits)"' | tr '\n' ' ')
