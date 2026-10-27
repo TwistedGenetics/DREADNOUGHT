@@ -8,7 +8,7 @@ name: plugin
 
 on:
   push:
-    branches: [main, x0x-platform]
+    branches: [main]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -63,6 +63,7 @@ jobs:
       - name: The core alone (no JUCE)
         if: runner.os != 'Windows'
         run: |
+          cat > core.sh <<'EOF'
           set -e
           mkdir -p build/gen/x0x build/plug
           python3 tools/gen_dn_tables.py build/gen/dn_tables.h >/dev/null
@@ -75,30 +76,26 @@ jobs:
             src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c \
             src/dsp/dn_wt.c src/dsp/dn_ju.c -lm -o build/plug/dnc_test
           build/plug/dnc_test
+          EOF
+          tools/ci_step.sh "core (${{ matrix.name }})" bash core.sh
 
       - name: Configure
         run: |
           if [ "$RUNNER_OS" = Linux ]; then gen="-G Ninja"; elif [ "$RUNNER_OS" = Windows ]; then gen="-T ClangCL"; else gen=""; fi
-          cmake -S plugin -B build/plugin $gen -DCMAKE_BUILD_TYPE=Release
+          tools/ci_step.sh "configure (${{ matrix.name }})" cmake -S plugin -B build/plugin $gen -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: |
-          set -o pipefail
-          if ! cmake --build build/plugin --config Release --parallel 4 2>&1 | tee plugin-build.log; then
-            msg=$(grep -E "error|Error" plugin-build.log | head -25)
-            msg=${msg//'%'/'%25'}; msg=${msg//$'\n'/'%0A'}
-            echo "::error title=plugin build (${{ matrix.name }})::$msg"
-            exit 1
-          fi
+          tools/ci_step.sh "build (${{ matrix.name }})" cmake --build build/plugin --config Release --parallel 4
 
       - name: Check (a note and the state at 48 kHz, the editor drawn)
         run: |
           set -o pipefail
           shot=$(find build/plugin -type f \( -name dn_shot -o -name dn_shot.exe \) | head -1)
           mkdir -p shots
-          run() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a "$@"; else "$@"; fi; }
-          run "$shot" shots/plugin-${{ matrix.name }}.png 2>&1 | tee shot.log
-          run "$shot" shots/plugin-seq-${{ matrix.name }}.png tap:9 ms:300 >/dev/null
+          x=""; [ "$RUNNER_OS" = Linux ] && x="xvfb-run -a"
+          tools/ci_step.sh "dn_shot (${{ matrix.name }})" $x "$shot" shots/plugin-${{ matrix.name }}.png
+          tools/ci_step.sh "dn_shot SEQ (${{ matrix.name }})" $x "$shot" shots/plugin-seq-${{ matrix.name }}.png tap:9 ms:300
 
       - name: pluginval (the VST3 opened, played, its state and editor, as DAWs use them)
         run: |
@@ -108,9 +105,8 @@ jobs:
           mkdir -p pv && (cd pv && unzip -q ../pv.zip)
           pv=$(find pv -type f \( -name pluginval -o -name pluginval.exe \) | head -1)
           vst=$(find build/plugin -type d -name "DREADNOUGHT.vst3" -path "*VST3*" | head -1)
-          run() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a "$@"; else "$@"; fi; }
-          run "$pv" --strictness-level 5 --validate-in-process --validate "$vst" 2>&1 | tee pluginval.log | tail -20
-          grep -q "SUCCESS" pluginval.log && ! grep -q "FAILED" pluginval.log
+          x=""; [ "$RUNNER_OS" = Linux ] && x="xvfb-run -a"
+          tools/ci_step.sh "pluginval (${{ matrix.name }})" $x "$pv" --strictness-level 5 --validate-in-process --validate "$vst"
 
       - name: auval (the AU, as Logic checks it)
         if: runner.os == 'macOS'
@@ -121,8 +117,7 @@ jobs:
           cp -R "$au" ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar 2>/dev/null || true
           sleep 3
-          auval -v aumu Drnt Twgn 2>&1 | tee auval.log | tail -25
-          grep -q "AU VALIDATION SUCCEEDED" auval.log
+          tools/ci_step.sh "auval" auval -v aumu Drnt Twgn
 
       - name: Package
         run: |
