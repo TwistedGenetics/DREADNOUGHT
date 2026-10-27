@@ -27,8 +27,10 @@ public:
     void rebuild() override;
     void poll() override;
     void resized() override;
+    void paint(juce::Graphics&) override;
 private:
     FlowView flow;
+    bool empty = false;
     std::unique_ptr<SlicesView> slices;
     std::unique_ptr<PadsView> pads;
     int builtFor = -1, builtMode = -1;

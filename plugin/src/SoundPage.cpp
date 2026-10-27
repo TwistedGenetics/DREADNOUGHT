@@ -354,6 +354,9 @@ void SoundPage::rebuild()
         flow.addTail(std::make_unique<MatrixPanel>(ui, tableName[t.first], t.first, t.second), t.first == DNC_SEL_OP);
     builtFor = e;
     builtMode = mode;
+    empty = n == 0;
+    flow.setVisible(!empty);
+    repaint();
     flow.layout();
     flow.refresh();
 }
@@ -378,6 +381,16 @@ void SoundPage::poll()
 }
 
 void SoundPage::resized() { flow.setBounds(getLocalBounds()); }
+
+void SoundPage::paint(juce::Graphics& g)
+{
+    if (!empty)
+        return;
+    g.setColour(ink);
+    g.setFont(font(26.0f, 700));
+    g.drawFittedText("NOTHING ON THIS TRACK\n\nCHANGE (BESIDE ITS NAME, ON THE LEFT) PICKS ITS INSTRUMENT",
+                     getLocalBounds().reduced(40), juce::Justification::centred, 4);
+}
 
 // ----------------------------------------------------------------------------------------------- EFFECTS ---
 // every track's sends, in a row: the track (its instrument's colour), SEND A, SEND B

@@ -69,7 +69,7 @@ int FrameFifo::pop(uint8_t* out, int max)
 // ------------------------------------------------------------------------------------------- the editor's port ---
 // (0.45) a MIDI port the web editor finds, as it finds the FM-1's: its frames go to the core (on the audio thread,
 // between blocks, or here when the host is quiet) and the answers come back out through this thread
-#ifndef DN_NO_EDITOR_PORT
+#if !defined(DN_NO_EDITOR_PORT) && !JUCE_WINDOWS     // (Windows has no virtual MIDI ports)
 class EditorLink : public juce::MidiInputCallback, private juce::Thread
 {
 public:
@@ -119,7 +119,7 @@ private:
     std::unique_ptr<juce::MidiOutput> out;
 };
 #else
-class EditorLink                                    // (dn_shot: no port; its frames are handed in directly)
+class EditorLink                                    // (dn_shot, Windows: no port; dn_shot hands its frames in directly)
 {
 public:
     bool ok() const { return false; }
@@ -186,7 +186,7 @@ DreadnoughtProcessor::DreadnoughtProcessor()
             autos.push_back(std::move(a));
         }
     }
-#ifndef DN_NO_EDITOR_PORT
+#if !defined(DN_NO_EDITOR_PORT) && !JUCE_WINDOWS
     if (owner)
         link = std::make_unique<EditorLink>(*this);
 #endif
