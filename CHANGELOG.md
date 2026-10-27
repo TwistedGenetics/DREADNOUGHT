@@ -1044,21 +1044,40 @@ computer: it needs the FM-1 (and a DAW) to show the ten inputs.
   changed (their padding held the last record's bytes) and isn't written to the flash again.
 - For now: one per project; the two built-in loops only; the sequencer starts from its bar 1 when the DAW plays.
 
-## 0.45 — the web editor on the plugin, your own samples (2026-10-27)
+## 0.45 — the plugin's own editor: every instrument with the mouse (2026-10-27)
 
-- **The plugin opens a MIDI port, "DREADNOUGHT Plugin"** (macOS and Linux), and answers the web editor's frames as the
-  FM-1 does: the app's own commands (every sound, the patterns, the song, the panel), and the sample slots, three in
-  RAM with the FM-1's sizes (80, 80, 64 KB) and layout, and the slices. So the editor works on the plugin unchanged:
-  send your own samples (WAV, MP3, AIFF … on the Project tab), set slices on the breaks page, load DX7 banks and Serum
-  wavetables, and save or load whole `.dnproj` projects, the same files as the FM-1's: a project moves between the
-  FM-1 and the DAW both ways.
-- The plugin shows WEB EDITOR: CONNECTED (or the port to pick) and how much sample memory is used; OPEN THE WEB EDITOR
-  opens the page. The editor's frames are answered on the audio thread between blocks (or at once when the DAW is
-  quiet), the answers sent from a thread of their own.
-- The samples are kept in the DAW's project with the rest (the state's version 2); a 0.44 state still loads. A new
-  plugin starts with ROLLER and STEPPER in slot 1, packed as the editor packs samples, so the editor lists them and
-  you can send yours over them.
-- Tests: the core answers the editor's frames (INFO, a sample sent as the editor sends one, SMP_INFO, ERASE, the
-  slots kept by the state and brought back the same); and the web editor's own code (protocol.js, media.js,
-  project.js) against the core through a pipe: it connects, reads the slots (CRC checked), sends a new sample as the
-  Project tab does and reads it back, sets its slices, reads a whole project, and writes it back over changes.
+- **The FM-1's panel is gone from the plugin.** No screen copy, encoders, button rows or keyboard: the plugin is laid
+  out as a normal instrument, drawn in vectors (sharp on a Retina screen at any size; the window scales from 60 % to
+  200 %), light, with big bold type (Barlow Semi Condensed) and each instrument in its own colour.
+  - **The tracks** on the left: the eight, each one's instrument (CHANGE: a menu), its pattern, mute.
+  - **SOUND**: every value of the track's instrument, in sections as its pages group them (REESE, SUB, FM, WAVE,
+    JUNO, SAMPLER, SAMPLER 2, BREAKS, MIDI): knobs (drag, scroll, shift for fine steps, double-click to type a value)
+    and lists for the values that are words. FM's six operators as one table (level, ratio, detune, mode, velocity,
+    the EG's rates and levels); the LFOs and WAVE's mod matrix as tables too. BREAKS shows its loop with the slices:
+    click to hear one, drag a line to move it, double-click for a new one, right-click to take one out, AUTO SLICES
+    to go back. SAMPLER shows its 16 pads (or 8 zones): click one to hear it and edit it.
+  - **PATTERN**: the track's 8 patterns, its length and the swing; a piano roll (synths) or a drum grid (BREAKS'
+    slices, SAMPLER's pads) with a velocity lane; the clicked step's note, velocity, length, slide, accent,
+    condition, chord or hit FX and retrig.
+  - **EFFECTS**: every track's sends, the returns, FX A and FX B with every value of the effect picked.
+  - **SAMPLES**: drop WAV, AIFF, FLAC or MP3 files anywhere on the plugin (or ADD SAMPLES...): each is converted as the
+    web editor converts one (mono fold, resampled through a low-pass to the rate picked, trimmed, faded, 4-bit ADPCM)
+    into the FM-1's three sample slots (224 KB, so the project fits on the FM-1); hear one, rename it, remove it.
+  - **The top bar**: the instrument's presets (and KEEP AS USER for REESE and SUB), BPM, PLAY, FOLLOW THE DAW, and the
+    web editor.
+- **Automation**: each instrument's main values are the DAW's parameters (REESE's cutoff, resonance, drive, detune,
+  filter envelope, decay, glide, level; SUB's, FM's macros, WAVE's, JUNO's, SAMPLER's filter, BREAKS' pitch, decay,
+  crush, level: 54 in all), whichever track the instrument is on; turning them on the plugin moves them in the DAW.
+- **The web editor still connects** (macOS, Linux): the plugin opens a MIDI port, "DREADNOUGHT Plugin", and the
+  editor finds it as it finds an FM-1, for DX7 banks, Serum wavetables and whole `.dnproj` projects (the same files
+  as the FM-1's, so a project moves between the box and the DAW both ways).
+- The samples and their names are kept in the DAW's project with the rest (state version 3; 0.44's still loads). A
+  new plugin starts with ROLLER and STEPPER in its first slot.
+- Under it, a C API for the GUI (plugin/core/dnc_api.c) over the app's own values (names, ranges and texts as the
+  FM-1 shows them), presets, patterns, samples and slices.
+- Tests: every value of every instrument (332) named, in range, set to its top and read back; every automatable value
+  (54); presets and user sounds; steps, lengths, patterns; a sample converted, stored, read back and kept by the
+  state with its name; too much for the memory refused with nothing changed; BREAKS' slices set by hand; the web
+  editor's own code against the core through a pipe (connect, slots, a sample sent, slices, a whole project read and
+  written back). dn_shot (no host): a note at 48 kHz, the state, a WAV dropped on the plugin, the web editor's INFO,
+  automation moving the instrument, and every page drawn to a PNG (looked at). CI runs pluginval and auval.

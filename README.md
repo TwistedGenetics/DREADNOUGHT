@@ -50,24 +50,28 @@ address bar and allow MIDI devices. Still nothing: open **Diagnostics** at the b
 ports**, pick the FM-1's port if it's listed under another name (macOS, Windows and Linux name it differently, and
 remember the name from earlier firmware), Connect, and send the text from **Copy all**.
 
-## Plugin: AU / VST3 / standalone (0.44, beta)
+## Plugin: AU / VST3 / standalone (beta)
 
-**DREADNOUGHT in your DAW.** The FM-1's own app and engines, built for the computer: the same screen, pages, sounds,
-sequencer and effects, with the FM-1's panel to click on (the encoders, the knobs, both rows of buttons, the 27 keys;
-your computer's keys play them too). AU, VST3 and a standalone app for macOS (Apple silicon and Intel), VST3 and the
-app for Windows and Linux: `DREADNOUGHT-plugin-X.Y-macOS.zip` (or `-Windows`, `-Linux`) on each
+**DREADNOUGHT in your DAW.** The FM-1's own instruments, sequencer and effects as a normal plugin (0.45): the eight
+tracks on the left; for the selected one its **SOUND** (every value of its instrument, with the mouse: FM's six
+operators in one table, BREAKS' loop with its slices, SAMPLER's pads), its **PATTERN** (a piano roll or a drum grid,
+8 patterns, each step's details), the **EFFECTS** and your **SAMPLES** (drop audio files on it). Presets, BPM, PLAY and
+FOLLOW THE DAW at the top. Vector-drawn, sharp on any screen, resizable.
+
+![The plugin: FM](docs/plugin/editor.png)
+
+AU, VST3 and a standalone app for macOS (Apple silicon and Intel), VST3 and the app for Windows and Linux:
+`DREADNOUGHT-plugin-X.Y-macOS.zip` (or `-Windows`, `-Linux`) on each
 [release](https://github.com/TwistedGenetics/DREADNOUGHT/releases/latest), with an install note inside
 ([docs/plugin/README.txt](docs/plugin/README.txt)).
 
-- MIDI channels 1–8 play tracks 1–8; channels 9–16 play the track the screen shows. BREAKS (and SAMPLER's pads)
-  take C1 as the first slice.
-- **FOLLOW THE HOST** (on by default): the sequencer starts and stops with the DAW, at its tempo.
-- MIDI tracks send their notes out to the DAW. The project is saved with the DAW's project.
-- **The web editor connects to the plugin (0.45, macOS and Linux):** the plugin opens a MIDI port, "DREADNOUGHT
-  Plugin", and the editor finds it as it finds an FM-1. Your own samples, slices, DX7 banks, wavetables, every sound,
-  pattern and the song, and whole `.dnproj` projects: the same files as the FM-1's, so a project moves between the
-  box and the DAW both ways. Samples are kept in the DAW's project, within the FM-1's 224 KB.
-- For now: one per project, no editor port on Windows, and the sequencer starts from its bar 1 when the DAW plays.
+- MIDI channels 1–8 play tracks 1–8; channels 9–16 play the track selected. BREAKS (and SAMPLER's pads) take C1 as
+  the first slice. MIDI tracks send their notes out to the DAW.
+- **FOLLOW THE DAW** (on by default): the sequencer starts and stops with the DAW, at its tempo.
+- Each instrument's main values are automatable in the DAW. The project, samples and all, is saved with the DAW's.
+- **The web editor connects to the plugin** (macOS and Linux) through a MIDI port, "DREADNOUGHT Plugin": DX7 banks,
+  Serum wavetables and `.dnproj` projects, the same files as the FM-1's.
+- For now: one per project; no editor port on Windows; the sequencer starts from its bar 1 when the DAW plays.
 
 Build it: `cmake -S plugin -B build/plugin -DCMAKE_BUILD_TYPE=Release && cmake --build build/plugin --config Release`
 (JUCE is fetched; Python 3 with numpy and Pillow makes the engines' tables).

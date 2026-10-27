@@ -672,24 +672,28 @@ def body():
              "sets their slices.</p>")
     o.append(tip("If the editor won't connect: close everything else using the FM-1's MIDI port (a DAW, the flasher or the breaks page in another tab), reload, Connect again. Diagnostics at the bottom of the page lists the ports.", 3))
 
-    # ---- the plugin (0.44)
+    # ---- the plugin (0.44; its own editor 0.45)
     o.append(chapter("IN YOUR DAW: THE PLUGIN", 2, "AU, VST3 and a standalone app: DREADNOUGHT-plugin-X.Y-macOS.zip "
                      "(or -Windows, -Linux) on each GitHub release."))
-    o.append("<p>The same app and instruments as on the FM-1, on the computer: the screen, the pages, the sounds, the "
-             "sequencer and the effects, with the FM-1's panel to click on. Everything in this manual works there.</p>")
-    o.append(f'<figure class="shot"><img src="{png_uri(REPO / "docs" / "plugin" / "editor.png")}" alt="" '
-             'style="image-rendering:auto;border-width:2pt"><figcaption>The plugin in a DAW: the FM-1\'s panel, its '
-             'screen twice the size.</figcaption></figure>')
+    o.append("<p>The same instruments, sequencer and effects as on the FM-1, as a normal plugin played with the mouse: "
+             "the eight tracks on the left, the selected one's pages on the right.</p>")
+    def pimg(f, cap):
+        return (f'<figure class="shot"><img src="{png_uri(REPO / "docs" / "plugin" / f)}" alt="" '
+                f'style="image-rendering:auto;border-width:2pt"><figcaption>{cap}</figcaption></figure>')
+    o.append(pimg("editor.png", "SOUND, with FM on track 4: its six operators in one table, then the voice, macros, LFO."))
     o.append(table([
-        ("Knobs and encoders", "Drag up or down, or scroll. Shift: four steps at a time."),
-        ("Buttons", "Click. Shift-click (or right-click) holds one down for the combinations: SAVE + FX, HOME + SELECT, SEQ + a key. Click it again to let go."),
-        ("Keys", "Click, or play the computer's keys: Z S X D C ... from F3, Q 2 W 3 E ... from F4."),
-        ("MIDI from the DAW", "Channels 1-8 play tracks 1-8; channels 9-16 play the track on the screen. BREAKS and SAMPLER's pads: C1 (note 36) is the first slice."),
-        ("FOLLOW THE HOST", "On: the sequencer starts and stops with the DAW, at its tempo. Off: PLAY on the panel, at its own."),
-        ("MIDI tracks", "Their notes go out of the plugin to the DAW: route them to another instrument."),
-        ("Saving", "The project is kept in the DAW's project, samples and all: the plugin does SAVE when the DAW saves."),
-        ("The web editor", "macOS and Linux: the plugin opens a MIDI port, DREADNOUGHT Plugin. Press OPEN THE WEB EDITOR, then Connect: the plugin shows WEB EDITOR: CONNECTED. Everything in the web editor chapter then works on the plugin: your own samples, slices, DX7 banks, wavetables, and .dnproj projects, the same files as the FM-1's."),
+        ("Tracks", "Click one to edit it. CHANGE picks its instrument; M mutes it."),
+        ("SOUND", "Every value of the instrument. Drag a knob (shift: finer), scroll it, double-click to type a value; a box with a word is a list. BREAKS: its loop and slices (click to hear, drag a line to move it, double-click for a new one, right-click to remove, AUTO SLICES). SAMPLER: its pads or zones (click to hear and edit)."),
+        ("PATTERN", "8 patterns, length, swing. Click for a note, drag its end for length, drag it for pitch; double- or right-click removes it. The lane below: velocity. A clicked note's details below: slide, accent, condition, chord or hit FX, retrig."),
+        ("EFFECTS", "Every track's sends, the returns, FX A and FX B."),
+        ("SAMPLES", "Drop WAV, AIFF, FLAC or MP3 files anywhere on the plugin. They fit the FM-1's 224 KB, so a project made here goes on the FM-1. Hear, rename, remove."),
+        ("Top", "Presets (< > or the name), KEEP AS USER (REESE, SUB), BPM, PLAY, FOLLOW THE DAW (the sequencer starts and stops with the DAW, at its tempo), WEB EDITOR."),
+        ("MIDI from the DAW", "Channels 1-8 play tracks 1-8; channels 9-16 the track selected. BREAKS and SAMPLER's pads: C1 (note 36) is the first slice."),
+        ("Automation", "Each instrument's main values are the DAW's parameters, whichever track it's on."),
+        ("Saving", "The project, samples and all, is saved with the DAW's project."),
+        ("The web editor", "macOS and Linux: the plugin opens a MIDI port, DREADNOUGHT Plugin. WEB EDITOR, then Connect: DX7 banks, wavetables and .dnproj projects, the same files as the FM-1's."),
     ], head=["", "HOW"]))
+    o.append(pimg("pattern.png", "PATTERN: REESE's line in the piano roll, velocity below, the clicked note's details at the bottom."))
     o.append(tip("Take a project from the FM-1 to the DAW: save it to the computer from the web editor (Project tab) with "
                  "the FM-1 connected, then connect the plugin and load it. And back the same way.", 5, "BOX TO DAW"))
     o.append(tip("For now: one DREADNOUGHT per project, no editor port on Windows, and the sequencer starts "
