@@ -32,14 +32,17 @@ else()
 endif()
 
 # ---- the tables the engines read (made as tests/run_host.sh makes them) ----
-set(DN_GEN "${CMAKE_BINARY_DIR}/gen")
+# (-DDN_GEN_DIR=dir: the tables made elsewhere, as CI makes them once on Linux: gen_font.py needs Pillow with libraqm,
+#  which macOS and Windows wheels lack: brew install libraqm, or take CI's "tables" artifact)
+set(DN_GEN_DIR "${CMAKE_BINARY_DIR}/gen" CACHE PATH "the generated tables (made here when missing)")
+set(DN_GEN "${DN_GEN_DIR}")
 file(MAKE_DIRECTORY "${DN_GEN}")
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
 foreach(g "tools/gen_dn_tables.py;dn_tables.h" "tools/gen_dn_wt.py;dn_wt_tables.h"
           "tools/gen_dn_breaks.py;dn_breaks_builtin.h" "x0x-firmware/tools/gen_font.py;felucca_font.h")
     list(GET g 0 script)
     list(GET g 1 out)
     if(NOT EXISTS "${DN_GEN}/${out}")
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
         execute_process(COMMAND "${Python3_EXECUTABLE}" "${DN_ROOT}/${script}" "${DN_GEN}/${out}"
                         WORKING_DIRECTORY "${DN_ROOT}" RESULT_VARIABLE rc OUTPUT_QUIET)
         if(NOT rc EQUAL 0)

@@ -21,7 +21,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  tables:                                           # (made once, on Linux: the font needs Pillow with libraqm)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy Pillow fonttools
+      - name: The engines' tables and the screen's font
+        run: |
+          set -e
+          mkdir -p gen
+          python3 tools/gen_dn_tables.py gen/dn_tables.h >/dev/null
+          python3 tools/gen_dn_wt.py gen/dn_wt_tables.h >/dev/null
+          python3 tools/gen_dn_breaks.py gen/dn_breaks_builtin.h >/dev/null
+          python3 x0x-firmware/tools/gen_font.py gen/felucca_font.h >/dev/null
+          ls -la gen
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tables-${{ github.sha }}
+          path: gen/
+          if-no-files-found: error
+
   build:
+    needs: tables
     strategy:
       fail-fast: false
       matrix:
@@ -42,12 +69,10 @@ jobs:
         with:
           submodules: true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/download-artifact@v4
         with:
-          python-version: "3.12"
-
-      - name: Python packages (the engines' tables, the font)
-        run: pip install numpy Pillow fonttools
+          name: tables-${{ github.sha }}
+          path: gen
 
       - name: Linux packages
         if: runner.os == 'Linux'
@@ -65,12 +90,8 @@ jobs:
         run: |
           cat > core.sh <<'EOF'
           set -e
-          mkdir -p build/gen/x0x build/plug
-          python3 tools/gen_dn_tables.py build/gen/dn_tables.h >/dev/null
-          python3 tools/gen_dn_wt.py build/gen/dn_wt_tables.h >/dev/null
-          python3 tools/gen_dn_breaks.py build/gen/dn_breaks_builtin.h >/dev/null
-          python3 x0x-firmware/tools/gen_font.py build/gen/x0x/felucca_font.h >/dev/null
-          W="-O2 -std=c99 -ffp-contract=off -w -Ibuild/gen/x0x -Ibuild/gen -Isrc/dsp -Isrc/app -Ix0x-firmware/firmware/src"
+          mkdir -p build/plug
+          W="-O2 -std=c99 -ffp-contract=off -w -Igen -Isrc/dsp -Isrc/app -Ix0x-firmware/firmware/src"
           cc $W -DDN_VERSION='"${{ steps.ver.outputs.version }}"' plugin/core/dnc_test.c plugin/core/dn_core.c \
             src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c \
             src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c \
@@ -82,7 +103,8 @@ jobs:
       - name: Configure
         run: |
           if [ "$RUNNER_OS" = Linux ]; then gen="-G Ninja"; elif [ "$RUNNER_OS" = Windows ]; then gen="-T ClangCL"; else gen=""; fi
-          tools/ci_step.sh "configure (${{ matrix.name }})" cmake -S plugin -B build/plugin $gen -DCMAKE_BUILD_TYPE=Release
+          ws=$(pwd); [ "$RUNNER_OS" = Windows ] && ws=$(pwd -W)
+          tools/ci_step.sh "configure (${{ matrix.name }})" cmake -S plugin -B build/plugin $gen -DCMAKE_BUILD_TYPE=Release -DDN_GEN_DIR="$ws/gen"
 
       - name: Build
         run: |
