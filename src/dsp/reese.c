@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * DREADNOUGHT: the REESE engine. Copyright (C) 2026 Jamie (TwistedGenetics).
- * The ladder (rs_ladder_coef / rs_ladder_tick) and the supersaw spacing are Clipper's (isod89/clipper-fm1
- * firmware/src/dsp.c ladder_*, eng_hybrid.c SUPER_OFF, Copyright (C) 2026 3dSam, GPL-3.0-only), copied with their
- * notes; the rest is DREADNOUGHT's. Why it is built this way, with sources: docs/REESE.md.
+ * All of it DREADNOUGHT's own. The ladder (dn_ladder.h) and the stacks' spacing were written anew in 2026-10 from
+ * published designs: Zavalishin's zero-delay-feedback ladder ("The Art of VA Filter Design") and the uneven,
+ * centre-dense spread Adam Szabo measured on the JP-8000's supersaw (2010). Why it is built this way, with sources:
+ * docs/REESE.md.
  *
  * Two or more oscillators detuned against each other: their sum is a comb filter that moves up the spectrum as
  * they drift in and out of phase (the Casio CZ's LINE 1+1', the 1988 original). Then, in the order producers use:
@@ -27,6 +28,7 @@
  *   LEVEL 0..127 (100 = unity); TRANS -36..36 semitones (the presets play an octave or two down) */
 #include "reese.h"
 #include "dn_dsp.h"
+#include "dn_ladder.h"
 
 #define RS_COMB_MIN 24                    /* the comb sweep in samples: 0.5 .. 4.5 ms */
 #define RS_COMB_MAX 200
@@ -159,60 +161,31 @@ void reese_init(reese_t *r)
     reese_load_preset(r, 0);
 }
 
-/* ------------------------------------------------------------------------ the ladder, from Clipper --- */
-/* Zavalishin's zero-delay-feedback ladder: four one-pole TPT stages, the feedback solved, the input through a tanh
- * (the transistor ladder's differential pair): a hot signal drives it warm, the resonance saturates softly. Signals
- * Q12, coefficients Q16, products and sums in 64 bits; G <= 0.75 keeps the states bounded. */
-typedef struct { int32_t G, H, G4, inv, k; } rs_ladder_t;
-static inline int32_t rs_mul_sh(int32_t a, int32_t b, int sh) { return (int32_t)(((int64_t)a * b) >> sh); }
-static void rs_ladder_coef(rs_ladder_t *c, int32_t cut, int32_t res)
+/* ------------------------------------------------------------------------------------------- the ladder --- */
+/* dn_ladder.h (DREADNOUGHT's own ZDF ladder, after Zavalishin). RES 0..127 is the feedback 0 .. 4.12: it rings ever
+ * harder and self-oscillates, in tune, only at the very top (~5900 peak, the saturator holding it); half of the
+ * feedback's passband loss is made up at the input, so a resonant patch drives the saturator a little harder. */
+typedef dn_ladder_t rs_ladder_t;
+static inline void rs_ladder_coef(rs_ladder_t *c, int32_t cut, int32_t res)
 {
-    int32_t g = dn_clamp(dn_svf_g(cut), 1, 3 * 4096), G, G2;
-    G = (int32_t)(((uint32_t)g << 16) / (uint32_t)(4096 + g));   /* g / (1 + g) */
-    G2 = rs_mul_sh(G, G, 16);
-    c->G = G;
-    c->H = 65536 - G;
-    c->G4 = rs_mul_sh(G2, G2, 16);
-    c->k = dn_clamp(res, 0, 127) * 16900 / 127;                  /* 0 .. 4.13 */
-    c->inv = (int32_t)(0xFFFFFFFFu / (uint32_t)(65536 + rs_mul_sh(c->k, c->G4, 12)));   /* (32-bit divide only) */
+    dn_ladder_coef(c, cut, (float)dn_clamp(res, 0, 127) * (4.12f / 127.0f), 0.5f);
 }
-static inline int32_t rs_ladder_tick(const rs_ladder_t *c, int32_t x, int32_t *s)
-{
-    int64_t in = (int64_t)dn_clamp(x, -131072, 131072) << 12, S, y, u;
-    int32_t G = c->G, uq, v, j;
-    in += (in * c->k) >> 13;                                     /* x (1 + k / 2): the passband kept at high RES */
-    S = ((int64_t)G * s[0] >> 16) + s[1];
-    S = ((G * S) >> 16) + s[2];
-    S = ((G * S) >> 16) + s[3];
-    S = (c->H * S) >> 16;
-    y = ((((int64_t)c->G4 * in) >> 16) + S) * c->inv >> 16;    /* the ladder's output, solved */
-    u = in - ((c->k * y) >> 12);                                 /* the ladder's input (Q12) */
-    {
-        int64_t h = u >> 13;
-        if (h <= -65536 || h >= 65536)
-            uq = dn_softclip(h < 0 ? -65536 : 65536) << 13;
-        else
-            uq = (dn_softclip((int32_t)h) << 13) + (int32_t)(u - (h << 13));
-    }
-    for (j = 0; j < 4; j++) {
-        v = (int32_t)(((int64_t)G * (uq - s[j]) + 32768) >> 16);
-        uq = v + s[j];
-        s[j] = uq + v;
-    }
-    return (uq + 2048) >> 12;
-}
+static inline int32_t rs_ladder_tick(const rs_ladder_t *c, int32_t x, float *s) { return dn_ladder_tick(c, x, s); }
 
 /* ---------------------------------------------------------------------------------------- the oscillators --- */
-/* where each oscillator sits in the spread, Q12 of half the spread; the stacks use the supersaw's spacing (Clipper's
- * SUPER_OFF, after Adam Szabo's JP-8000 analysis), scaled so the outer pair spans the spread */
+/* where each oscillator sits in the spread, Q12 of half the spread (DREADNOUGHT's own, 2026-10). The outer pair
+ * first, on the spread's edges: alone (2SAW) it beats at exactly the DTN or BEAT rate. The rest inside on a power
+ * curve, (j / m)^1.6 for the j-th of m on a side, so the stack is dense near the centre and thin at the edges, the
+ * shape Adam Szabo measured on the JP-8000's supersaw ("How to Emulate the Super Saw", 2010); each side a little
+ * lopsided (3..5 %) so no two pairs beat in step; the centre one last. */
 static const uint8_t RS_N[RO_N] = {2, 3, 5, 7, 2, 2};
 static const int16_t RS_POS[RO_N][RS_NOSC] = {
-    {-4096, 4096},
-    {0, -4096, 4096},
-    {0, 1297, -1271, 4049, -4096},
-    {0, 741, -727, 2314, -2341, 4000, -4096},
-    {-4096, 4096},
-    {-4096, 4096},
+    {-4096, 4096},                                      /* 2SAW */
+    {-4096, 4096, 0},                                   /* 3SAW */
+    {-4096, 4096, -1413, 1290, 0},                      /* 5SAW: inside at 0.5^1.6 */
+    {-4096, 4096, -2212, 2068, -737, 676, 0},           /* 7SAW: inside at (2/3)^1.6, (1/3)^1.6 */
+    {-4096, 4096},                                      /* SAWSQ: the saw, the square */
+    {-4096, 4096},                                      /* 2SIN */
 };
 static const int16_t RS_GAIN[RO_N] = {23000, 19000, 13000, 9400, 23000, 26000};
 static const uint8_t RS_BEAT4[8] = {0, 1, 2, 4, 8, 16, 6, 12};   /* the beat in quarter notes x 4 */
@@ -323,7 +296,8 @@ void reese_render(reese_t *r, int32_t *lr, uint32_t n)
     const int16_t *p = r->p;
     while (n) {
         uint32_t no, mode, beat, i, j, len;
-        int32_t sub, cut, drv, hol, xover, g, gain, x0, x1, x2, x3, lfo;
+        int32_t sub, cut, drv, hol, xover, g, gain, lfo;
+        float x0, x1, x2, x3;                       /* the crossover's states */
         uint32_t inc, sinc[RS_NOSC], cph, cw, crate;
         rs_ladder_t lc;
         dn_svf_t xc;

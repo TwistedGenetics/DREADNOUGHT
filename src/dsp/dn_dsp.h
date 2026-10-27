@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * DREADNOUGHT: the shared fixed-point DSP building blocks. Copyright (C) 2026 Jamie (TwistedGenetics).
- * The polyBLEP saw, the soft clip and the trapezoidal SVF follow Felucca's dsp.c (Leo Kuroshita, Hugelton
- * Instruments, GPL-3.0-only); written out again here for DREADNOUGHT's own engines. */
+ * All of it DREADNOUGHT's own. The polyBLEP saw, the soft clip and the trapezoidal SVF were written anew in 2026-10
+ * from published designs (Valimaki & Huovilainen 2007; a rational tanh; Zavalishin's TPT SVF, as in A. Simper's
+ * public-domain notes): each one's comment names its source. */
 #pragma once
 #include <stdint.h>
 #include "dn_tables.h"
@@ -22,22 +23,29 @@ static inline int32_t dn_sine(uint32_t ph)
     return a + (((b - a) * (int32_t)((ph >> 7) & 0x7FFFu)) >> 15);
 }
 
-/* polyBLEP residual (Q15) around a wrap of a phase accumulator */
+/* polyBLEP residual (Q15) around a wrap of a phase accumulator (DREADNOUGHT's own, 2026-10, after V. Valimaki and
+ * A. Huovilainen, "Antialiasing Oscillators in Subtractive Synthesis", IEEE Signal Processing Magazine, 2007): the
+ * naive saw drops by 2 (65536) at the wrap; within one increment either side of it the two-sample polynomial step
+ * takes its place. With d the distance to the wrap in increments (0..1), the residual is (1 - d)^2 just before the
+ * wrap and -(1 - d)^2 just after: subtracted from the naive saw it meets the middle of the step from both sides.
+ * Elsewhere 0 (two compares); within the window a float divide finds d. */
 static inline int32_t dn_blep(uint32_t ph, uint32_t inc)
 {
-    uint32_t d = inc >> 15;
-    int32_t x;
-    if (!d)
+    uint32_t dist;
+    int32_t m;
+    int after;
+    if (ph < inc)
+        dist = ph, after = 1;                           /* just past the wrap */
+    else if (0u - ph < inc)
+        dist = 0u - ph, after = 0;                      /* just before it */
+    else
         return 0;
-    if (ph < inc) {
-        x = (int32_t)(ph / d);                       /* 0..32767 */
-        return x + x - ((x * x) >> 15) - 32768;
-    }
-    if (ph > 0xFFFFFFFFu - inc) {
-        x = -(int32_t)((0xFFFFFFFFu - ph) / d);       /* -32767..0 */
-        return ((x * x) >> 15) + x + x + 32768;
-    }
-    return 0;
+    if (inc < 2u)
+        return 0;
+    m = 32768 - (int32_t)((float)(int32_t)(dist >> 1) / (float)(int32_t)(inc >> 1) * 32768.0f);
+    m = m < 0 ? 0 : m;
+    m = (m * m) >> 15;                                  /* (1 - d)^2, Q15 (m <= 32768: m^2 <= 2^30) */
+    return after ? -m : m;
 }
 static inline int32_t dn_saw(uint32_t ph, uint32_t inc) { return ((int32_t)(ph >> 16) - 32768) - dn_blep(ph, inc); }
 static inline int32_t dn_pulse(uint32_t ph, uint32_t inc, uint32_t pw)
@@ -45,15 +53,18 @@ static inline int32_t dn_pulse(uint32_t ph, uint32_t inc, uint32_t pw)
     return (dn_saw(ph, inc) - dn_saw(ph + pw, inc)) >> 1;
 }
 
-/* tanh(x / 32768) * 32767, linearly interpolated */
+/* the soft clip (DREADNOUGHT's own, 2026-10): ~tanh(x / 32768) x 32767 as a rational, v (27 + v^2) / (27 + 9 v^2) for
+ * v = x / 32768, held at +-32767 from |v| = 3 where the curve meets it with zero slope (within 0.025 of tanh, a touch
+ * firmer at the knee). 32-bit integers only: v^2 in Q12, the ratio in Q14, one 32-bit divide. */
 static inline int32_t dn_softclip(int32_t x)
 {
-    int32_t a = x < 0 ? -x : x, i = a >> 8, y;
-    if (i >= 256)
-        y = DN_TANH[256];
-    else
-        y = DN_TANH[i] + (((DN_TANH[i + 1] - DN_TANH[i]) * (a & 255)) >> 8);
-    return x < 0 ? -y : y;
+    int32_t a = x < -98304 ? -98304 : x > 98304 ? 98304 : x, q = a >> 3, v2, y;
+    uint32_t r;
+    v2 = (q * q) >> 12;                               /* v^2, Q12: <= 36864 */
+    r = ((uint32_t)(110592 + v2) << 14) / (uint32_t)(110592 + 9 * v2);   /* (27 + v^2) / (27 + 9 v^2), Q14 */
+    y = (a * (int32_t)r) >> 14;
+    y -= y >> 15;                                     /* (x 32767 / 32768) */
+    return y < -32767 ? -32767 : y > 32767 ? 32767 : y;
 }
 
 static inline uint32_t dn_noise(int32_t *st)
@@ -89,24 +100,30 @@ static inline int32_t dn_svf_g16(int32_t cut)
     return (int32_t)(a + (uint32_t)(((uint64_t)(b - a) * (uint32_t)f) >> 8));
 }
 
-/* Trapezoidal SVF (A. Simper), Q13 coefficients; signals within +-150000. Outputs: 0 LP, 1 BP, 2 HP */
-typedef struct { int32_t a1, a2, a3, k; } dn_svf_t;
+/* The state-variable filter (DREADNOUGHT's own, 2026-10), in Zavalishin's TPT form ("The Art of VA Filter Design",
+ * ch. 4; the same trapezoidal SVF as A. Simper's public-domain Cytomic notes, SvfLinearTrapOptimised2): two
+ * trapezoidal integrators g = tan(pi fc / fs), the damping k, the high-pass solved first with no delay,
+ *   hp = (x - (g + k) s1 - s2) / (1 + g (g + k)),  bp = g hp + s1,  lp = g bp + s2,  s1' = bp + g hp,  s2' = lp + g bp.
+ * Float inside (the FM-1's FPU), the engines' integers outside; the states are floats the caller keeps (zeroed to
+ * start). A state that has decayed below 1e-20 is set to 0 (never a denormal). Outputs: 0 LP, 1 BP, 2 HP */
+typedef struct { float g, gk, a; } dn_svf_t;
 static inline void dn_svf_coef(dn_svf_t *c, int32_t cut, int32_t k)   /* k: damping Q12 (2.0 = 8192, sqrt2 = 5793) */
 {
-    int32_t g = dn_svf_g(cut), den = 4096 + ((g * (g + k)) >> 12);
-    c->a1 = (int32_t)((4096u << 13) / (uint32_t)den);
-    c->a2 = (c->a1 * g) >> 12;
-    c->a3 = (c->a2 * g) >> 12;
-    c->k = k;
+    float g = (float)dn_svf_g16(cut) * (1.0f / 65536.0f);
+    c->g = g;
+    c->gk = g + (float)k * (1.0f / 4096.0f);
+    c->a = 1.0f / (1.0f + g * c->gk);
 }
-static inline int32_t dn_svf(const dn_svf_t *c, int32_t in, int32_t *ic1, int32_t *ic2, uint32_t out)
+static inline int32_t dn_svf(const dn_svf_t *c, int32_t in, float *s1, float *s2, uint32_t out)
 {
-    int32_t v3 = in - *ic2;
-    int32_t v1 = (c->a1 * *ic1 + c->a2 * v3) >> 13;
-    int32_t v2 = *ic2 + ((c->a2 * *ic1 + c->a3 * v3) >> 13);
-    *ic1 = dn_clamp(2 * v1 - *ic1, -150000, 150000);
-    *ic2 = dn_clamp(2 * v2 - *ic2, -150000, 150000);
-    return out == 0u ? v2 : out == 1u ? v1 : in - ((c->k * v1) >> 12) - v2;
+    float hp = ((float)in - c->gk * *s1 - *s2) * c->a, v = c->g * hp, bp = v + *s1, lp;
+    *s1 = bp + v;
+    v = c->g * bp;
+    lp = v + *s2;
+    *s2 = lp + v;
+    if (*s1 < 1e-20f && *s1 > -1e-20f) *s1 = 0.0f;
+    if (*s2 < 1e-20f && *s2 > -1e-20f) *s2 = 0.0f;
+    return (int32_t)(out == 0u ? lp : out == 1u ? bp : hp);
 }
 
 /* a MIDI note plus a fraction (1/256 semitone) -> phase increment (the note table, interpolated in cents) */

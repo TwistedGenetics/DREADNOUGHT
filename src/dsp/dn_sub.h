@@ -32,7 +32,7 @@ typedef struct {
     uint8_t fstage;
     int32_t gamp;                                   /* GATE mode's amp, Q24 (declicked) */
     uint32_t ph, sph, pwph;                         /* the oscillator, the sub (half its rate), the PWM triangle */
-    int32_t lad[4];
+    float lad[4];                                   /* the ladder's states (float: 2026-10) */
     int32_t rnd;
     uint32_t ctl;
     int32_t amp_now, amp_next;

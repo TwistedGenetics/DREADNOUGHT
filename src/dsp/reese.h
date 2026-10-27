@@ -28,7 +28,7 @@ typedef struct {
     uint8_t astage, fstage;                 /* 0 off, 1 attack, 2 decay / sustain, 3 release */
     uint32_t ph[RS_NOSC], sub, lph;
     int32_t drift[RS_NOSC], dvel[RS_NOSC];
-    int32_t lad[4], xo[4];
+    float lad[4], xo[4];                            /* the ladder's states, the crossover's (float: 2026-10) */
     int32_t rnd;
     uint32_t cph, cw;
     int16_t line[RS_COMB];

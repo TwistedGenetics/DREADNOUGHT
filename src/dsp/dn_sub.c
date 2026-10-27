@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * DREADNOUGHT: SUB, an SH-101-style mono bass for jungle (0.13). Copyright (C) 2026 Jamie (TwistedGenetics).
- * The ladder's zero-delay-feedback core is Clipper's (isod89/clipper-fm1 firmware/src/dsp.c, Copyright (C) 2026
- * 3dSam, GPL-3.0-only), as in reese.c; the rest is DREADNOUGHT's.
+ * All of it DREADNOUGHT's own; the ladder's zero-delay-feedback core (dn_ladder.h, shared with reese.c) was written
+ * anew in 2026-10 from Zavalishin's published design ("The Art of VA Filter Design").
  *
  * The SH-101's voice, as its panel lays it out: one oscillator with a saw, a pulse (its width set by hand and moved by
  * its own triangle LFO: PWM) and a square sub-oscillator an octave or two down (or the 25 % pulse two down), plus
@@ -26,6 +26,7 @@
  *   LEVEL 0..127 (100 = unity);  TRANS -36..36;  SPLIT 0..127 (0 off; else 40 .. 300 Hz) */
 #include "dn_sub.h"
 #include "dn_dsp.h"
+#include "dn_ladder.h"
 
 #define SB_FULL (1 << 24)
 #define SB_SEMI 299                                 /* cutoff steps (1/256) a semitone: 127 steps span 9.06 octaves */
@@ -168,45 +169,15 @@ void dn_sub_init(dn_sub_t *s)
     dn_sub_load_preset(s, 0);
 }
 
-/* ---- the filter: the ZDF ladder (Clipper's), as in reese.c ------------------------------------------------- */
-typedef struct { int32_t G, H, G4, inv, k; } sb_ladder_t;
-static inline int32_t sb_mul_sh(int32_t a, int32_t b, int sh) { return (int32_t)(((int64_t)a * b) >> sh); }
-static void sb_ladder_coef(sb_ladder_t *c, int32_t cut, int32_t res)
+/* ---- the filter: the ZDF ladder (dn_ladder.h, DREADNOUGHT's own), as in reese.c ----------------------------- */
+/* RES 0..127 is the feedback 0 .. 4.25: past ~RES 120 it self-oscillates, in tune, louder towards 127 (a 101 howls
+ * earlier than REESE's ladder does); a quarter of the feedback's passband loss is made up at the input. */
+typedef dn_ladder_t sb_ladder_t;
+static inline void sb_ladder_coef(sb_ladder_t *c, int32_t cut, int32_t res)
 {
-    int32_t g = dn_clamp(dn_svf_g16(cut), 16, 3 * 65536), G, G2;
-    G = (int32_t)((float)g * 65536.0f / (65536.0f + (float)g));   /* g / (1 + g), Q16 (single float: no 64-bit divide) */
-    G2 = sb_mul_sh(G, G, 16);
-    c->G = G;
-    c->H = 65536 - G;
-    c->G4 = sb_mul_sh(G2, G2, 16);
-    c->k = dn_clamp(res, 0, 127) * 17400 / 127;      /* 0 .. 4.25: past 4 it rings on its own */
-    c->inv = (int32_t)(0xFFFFFFFFu / (uint32_t)(65536 + sb_mul_sh(c->k, c->G4, 12)));
+    dn_ladder_coef(c, cut, (float)dn_clamp(res, 0, 127) * (4.25f / 127.0f), 0.25f);
 }
-static inline int32_t sb_ladder_tick(const sb_ladder_t *c, int32_t x, int32_t *s)
-{
-    int64_t in = (int64_t)dn_clamp(x, -131072, 131072) << 12, S, y, u;
-    int32_t G = c->G, uq, v, j;
-    in += (in * c->k) >> 14;                        /* (a little of the passband kept at high RES) */
-    S = ((int64_t)G * s[0] >> 16) + s[1];
-    S = ((G * S) >> 16) + s[2];
-    S = ((G * S) >> 16) + s[3];
-    S = (c->H * S) >> 16;
-    y = ((((int64_t)c->G4 * in) >> 16) + S) * c->inv >> 16;
-    u = in - ((c->k * y) >> 12);
-    {
-        int64_t h = u >> 13;
-        if (h <= -65536 || h >= 65536)
-            uq = dn_softclip(h < 0 ? -65536 : 65536) << 13;
-        else
-            uq = (dn_softclip((int32_t)h) << 13) + (int32_t)(u - (h << 13));
-    }
-    for (j = 0; j < 4; j++) {
-        v = (int32_t)(((int64_t)G * (uq - s[j]) + 32768) >> 16);
-        uq = v + s[j];
-        s[j] = uq + v;
-    }
-    return (uq + 2048) >> 12;
-}
+static inline int32_t sb_ladder_tick(const sb_ladder_t *c, int32_t x, float *s) { return dn_ladder_tick(c, x, s); }
 
 /* ---- notes ----------------------------------------------------------------------------------------------- */
 void dn_sub_note_on(dn_sub_t *s, uint8_t note, uint8_t vel, int legato, int accent)
@@ -230,7 +201,7 @@ void dn_sub_note_on(dn_sub_t *s, uint8_t note, uint8_t vel, int legato, int acce
         s->sph = 0;
         for (j = 0; j < 4; j++)
             s->lad[j] = 0;
-        s->lad[0] = 64;                             /* (a seed: a self-oscillating filter starts on its own) */
+        s->lad[0] = 64.0f / 65536.0f;               /* (a seed: a self-oscillating filter starts on its own) */
     }
     s->gate = 1;
     s->active = 1;
