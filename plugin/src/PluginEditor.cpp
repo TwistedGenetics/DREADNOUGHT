@@ -3,453 +3,437 @@
 #include "PluginEditor.h"
 #include "dn_core.h"
 
+using namespace dn;
+
 namespace
 {
-// a light panel, dark ink (big, high-contrast text)
-const juce::Colour cBg { 0xFFE9E5DB }, cInk { 0xFF141418 }, cSoft { 0xFF4A473F }, cFace { 0xFFFBFAF6 },
-    cEdge { 0xFF8E897D }, cDown { 0xFFD6D0C2 }, cLed { 0xFFFF4D1A }, cLedOff { 0xFFCDC8BB }, cBezel { 0xFF5B5850 },
-    cWhite { 0xFFFFFFFF }, cBlack { 0xFF26262A }, cLitW { 0xFFFFA57A }, cLitB { 0xFFFF5E26 }, cDimW { 0xFFFFDCCB },
-    cDimB { 0xFF8C4A30 }, cHeld { 0xFF1F5FBF };
-
-juce::Font bold(float h) { return juce::Font(juce::FontOptions().withHeight(h).withStyle("Bold")); }
-
-enum { B_FX, B_SEL, B_ENV, B_LFO, B_EDIT, B_GLO, B_HOME, B_SAVE, B_ARP, B_SEQ, B_PLAY, B_REC, B_OCTDN, B_OCTUP };
-enum { E_SELECT, E_ALGO, E_PRESET, E_K1, E_K2, E_K3, E_K4 };
-constexpr int nKeys = 27;
-inline bool isBlack(int k)
-{
-    const int n = (53 + k) % 12;                    // (key 0 is F3)
-    return n == 1 || n == 3 || n == 6 || n == 8 || n == 10;
-}
-// the computer's keys: the bottom row F3..E4, the top row F4..G5 (as the web editor's)
-const char* const kbLow = "zsxdcfvbhnjm";
-const char* const kbHigh = "q2w3e4rt6y7ui9o";
-int kbKey(juce::juce_wchar c)
-{
-    c = juce::CharacterFunctions::toLowerCase(c);
-    for (int i = 0; kbLow[i]; ++i)
-        if (c == (juce::juce_wchar)kbLow[i])
-            return i;
-    for (int i = 0; kbHigh[i]; ++i)
-        if (c == (juce::juce_wchar)kbHigh[i])
-            return 12 + i;
-    return -1;
-}
+juce::Colour rgb(uint32_t c) { return juce::Colour(0xFF000000u | c); }
 }
 
-// ---------------------------------------------------------------------------------------------- the controls ---
-struct Encoder : juce::Component
+// ------------------------------------------------------------------------------------------------ the top bar ---
+class TopBar : public juce::Component
 {
-    juce::String label;
-    std::function<void(int)> onTurn;
-    float angle = 0.0f, acc = 0.0f, wheelAcc = 0.0f;
-    int lastY = 0;
-    bool big = true;
-
-    void turn(int d)
+public:
+    explicit TopBar(Ui& u) : ui(u)
     {
-        if (d == 0)
-            return;
-        angle += 0.2618f * (float)d;               // (a detent: 15 degrees, as the FM-1's encoders click)
-        if (onTurn)
-            onTurn(d);
-        repaint();
+        prev.onClick = [this] { step(-1); };
+        next.onClick = [this] { step(1); };
+        presetBtn.onClick = [this] { presetMenu(); };
+        store.onClick = [this] { storeMenu(); };
+        play.onClick = [this] {
+            ui.core([&] { return dnc_transport_toggle(); });
+            poll();
+        };
+        follow.setButtonText("FOLLOW THE DAW");
+        follow.onClick = [this] { ui.proc.syncToHost = follow.getToggleState(); };
+        web.onClick = [] { juce::URL("https://twistedgenetics.github.io/DREADNOUGHT/editor/").launchInDefaultBrowser(); };
+        follow.setClickingTogglesState(true);
+        for (auto* b : { &prev, &next, &presetBtn, &store, &play, &follow, &web })
+            addAndMakeVisible(b);
+        bpm = std::make_unique<FieldControl>("BPM", 60, 200, [](int v) { return juce::String(v); }, false, hot);
+        bpm->onChange = [this](int v) { ui.core([&] { dnc_set(dnc_id_bpm(), 0, 0, v); return 0; }); };
+        addAndMakeVisible(*bpm);
     }
-    void paint(juce::Graphics& g) override
+    void poll()
     {
-        const float labelH = 24.0f;
-        auto r = getLocalBounds().toFloat();
-        const float d = juce::jmin(r.getWidth(), r.getHeight() - labelH - 6.0f) - 8.0f;
-        const juce::Rectangle<float> k(r.getCentreX() - d / 2.0f, 4.0f, d, d);
-        g.setColour(cEdge);
-        g.fillEllipse(k.expanded(3.0f));
-        g.setColour(cFace);
-        g.fillEllipse(k);
-        g.setColour(cEdge.withAlpha(0.5f));
-        for (int i = 0; i < 24; ++i) {             // (the knurls)
-            const float a = (float)i * juce::MathConstants<float>::twoPi / 24.0f + angle;
-            g.drawLine(k.getCentreX() + std::sin(a) * d * 0.40f, k.getCentreY() - std::cos(a) * d * 0.40f,
-                       k.getCentreX() + std::sin(a) * d * 0.47f, k.getCentreY() - std::cos(a) * d * 0.47f, 1.5f);
-        }
-        g.setColour(cInk);
-        g.drawLine(k.getCentreX() + std::sin(angle) * d * 0.08f, k.getCentreY() - std::cos(angle) * d * 0.08f,
-                   k.getCentreX() + std::sin(angle) * d * 0.36f, k.getCentreY() - std::cos(angle) * d * 0.36f, 4.0f);
-        g.setFont(bold(big ? 18.0f : 17.0f));
-        g.drawText(label, getLocalBounds().removeFromBottom((int)labelH), juce::Justification::centred);
-    }
-    void mouseDown(const juce::MouseEvent& e) override
-    {
-        lastY = e.y;
-        acc = 0.0f;
-    }
-    void mouseDrag(const juce::MouseEvent& e) override   // (8 px a detent; shift: 4 at a time)
-    {
-        acc += (float)(lastY - e.y) / 8.0f;
-        lastY = e.y;
-        const int n = (int)acc;
-        if (n != 0) {
-            acc -= (float)n;
-            turn(n * (e.mods.isShiftDown() ? 4 : 1));
-        }
-    }
-    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
-    {
-        const float dy = w.isReversed ? -w.deltaY : w.deltaY;
-        int n;
-        if (!w.isSmooth) {
-            n = dy > 0.0f ? 1 : dy < 0.0f ? -1 : 0;
-        } else {
-            wheelAcc += dy * 16.0f;
-            n = (int)wheelAcc;
-            wheelAcc -= (float)n;
-        }
-        turn(n * (e.mods.isShiftDown() ? 4 : 1));
-    }
-};
-
-struct PanelButton : juce::Component
-{
-    juce::String label;
-    std::function<void(bool)> press;
-    bool down = false, latched = false, lit = false;
-
-    void paint(juce::Graphics& g) override
-    {
-        auto r = getLocalBounds().toFloat().reduced(2.0f);
-        g.setColour(down || latched ? cDown : cFace);
-        g.fillRoundedRectangle(r, 8.0f);
-        g.setColour(latched ? cHeld : cEdge);
-        g.drawRoundedRectangle(r, 8.0f, latched ? 4.0f : 2.0f);
-        const float led = 12.0f;
-        g.setColour(lit ? cLed : cLedOff);
-        g.fillEllipse(r.getCentreX() - led / 2.0f, r.getY() + 9.0f, led, led);
-        g.setColour(cInk);
-        g.setFont(bold(label.length() > 5 ? 14.0f : 16.0f));
-        g.drawFittedText(label, r.withTrimmedTop(24.0f).toNearestInt(), juce::Justification::centred, 2);
-    }
-    void mouseDown(const juce::MouseEvent& e) override   // shift-click / right-click: held down (SAVE + FX ...)
-    {
-        if (e.mods.isShiftDown() || e.mods.isPopupMenu()) {
-            latched = !latched;
-            press(latched);
-        } else if (latched) {
-            latched = false;
-            press(false);
-        } else {
-            down = true;
-            press(true);
-        }
-        repaint();
-    }
-    void mouseUp(const juce::MouseEvent&) override
-    {
-        if (down) {
-            down = false;
-            press(false);
+        int cur = -1, b = 120, playing = 0, syn = 0;
+        uint32_t n = 0;
+        juce::String nm, msg;
+        ui.core([&] {
+            dnc_track_select(ui.track);
+            n = dnc_preset_count();
+            cur = dnc_preset_current();
+            nm = cur >= 0 && (uint32_t)cur < n ? juce::String(dnc_preset_name((uint32_t)cur)) : juce::String();
+            b = dnc_get(dnc_id_bpm(), 0, 0);
+            playing = dnc_playing();
+            const int e = dnc_track_engine(ui.track);
+            syn = e == 1 || e == 5;                  // (REESE, SUB: user sounds)
+            msg = dnc_message();
+            return 0;
+        });
+        presetBtn.setButtonText(n ? nm : juce::String("NO PRESETS"));
+        presetBtn.setEnabled(n > 0);
+        prev.setEnabled(n > 0);
+        next.setEnabled(n > 0);
+        store.setVisible(syn != 0);
+        bpm->set(b, true);
+        play.setButtonText(playing ? "STOP" : "PLAY");
+        play.setToggleState(playing != 0, juce::dontSendNotification);
+        follow.setToggleState(ui.proc.syncToHost.load(), juce::dontSendNotification);
+        const auto ls = ui.proc.linkState();
+        const juce::String ws = ls == DreadnoughtProcessor::linkTalking ? "WEB EDITOR: CONNECTED"
+                              : ls == DreadnoughtProcessor::linkReady ? "WEB EDITOR" : "WEB EDITOR (NO PORT)";
+        web.setButtonText(ws);
+        if (msg != message) {
+            message = msg;
             repaint();
         }
     }
-};
-
-struct Keys : juce::Component
-{
-    std::function<void(int, bool)> press;
-    uint32_t lit = 0, dim = 0, held = 0;
-    int mouseKey = -1;
-
-    int whites() const { return 16; }
-    juce::Rectangle<float> keyRect(int k) const
+    void resized() override
     {
-        const float ww = (float)getWidth() / (float)whites(), h = (float)getHeight();
-        int wx = 0;
-        for (int i = 0; i < k; ++i)
-            wx += isBlack(i) ? 0 : 1;
-        if (!isBlack(k))
-            return { (float)wx * ww, 0.0f, ww, h };
-        return { (float)wx * ww - ww * 0.31f, 0.0f, ww * 0.62f, h * 0.60f };
-    }
-    int keyAt(juce::Point<float> p) const
-    {
-        for (int k = 0; k < nKeys; ++k)
-            if (isBlack(k) && keyRect(k).contains(p))
-                return k;
-        for (int k = 0; k < nKeys; ++k)
-            if (!isBlack(k) && keyRect(k).contains(p))
-                return k;
-        return -1;
+        prev.setBounds(236, 14, 44, 44);
+        presetBtn.setBounds(284, 14, 300, 44);
+        next.setBounds(588, 14, 44, 44);
+        store.setBounds(640, 14, 150, 44);
+        bpm->setBounds(806, 0, 96, 70);
+        play.setBounds(914, 14, 96, 44);
+        follow.setBounds(1016, 14, 116, 44);
+        web.setBounds(1138, 14, 128, 44);
     }
     void paint(juce::Graphics& g) override
     {
-        for (int pass = 0; pass < 2; ++pass)
-            for (int k = 0; k < nKeys; ++k) {
-                if (isBlack(k) != (pass == 1))
-                    continue;
-                const auto r = keyRect(k).reduced(pass ? 0.0f : 1.5f, 0.0f);
-                const bool on = ((lit >> k) & 1u) != 0, dm = ((dim >> k) & 1u) != 0, h = ((held >> k) & 1u) != 0;
-                juce::Colour c = pass ? (on ? cLitB : dm ? cDimB : cBlack) : (on ? cLitW : dm ? cDimW : cWhite);
-                if (h)
-                    c = c.interpolatedWith(cDown, 0.5f);
-                g.setColour(c);
-                g.fillRoundedRectangle(r, 5.0f);
-                g.setColour(cBezel);
-                g.drawRoundedRectangle(r, 5.0f, 1.5f);
-            }
+        g.setColour(panel);
+        g.fillRect(getLocalBounds());
+        g.setColour(edge);
+        g.drawHorizontalLine(getHeight() - 1, 0.0f, (float)getWidth());
+        g.setColour(ink);
+        g.setFont(font(34.0f, 700));
+        g.drawText("DREADNOUGHT", 16, 8, 210, 40, juce::Justification::centredLeft);
+        g.setColour(soft);
+        g.setFont(font(15.0f, 600));
+        g.drawText("v" DN_VERSION_STR + juce::String(message.isNotEmpty() ? "   " + message : juce::String()), 16, 46, 760, 22,
+                   juce::Justification::centredLeft);
     }
-    void setHeld(int k, bool on)
+private:
+    void step(int d)
     {
-        if (k < 0)
-            return;
-        held = on ? held | 1u << k : held & ~(1u << k);
-        press(k, on);
-        repaint();
+        ui.core([&] {
+            const uint32_t n = dnc_preset_count();
+            if (n) {
+                int c = dnc_preset_current();
+                for (uint32_t k = 0; k < n; ++k) {   // (the next one with a sound in it)
+                    c = (int)(((uint32_t)(c + d) + n) % n);
+                    if (dnc_preset_used((uint32_t)c))
+                        break;
+                }
+                dnc_preset_load((uint32_t)c);
+            }
+            return 0;
+        });
+        poll();
+    }
+    void presetMenu()
+    {
+        juce::PopupMenu m;
+        ui.core([&] {
+            const uint32_t n = dnc_preset_count();
+            const int cur = dnc_preset_current();
+            for (uint32_t i = 0; i < n; ++i)
+                m.addItem((int)i + 1, dnc_preset_name(i), dnc_preset_used(i) != 0, (int)i == cur);
+            return 0;
+        });
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&presetBtn), [this](int r) {
+            if (r > 0) {
+                ui.core([&] { dnc_preset_load((uint32_t)r - 1); return 0; });
+                poll();
+            }
+        });
+    }
+    void storeMenu()
+    {
+        juce::PopupMenu m;
+        for (int u = 0; u < 8; ++u)
+            m.addItem(u + 1, "INTO USER " + juce::String(u + 1));
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&store), [this](int r) {
+            if (r <= 0)
+                return;
+            auto* w = new juce::AlertWindow("KEEP THIS SOUND", "Its name (8 letters):", juce::MessageBoxIconType::NoIcon);
+            w->addTextEditor("name", "", "NAME");
+            w->addButton("KEEP", 1);
+            w->addButton("CANCEL", 0);
+            w->enterModalState(true, juce::ModalCallbackFunction::create([this, w, r](int ok) {
+                if (ok) {
+                    const auto nm = w->getTextEditorContents("name").substring(0, 8);
+                    ui.core([&] { return dnc_user_store((uint32_t)r - 1, nm.toRawUTF8()); });
+                    poll();
+                }
+            }), true);
+        });
+    }
+    Ui& ui;
+    juce::TextButton prev { "<" }, next { ">" }, presetBtn, store { "KEEP AS USER..." }, play { "PLAY" }, follow, web;
+    std::unique_ptr<FieldControl> bpm;
+    juce::String message;
+};
+
+// ---------------------------------------------------------------------------------------------- the tracks ---
+class TrackList : public juce::Component
+{
+public:
+    TrackList(Ui& u, std::function<void(int)> picked) : ui(u), onPick(std::move(picked)) {}
+    static constexpr int rowH = 78;
+    void poll()
+    {
+        std::array<juce::String, 8> nm;
+        std::array<uint32_t, 8> col {};
+        std::array<int, 8> mute {}, pat {}, eng {};
+        ui.core([&] {
+            for (int t = 0; t < 8; ++t) {
+                nm[(size_t)t] = dnc_track_name(t), col[(size_t)t] = dnc_track_colour(t);
+                mute[(size_t)t] = dnc_track_mute(t), pat[(size_t)t] = dnc_pat_current(t), eng[(size_t)t] = dnc_track_engine(t);
+            }
+            return 0;
+        });
+        if (nm != names || col != cols || mute != mutes || pat != pats || ui.track != shownSel) {
+            names = nm, cols = col, mutes = mute, pats = pat, engs = eng, shownSel = ui.track;
+            repaint();
+        }
+    }
+    void paint(juce::Graphics& g) override
+    {
+        for (int t = 0; t < 8; ++t) {
+            auto r = juce::Rectangle<float>(0.0f, (float)(t * rowH), (float)getWidth(), (float)rowH).reduced(0.0f, 3.0f);
+            const juce::Colour c = rgb(cols[(size_t)t]);
+            const bool sel = t == ui.track;
+            g.setColour(sel ? tint(c, 0.6f) : panel);
+            g.fillRoundedRectangle(r, 10.0f);
+            g.setColour(sel ? ink : edge);
+            g.drawRoundedRectangle(r, 10.0f, sel ? 2.5f : 1.5f);
+            g.setColour(engs[(size_t)t] ? c : well);
+            g.fillRoundedRectangle(r.withWidth(12.0f).reduced(0.0f, 6.0f).translated(6.0f, 0.0f), 4.0f);
+            g.setColour(ink);
+            g.setFont(font(28.0f, 700));
+            g.drawText(juce::String(t + 1), (int)r.getX() + 22, (int)r.getY(), 26, (int)r.getHeight(), juce::Justification::centred);
+            g.setFont(font(23.0f, 700));
+            g.drawFittedText(names[(size_t)t], (int)r.getX() + 54, (int)r.getY() + 8, (int)r.getWidth() - 110, 28,
+                             juce::Justification::centredLeft, 1, 0.75f);
+            g.setColour(soft);
+            g.setFont(font(16.0f, 600));
+            g.drawText("P" + juce::String(pats[(size_t)t] + 1), (int)r.getX() + 54, (int)r.getY() + 42, 40, 24,
+                       juce::Justification::centredLeft);
+            auto ch = changeRect(t);                 // (the instrument: a menu)
+            g.setColour(panel.withAlpha(0.9f));
+            g.fillRoundedRectangle(ch, 5.0f);
+            g.setColour(edge);
+            g.drawRoundedRectangle(ch, 5.0f, 1.2f);
+            g.setColour(ink);
+            g.setFont(font(15.0f, 700));
+            g.drawText("CHANGE", ch.toNearestInt().withTrimmedRight(14), juce::Justification::centred);
+            juce::Path tri;
+            const float tx = ch.getRight() - 16.0f, ty = ch.getCentreY();
+            tri.addTriangle(tx, ty - 3.0f, tx + 9.0f, ty - 3.0f, tx + 4.5f, ty + 3.5f);
+            g.fillPath(tri);
+            auto m = muteRect(t);                    // M: muted
+            g.setColour(mutes[(size_t)t] ? tint(hot, 0.6f) : panel);
+            g.fillRoundedRectangle(m, 6.0f);
+            g.setColour(mutes[(size_t)t] ? ink : edge);
+            g.drawRoundedRectangle(m, 6.0f, mutes[(size_t)t] ? 2.5f : 1.5f);
+            g.setColour(ink);
+            g.setFont(font(20.0f, 700));
+            g.drawText("M", m.toNearestInt(), juce::Justification::centred);
+        }
     }
     void mouseDown(const juce::MouseEvent& e) override
     {
-        mouseKey = keyAt(e.position);
-        setHeld(mouseKey, true);
-    }
-    void mouseDrag(const juce::MouseEvent& e) override   // (a glide along the keys)
-    {
-        const int k = keyAt(e.position);
-        if (k != mouseKey) {
-            setHeld(mouseKey, false);
-            mouseKey = k;
-            setHeld(mouseKey, true);
+        const int t = (int)(e.position.y / rowH);
+        if (t < 0 || t > 7)
+            return;
+        if (muteRect(t).contains(e.position)) {
+            ui.core([&] { dnc_track_set_mute(t, !dnc_track_mute(t)); return 0; });
+            poll();
+            return;
         }
+        if (e.mods.isPopupMenu() || changeRect(t).contains(e.position)) {
+            instrumentMenu(t);
+            return;
+        }
+        if (onPick)
+            onPick(t);
     }
-    void mouseUp(const juce::MouseEvent&) override
+private:
+    juce::Rectangle<float> muteRect(int t) const { return { (float)getWidth() - 50.0f, (float)(t * rowH) + 18.0f, 40.0f, 40.0f }; }
+    juce::Rectangle<float> changeRect(int t) const { return { 96.0f, (float)(t * rowH) + 41.0f, 82.0f, 26.0f }; }
+    void instrumentMenu(int t)
     {
-        setHeld(mouseKey, false);
-        mouseKey = -1;
+        juce::PopupMenu m;
+        m.addSectionHeader("TRACK " + juce::String(t + 1) + " PLAYS");
+        ui.core([&] {
+            const int cur = dnc_track_engine(t);
+            for (int e = 0; e < dnc_engine_count(); ++e)
+                m.addItem(e + 1, dnc_engine_name(e), true, e == cur);
+            return 0;
+        });
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [this, t](int r) {
+            if (r <= 0)
+                return;
+            ui.core([&] { dnc_track_set_engine(t, r - 1); return 0; });
+            if (onPick)
+                onPick(t);
+        });
     }
+    Ui& ui;
+    std::function<void(int)> onPick;
+    std::array<juce::String, 8> names;
+    std::array<uint32_t, 8> cols {};
+    std::array<int, 8> mutes {}, pats {}, engs {};
+    int shownSel = -1;
 };
 
-struct ScreenView : juce::Component
+// ---------------------------------------------------------------------------------------------- the editor ---
+struct DreadnoughtEditor::Root : public juce::Component
 {
-    juce::Image img { juce::Image::ARGB, (int)DNC_W, (int)DNC_H, true };
-    uint32_t serial = 0xFFFFFFFFu;
-    void paint(juce::Graphics& g) override
+    Root(DreadnoughtProcessor& p) : ui { p }, top(ui), tracks(ui, [this](int t) { pick(t); }), sound(ui), pattern(ui), fx(ui), samples(ui)
     {
-        g.setColour(cBezel);
-        g.fillRoundedRectangle(getLocalBounds().toFloat(), 10.0f);
-        g.setImageResamplingQuality(juce::Graphics::lowResamplingQuality);   // (the pixels, sharp)
-        g.drawImage(img, getLocalBounds().reduced(8).toFloat(), juce::RectanglePlacement::stretchToFit);
+        ui.onStructure = [this] { current().rebuild(); };
+        addAndMakeVisible(top);
+        addAndMakeVisible(tracks);
+        const char* const names[4] = { "SOUND", "PATTERN", "EFFECTS", "SAMPLES" };
+        for (int i = 0; i < 4; ++i) {
+            tabs[(size_t)i].setButtonText(names[i]);
+            tabs[(size_t)i].onClick = [this, i] { setTab((Tab)i); };
+            addAndMakeVisible(tabs[(size_t)i]);
+        }
+        for (Page* pg : { (Page*)&sound, (Page*)&pattern, (Page*)&fx, (Page*)&samples })
+            addChildComponent(pg);
+        ui.core([&] { ui.track = dnc_track(); return 0; });
+        pick(ui.track);
+        setTab(tabSound);
     }
-};
-
-// ---------------------------------------------------------------------------------------------------- the panel ---
-struct DreadnoughtEditor::Panel : juce::Component
-{
-    DreadnoughtProcessor& proc;
-    ScreenView screen;
-    std::array<Encoder, 7> enc;
-    std::array<PanelButton, 14> btn;
-    Keys keys;
-    juce::ToggleButton sync { "FOLLOW THE HOST (play, stop, tempo)" };
-    juce::TextButton openEd { "OPEN THE WEB EDITOR" };
-    int linkShown = -1;
-    uint32_t kbShown = 0xFFFFFFFFu;
-
-    explicit Panel(DreadnoughtProcessor& p) : proc(p)
+    Page& current() { return tab == tabSound ? (Page&)sound : tab == tabPattern ? (Page&)pattern : tab == tabFx ? (Page&)fx : (Page&)samples; }
+    void setTab(Tab t)
     {
-        addAndMakeVisible(screen);
-        const char* const encNames[7] = { "SELECT", "ALGORITHM", "PRESETS", "K1", "K2", "K3", "K4" };
-        for (int i = 0; i < 7; ++i) {
-            enc[(size_t)i].label = encNames[i];
-            enc[(size_t)i].big = i < 3;
-            enc[(size_t)i].onTurn = [this, i](int d) { proc.post(DreadnoughtProcessor::evTurn, i, d); };
-            addAndMakeVisible(enc[(size_t)i]);
-        }
-        const char* const btnNames[14] = { "FX",  "SEL",  "ENV", "LFO", "EDIT", "GLO",       "HOME",
-                                           "SAVE", "ARP", "SEQ", "PLAY / STOP", "REC", "OCT -", "OCT +" };
-        for (int i = 0; i < 14; ++i) {
-            btn[(size_t)i].label = btnNames[i];
-            btn[(size_t)i].press = [this, i](bool on) { proc.post(DreadnoughtProcessor::evButton, i, on ? 1 : 0); };
-            addAndMakeVisible(btn[(size_t)i]);
-        }
-        keys.press = [this](int k, bool on) { proc.post(DreadnoughtProcessor::evKey, k, on ? 1 : 0); };
-        addAndMakeVisible(keys);
-        sync.setToggleState(proc.syncToHost.load(), juce::dontSendNotification);
-        sync.setColour(juce::ToggleButton::textColourId, cInk);
-        sync.setColour(juce::ToggleButton::tickColourId, cInk);
-        sync.setColour(juce::ToggleButton::tickDisabledColourId, cSoft);
-        sync.onClick = [this] { proc.syncToHost = sync.getToggleState(); };
-        addAndMakeVisible(sync);
-        openEd.setColour(juce::TextButton::buttonColourId, cFace);
-        openEd.setColour(juce::TextButton::textColourOffId, cInk);
-        openEd.setColour(juce::ComboBox::outlineColourId, cEdge);
-        openEd.onClick = [] { juce::URL("https://twistedgenetics.github.io/DREADNOUGHT/editor/").launchInDefaultBrowser(); };
-        addAndMakeVisible(openEd);
+        tab = t;
+        for (int i = 0; i < 4; ++i)
+            tabs[(size_t)i].setToggleState(i == (int)t, juce::dontSendNotification);
+        sound.setVisible(t == tabSound);
+        pattern.setVisible(t == tabPattern);
+        fx.setVisible(t == tabFx);
+        samples.setVisible(t == tabSamples);
+        current().rebuild();
+        repaint();
     }
-
+    void pick(int t)
+    {
+        ui.track = t;
+        ui.selIdx = {};
+        ui.core([&] {
+            dnc_track_select(t);
+            ui.accent = rgb(dnc_track_colour(t));
+            engine = dnc_track_engine(t);
+            return 0;
+        });
+        tracks.poll();
+        top.poll();
+        current().rebuild();
+        repaint();
+    }
+    void poll()
+    {
+        int e = 0;
+        juce::Colour c;
+        ui.core([&] {
+            e = dnc_track_engine(ui.track);
+            c = rgb(dnc_track_colour(ui.track));
+            return 0;
+        });
+        if (e != engine || c != ui.accent || ui.proc.revision() != rev) {   // (an instrument changed; a project loaded)
+            rev = ui.proc.revision();
+            engine = e;
+            ui.accent = c;
+            current().rebuild();
+            repaint();
+        }
+        top.poll();
+        tracks.poll();
+        current().poll();
+    }
     void resized() override
     {
-        // the left: SELECT, PRESETS, ALGORITHM and OCT (as the FM-1)
-        enc[E_SELECT].setBounds(28, 70, 172, 132);
-        enc[E_PRESET].setBounds(28, 206, 172, 132);
-        enc[E_ALGO].setBounds(28, 342, 172, 132);
-        btn[B_OCTDN].setBounds(28, 486, 84, 68);
-        btn[B_OCTUP].setBounds(116, 486, 84, 68);
-        screen.setBounds(220, 66, 496, 496);        // (240 x 240, twice the size, in its bezel)
-        for (int k = 0; k < 4; ++k)
-            enc[(size_t)(E_K1 + k)].setBounds(740 + k * 89, 70, 87, 118);
-        for (int i = 0; i < 6; ++i) {
-            btn[(size_t)i].setBounds(740 + i * 59, 214, 57, 76);
-            btn[(size_t)(6 + i)].setBounds(740 + i * 59, 296, 57, 76);
-        }
-        sync.setBounds(736, 388, 356, 30);
-        openEd.setBounds(740, 452, 200, 34);
-        keys.setBounds(28, 584, 1056, 124);
+        top.setBounds(0, 0, getWidth(), 72);
+        tracks.setBounds(16, 88, 230, TrackList::rowH * 8);
+        for (int i = 0; i < 4; ++i)
+            tabs[(size_t)i].setBounds(262 + i * 166, 88, 158, 46);
+        const juce::Rectangle<int> page(262, 146, getWidth() - 262 - 16, getHeight() - 146 - 14);
+        for (Page* pg : { (Page*)&sound, (Page*)&pattern, (Page*)&fx, (Page*)&samples })
+            pg->setBounds(page);
     }
-
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(cBg);
-        g.setColour(cInk);
-        g.setFont(bold(26.0f));
-        g.drawText("DREADNOUGHT", 28, 14, 300, 34, juce::Justification::centredLeft);
-        g.setColour(cSoft);
-        g.setFont(bold(17.0f));
-        g.drawText("v" DN_VERSION_STR "   jungle / drum & bass groovebox", 238, 16, 480, 30,
-                   juce::Justification::centredLeft);
-        g.setColour(cInk);
-        g.setFont(bold(16.0f));
-        const auto st = proc.linkState();
-        juce::String ed = st == DreadnoughtProcessor::linkTalking ? "WEB EDITOR: CONNECTED"
-                        : st == DreadnoughtProcessor::linkReady ? "WEB EDITOR: CONNECT TO \"" + proc.linkPortName().toUpperCase() + "\""
-#if JUCE_WINDOWS
-                        : juce::String("WEB EDITOR: macOS / LINUX FOR NOW");
-#else
-                        : juce::String("WEB EDITOR: NO MIDI PORT");
-#endif
-        g.drawText(ed, 740, 424, 352, 24, juce::Justification::centredLeft);
-        g.setColour(cSoft);
-        g.drawText("SAMPLES " + juce::String(proc.slotsKB()) + " / 224 KB", 950, 452, 142, 34,
-                   juce::Justification::centredRight);
-        g.setColour(cInk);
-        g.setFont(bold(15.0f));
-        juce::String help;
-        help << "MIDI CH 1-8: TRACKS 1-8.  9-16: THE TRACK SHOWN\n"
-             << "BREAKS / PADS: C1 = THE FIRST SLICE\n"
-             << "KEYS: Z S X D C.. / Q 2 W 3 E..  KNOBS: DRAG\n"
-             << "SHIFT-CLICK A BUTTON: HOLD IT (SAVE + FX ..)";
-        g.drawFittedText(help, 740, 494, 352, 72, juce::Justification::topLeft, 4, 1.0f);
-        if (!proc.active()) {
-            g.setColour(cBg.withAlpha(0.94f));
-            g.fillRect(getLocalBounds());
-            g.setColour(cInk);
-            g.setFont(bold(30.0f));
-            g.drawFittedText("ONE DREADNOUGHT AT A TIME FOR NOW\n\nAnother one is open in this project: use that one,\n"
-                             "or close it and open this again.",
-                             getLocalBounds().reduced(80), juce::Justification::centred, 6);
-        }
+        g.fillAll(paper);
+        g.setColour(tint(ui.accent, 0.5f));          // (the page's tab row in the track's colour)
+        g.fillRoundedRectangle(juce::Rectangle<float>(258.0f, 84.0f, (float)getWidth() - 270.0f, 54.0f), 10.0f);
     }
-
-    void update(bool force)
-    {
-        if (proc.screen(screen.serial, screen.img) || force)
-            screen.repaint();
-        const uint32_t b = proc.ledsButtons();
-        for (int i = 0; i < 14; ++i) {
-            const bool on = ((b >> i) & 1u) != 0;
-            if (on != btn[(size_t)i].lit) {
-                btn[(size_t)i].lit = on;
-                btn[(size_t)i].repaint();
-            }
-        }
-        const uint32_t kl = proc.ledsKeys(), kd = proc.ledsKeysDim();
-        if (kl != keys.lit || kd != keys.dim) {
-            keys.lit = kl;
-            keys.dim = kd;
-            keys.repaint();
-        }
-        const int ls = (int)proc.linkState();
-        if (ls != linkShown || proc.slotsKB() != kbShown) {
-            linkShown = ls;
-            kbShown = proc.slotsKB();
-            repaint(736, 420, 360, 70);
-        }
-        if (sync.getToggleState() != proc.syncToHost.load())
-            sync.setToggleState(proc.syncToHost.load(), juce::dontSendNotification);
-    }
+    Ui ui;
+    TopBar top;
+    TrackList tracks;
+    std::array<juce::TextButton, 4> tabs;
+    SoundPage sound;
+    PatternPage pattern;
+    FxPage fx;
+    SamplesPage samples;
+    Tab tab = tabSound;
+    int engine = -1;
+    uint32_t rev = 0;
 };
 
-// --------------------------------------------------------------------------------------------------- the editor ---
 DreadnoughtEditor::DreadnoughtEditor(DreadnoughtProcessor& p) : AudioProcessorEditor(&p), proc(p)
 {
-    panel = std::make_unique<Panel>(p);
-    addAndMakeVisible(*panel);
-    panel->setBounds(0, 0, baseW, baseH);
-    panel->addMouseListener(this, true);
-    setWantsKeyboardFocus(true);
+    setLookAndFeel(&look);
+    juce::LookAndFeel::setDefaultLookAndFeel(&look);
+    root = std::make_unique<Root>(p);
+    root->setBounds(0, 0, baseW, baseH);
+    addAndMakeVisible(*root);
     setResizable(true, true);
-    setResizeLimits(baseW / 2, baseH / 2, baseW * 2, baseH * 2);
+    setResizeLimits(baseW * 3 / 5, baseH * 3 / 5, baseW * 2, baseH * 2);
     if (auto* c = getConstrainer())
         c->setFixedAspectRatio((double)baseW / (double)baseH);
     setSize(baseW, baseH);
-    refreshNow();
-    startTimerHz(30);
+    startTimerHz(15);
 }
 
 DreadnoughtEditor::~DreadnoughtEditor()
 {
     stopTimer();
-    proc.post(DreadnoughtProcessor::evAllUp, 0, 0);
+    root.reset();
+    juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
+    setLookAndFeel(nullptr);
 }
 
-void DreadnoughtEditor::paint(juce::Graphics& g) { g.fillAll(cBg); }
+void DreadnoughtEditor::paint(juce::Graphics& g) { g.fillAll(paper); }
+
+void DreadnoughtEditor::paintOverChildren(juce::Graphics& g)
+{
+    if (proc.active())
+        return;
+    g.setColour(paper.withAlpha(0.96f));             // (another DREADNOUGHT has the core)
+    g.fillAll();
+    g.setColour(ink);
+    g.setFont(font(34.0f * (float)getWidth() / (float)baseW, 700));
+    g.drawFittedText("ONE DREADNOUGHT AT A TIME FOR NOW\n\nAnother one is open in this project: use that one,\n"
+                     "or close it and open this one again.",
+                     getLocalBounds().reduced(60), juce::Justification::centred, 6);
+}
 
 void DreadnoughtEditor::resized()
 {
-    const float s = (float)getWidth() / (float)baseW;
-    panel->setTransform(juce::AffineTransform::scale(s));
+    root->setTransform(juce::AffineTransform::scale((float)getWidth() / (float)baseW));   // (vectors: sharp at any size)
 }
-
-void DreadnoughtEditor::refreshNow() { panel->update(true); }
 
 void DreadnoughtEditor::timerCallback()
 {
     proc.idleTick();
-    panel->update(false);
+    if (!proc.active())
+        return;
+    root->poll();
 }
 
-bool DreadnoughtEditor::keyPressed(const juce::KeyPress& key)
+void DreadnoughtEditor::filesDropped(const juce::StringArray& files, int, int)
 {
-    if (key.getModifiers().isCommandDown() || key.getModifiers().isCtrlDown() || key.getModifiers().isAltDown())
-        return false;
-    return kbKey(key.getTextCharacter()) >= 0;      // (the keys play in keyStateChanged: downs and ups)
+    root->setTab(tabSamples);
+    root->samples.addFiles(files);
 }
 
-bool DreadnoughtEditor::keyStateChanged(bool)
+void DreadnoughtEditor::show(int track, Tab tab)
 {
-    bool used = false;
-    auto check = [&](const char* row, int base) {
-        for (int i = 0; row[i]; ++i) {
-            const int k = base + i;
-            const int c = row[i];
-            const bool down = juce::KeyPress::isKeyCurrentlyDown(c) ||
-                              juce::KeyPress::isKeyCurrentlyDown(juce::CharacterFunctions::toUpperCase((juce::juce_wchar)c));
-            if (down != kbDown[(size_t)k]) {
-                kbDown[(size_t)k] = down;
-                panel->keys.held = down ? panel->keys.held | 1u << k : panel->keys.held & ~(1u << k);
-                proc.post(DreadnoughtProcessor::evKey, k, down ? 1 : 0);
-                panel->keys.repaint();
-                used = true;
-            }
-        }
-    };
-    check(kbLow, 0);
-    check(kbHigh, 12);
-    return used;
+    root->pick(track);
+    root->setTab(tab);
+    refreshNow();
 }
 
-void DreadnoughtEditor::focusLost(FocusChangeType)
+void DreadnoughtEditor::refreshNow()
 {
-    for (int k = 0; k < nKeys; ++k)
-        if (kbDown[(size_t)k]) {
-            kbDown[(size_t)k] = false;
-            panel->keys.held &= ~(1u << k);
-            proc.post(DreadnoughtProcessor::evKey, k, 0);
-        }
-    panel->keys.repaint();
+    root->poll();
+    root->resized();
 }
+
+dn::SamplesPage& DreadnoughtEditor::samplesPage() { return root->samples; }

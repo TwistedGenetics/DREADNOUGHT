@@ -132,24 +132,71 @@ DreadnoughtProcessor::DreadnoughtProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true))
 {
     owner = !coreTaken.exchange(true);
-    screenPx.assign(DNC_W * DNC_H, 0xFFFFFFFFu);
     srcL.reserve(1 << 16);
     srcR.reserve(1 << 16);
     srcL.assign(1, 0.0f);                          // (one frame of history before the first)
     srcR.assign(1, 0.0f);
     if (owner) {
         const juce::SpinLock::ScopedLockType l(coreLock);
+        dnc_set_draw(0);                           // (the plugin's own GUI: the FM-1's screen isn't drawn)
         dnc_init();
-        publishScreen();
+    }
+    // the DAW's parameters: each instrument's main values (whichever track it is on), 0..1 over the value's range.
+    // The same list in every instance (the names are the core's own, fixed), so a project's automation always finds
+    // its parameters.
+    juce::StringArray used;
+    for (int e = 1; e < dnc_engine_count(); ++e) {
+        uint16_t ids[8];
+        const uint32_t n = dnc_auto_ids(e, ids);
+        for (uint32_t k = 0; k < n; ++k) {
+            auto a = std::make_unique<Auto>();
+            a->engine = e;
+            a->id = ids[k];
+            int32_t cur = 0;
+            juce::String pname;
+            {
+                const juce::SpinLock::ScopedLockType l(coreLock);
+                a->lo = dnc_auto_min(e, ids[k]);
+                a->hi = dnc_auto_max(e, ids[k]);
+                cur = dnc_auto_get(e, ids[k]);
+                pname = dnc_name(ids[k], 0, 0);
+            }
+            if (a->hi <= a->lo)
+                a->hi = a->lo + 1;
+            a->applied = cur;
+            const juce::String ename(dnc_engine_name(e));
+            juce::String pid = (ename + "_" + pname).toLowerCase().retainCharacters("abcdefghijklmnopqrstuvwxyz0123456789_ ");
+            pid = pid.replaceCharacter(' ', '_');
+            while (used.contains(pid))
+                pid << "_2";
+            used.add(pid);
+            Auto* ap = a.get();
+            auto attrs = juce::AudioParameterFloatAttributes().withStringFromValueFunction([this, ap](float v, int) {
+                const int32_t iv = ap->lo + (int32_t)std::lround(v * (float)(ap->hi - ap->lo));
+                if (!owner)
+                    return juce::String(iv);
+                char t[16];
+                withCore([&] { dnc_text(ap->id, 0, 0, iv, t); return 0; });
+                return juce::String(t);
+            });
+            a->p = new juce::AudioParameterFloat(juce::ParameterID(pid, 1), ename + " " + pname,
+                                                 juce::NormalisableRange<float>(0.0f, 1.0f),
+                                                 (float)(cur - a->lo) / (float)(a->hi - a->lo), attrs);
+            addParameter(a->p);
+            autos.push_back(std::move(a));
+        }
     }
 #ifndef DN_NO_EDITOR_PORT
     if (owner)
         link = std::make_unique<EditorLink>(*this);
 #endif
+    if (owner)
+        startTimerHz(10);
 }
 
 DreadnoughtProcessor::~DreadnoughtProcessor()
 {
+    stopTimer();
     link.reset();
     if (owner)
         coreTaken = false;
@@ -188,7 +235,6 @@ void DreadnoughtProcessor::serveEditor()
         while ((m = dnc_sysex_out(r, sizeof r)) > 0)
             edOut.push(r, (int)m);
     }
-    slotsUsed = dnc_slots_used();
     if (link != nullptr)
         link->wake();
 }
@@ -202,7 +248,8 @@ bool DreadnoughtProcessor::isBusesLayoutSupported(const BusesLayout& layouts) co
 void DreadnoughtProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     const juce::SpinLock::ScopedLockType l(coreLock);
-    step = (double)DNC_RATE / (sampleRate > 0.0 ? sampleRate : 44100.0);
+    hostRate = sampleRate > 0.0 ? sampleRate : 44100.0;
+    step = (double)DNC_RATE / hostRate;
     const size_t need = (size_t)((double)juce::jmax(samplesPerBlock, 512) * step) * 2u + 4096u;
     if (srcL.capacity() < need) {
         srcL.reserve(need);
@@ -213,62 +260,12 @@ void DreadnoughtProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     pos = 1.0;
 }
 
-void DreadnoughtProcessor::post(EvKind kind, int id, int value)
+void DreadnoughtProcessor::preview(std::vector<float> mono, double rate)
 {
-    const juce::SpinLock::ScopedLockType l(postLock);
-    const auto w = fifo.write(1);
-    Ev e { (uint8_t)kind, (int8_t)id, (int16_t)juce::jlimit(-32768, 32767, value) };
-    if (w.blockSize1 > 0)
-        evs[(size_t)w.startIndex1] = e;
-    else if (w.blockSize2 > 0)
-        evs[(size_t)w.startIndex2] = e;
-}
-
-void DreadnoughtProcessor::applyEvents()           // (the core's lock held)
-{
-    const auto r = fifo.read(fifo.getNumReady());
-    auto apply = [](const Ev& e) {
-        switch (e.kind) {
-        case evButton: dnc_button(e.id, e.value); break;
-        case evKey: dnc_key(e.id, e.value); break;
-        case evTurn: dnc_turn(e.id, e.value); break;
-        case evAllUp: dnc_all_up(); break;
-        default: break;
-        }
-    };
-    for (int i = 0; i < r.blockSize1; ++i)
-        apply(evs[(size_t)(r.startIndex1 + i)]);
-    for (int i = 0; i < r.blockSize2; ++i)
-        apply(evs[(size_t)(r.startIndex2 + i)]);
-}
-
-void DreadnoughtProcessor::publishScreen()          // (the core's lock held)
-{
-    ledBtn = dnc_leds_buttons();
-    ledKeys = dnc_leds_keys();
-    ledDim = dnc_leds_keys_dim();
-    const uint32_t s = dnc_screen_serial();
-    if (s == lastCoreSerial)
-        return;
-    const juce::SpinLock::ScopedTryLockType l(screenLock);
-    if (!l.isLocked())
-        return;                                    // (the editor is copying it: next time)
-    dnc_screen_copy(screenPx.data());
-    lastCoreSerial = s;
-    ++screenSerial;
-}
-
-bool DreadnoughtProcessor::screen(uint32_t& serial, juce::Image& into)
-{
-    if (serial == screenSerial.load())
-        return false;
-    const juce::SpinLock::ScopedLockType l(screenLock);
-    serial = screenSerial.load();
-    juce::Image::BitmapData bd(into, juce::Image::BitmapData::writeOnly);
-    for (int y = 0; y < (int)DNC_H; ++y)
-        for (int x = 0; x < (int)DNC_W; ++x)
-            bd.setPixelColour(x, y, juce::Colour(screenPx[(size_t)y * DNC_W + (size_t)x]));
-    return true;
+    const juce::SpinLock::ScopedLockType l(previewLock);
+    pv = std::move(mono);
+    pvPos = 0.0;
+    pvStep = rate / hostRate;
 }
 
 void DreadnoughtProcessor::renderChunk()
@@ -278,6 +275,34 @@ void DreadnoughtProcessor::renderChunk()
         srcL.push_back(chunk[(size_t)(2 * i)]);
         srcR.push_back(chunk[(size_t)(2 * i + 1)]);
     }
+}
+
+void DreadnoughtProcessor::applyAutomation()
+{
+    for (auto& a : autos) {
+        const int32_t want = a->lo + (int32_t)std::lround(a->p->get() * (float)(a->hi - a->lo));
+        if (want != a->applied.load()) {
+            dnc_auto_set(a->engine, a->id, want);
+            a->applied = want;
+        }
+    }
+}
+
+void DreadnoughtProcessor::timerCallback()
+{
+    std::vector<std::pair<juce::AudioParameterFloat*, float>> moves;
+    withCore([&] {
+        for (auto& a : autos) {
+            const int32_t cur = dnc_auto_get(a->engine, a->id);
+            if (cur != a->applied.load()) {              // (changed on the GUI, by a preset, a loaded project ...)
+                a->applied = cur;
+                moves.push_back({ a->p, (float)(cur - a->lo) / (float)(a->hi - a->lo) });
+            }
+        }
+        return 0;
+    });
+    for (auto& m : moves)
+        m.first->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, m.second));
 }
 
 void DreadnoughtProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -290,18 +315,25 @@ void DreadnoughtProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         midi.clear();
         return;
     }
-    const juce::SpinLock::ScopedTryLockType tl(coreLock);
-    if (!tl.isLocked()) {                           // (the state being saved or loaded: a quiet block)
+    bool locked = false;                            // (the GUI holds the core for microseconds: wait that long)
+    for (int k = 0; k < 4000 && !(locked = coreLock.tryEnter()); ++k)
+        ;
+    if (!locked) {                                  // (a state being saved or loaded: a quiet block)
         midi.clear();
         return;
     }
+    struct Exit
+    {
+        juce::SpinLock& l;
+        ~Exit() { l.exit(); }
+    } exitAtEnd { coreLock };                       // (the lock taken above, let go however this returns)
     if (syncToHost.load()) {
         if (auto* ph = getPlayHead()) {
             if (const auto p = ph->getPosition())
                 dnc_transport(p->getIsPlaying() ? 1 : 0, p->getBpm().orFallback(0.0));
         }
     }
-    applyEvents();
+    applyAutomation();
     serveEditor();
 
     juce::MidiBuffer in;
@@ -342,11 +374,25 @@ void DreadnoughtProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         srcR.erase(srcR.begin(), srcR.begin() + drop);
         pos -= (double)drop;
     }
+    {
+        const juce::SpinLock::ScopedTryLockType pl(previewLock);   // (a sample heard from the samples page)
+        if (pl.isLocked() && !pv.empty()) {
+            for (int i = 0; i < n && pvPos + 1.0 < (double)pv.size(); ++i) {
+                const int k = (int)pvPos;
+                const float f = (float)(pvPos - k), v = 0.8f * (pv[(size_t)k] + f * (pv[(size_t)k + 1] - pv[(size_t)k]));
+                L[i] += v;
+                if (R != nullptr)
+                    R[i] += v;
+                pvPos += pvStep;
+            }
+            if (pvPos + 1.0 >= (double)pv.size())
+                pv.clear();
+        }
+    }
 
     uint8_t m[3];
     while (dnc_midi_out(m))                         // (MIDI tracks: to the host)
         midi.addEvent(juce::MidiMessage(m[0], m[1], m[2]), 0);
-    publishScreen();
 }
 
 void DreadnoughtProcessor::idleTick()
@@ -359,11 +405,10 @@ void DreadnoughtProcessor::idleTick()
     const int ms = (int)juce::jlimit(0.0, 100.0, now - idleLastMs);
     idleLastMs = now;
     const juce::SpinLock::ScopedLockType l(coreLock);
-    applyEvents();
+    applyAutomation();
     serveEditor();
     if (ms > 0)
         dnc_idle((uint32_t)ms);
-    publishScreen();
 }
 
 void DreadnoughtProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -375,7 +420,6 @@ void DreadnoughtProcessor::getStateInformation(juce::MemoryBlock& destData)
     {
         const juce::SpinLock::ScopedLockType l(coreLock);
         n = dnc_state_save(core.data(), (uint32_t)core.size());
-        publishScreen();
     }
     juce::MemoryOutputStream out(destData, false);
     out.writeInt((int)stateMagic);
@@ -402,8 +446,7 @@ void DreadnoughtProcessor::setStateInformation(const void* data, int sizeInBytes
     const juce::SpinLock::ScopedLockType l(coreLock);
     if (dnc_state_load(core.data(), (uint32_t)n) == 0) {
         dnc_init();
-        publishScreen();
-        slotsUsed = dnc_slots_used();
+        ++rev;
     }
 }
 

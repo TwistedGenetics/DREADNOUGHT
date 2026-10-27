@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <math.h>
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include "dn_core.h"
 #ifndef DN_VERSION
 #define DN_VERSION "0.0"
@@ -145,6 +149,7 @@ static void slot_clear(uint32_t k)
     memset(slot_mem(k), 0xFF, SMP_USER_SIZE);
     usr_nz[k] = 0;
 }
+static void smp_names_factory(void);
 static void slots_factory(void)                     /* slot 1: ROLLER and STEPPER (as the editor would pack them) */
 {
     smp_user_hdr_t h;
@@ -174,6 +179,7 @@ static void slots_factory(void)                     /* slot 1: ROLLER and STEPPE
     h.crc = crc32_z(d, off);
     memcpy(slot_mem(0), &h, sizeof h);
     smp_user_scan(0);
+    smp_names_factory();
 }
 /* everything runs on the plugin's audio thread (the plugin's own lock keeps the rest out): no lock here */
 static void dn_lock(void) {}
@@ -229,11 +235,15 @@ void dnc_init(void)
     splash_left = 1200u;
 }
 
+static int draw_on = 1;
+void dnc_set_draw(int on) { draw_on = on; }
 static void tick_ms(void)
 {
     now_ms++;
     dn_app_input();
-    if (splash_left) {
+    if (!draw_on) {
+        splash_left = 0;
+    } else if (splash_left) {
         if (!--splash_left)
             dn_app_draw(1);
     } else if (now_ms % 16u == 0u) {
@@ -639,13 +649,16 @@ uint32_t dnc_slots_used(void)                         /* (KB: what the slots hol
     return (b + 1023u) / 1024u;
 }
 
+#include "dnc_api.c"
+
 /* ------------------------------------------------------------------------------------------------ the state --- */
+/* (3: 0.45's GUI) then the samples' names: 48 x 24 bytes */
 /* "DNPS", a version (2: 0.45), then each flash object and settings object: its length (-1: none) and its bytes; then
  * (2) each sample slot: its length (-1: empty) and its bytes (the header's 512 and the data). A version 1 state (0.44)
  * has no slots: the factory's (ROLLER, STEPPER), which 0.44 played. */
 #define DNC_MAGIC 0x53504E44u
 #define DNC_NOBJ (OBJ_NOBJ + DN_NEXT)
-uint32_t dnc_state_max(void) { return 8u + DNC_NOBJ * (4u + PLAT_STORE_MAX) + 3u * (4u + SMP_USER_SIZE); }
+uint32_t dnc_state_max(void) { return 8u + DNC_NOBJ * (4u + PLAT_STORE_MAX) + 3u * (4u + SMP_USER_SIZE) + sizeof smp_names; }
 static void put32(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v, p[1] = (uint8_t)(v >> 8), p[2] = (uint8_t)(v >> 16), p[3] = (uint8_t)(v >> 24); }
 static uint32_t get32(const uint8_t *p) { return p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 uint32_t dnc_state_save(uint8_t *out, uint32_t max)
@@ -656,7 +669,7 @@ uint32_t dnc_state_save(uint8_t *out, uint32_t max)
     if (dn.ready)
         dn_save();                                  /* (as SAVE does: the sound, the patterns, the song) */
     put32(out, DNC_MAGIC);
-    put32(out + 4, 2);
+    put32(out + 4, 3);
     for (i = 0; i < DNC_NOBJ; i++) {
         int n = i < OBJ_NOBJ ? store_len[i] : sim_ext_len[i - OBJ_NOBJ];
         const uint8_t *d = i < OBJ_NOBJ ? store[i] : sim_ext[i - OBJ_NOBJ];
@@ -674,6 +687,8 @@ uint32_t dnc_state_save(uint8_t *out, uint32_t max)
         memcpy(out + o, slot_mem(i), n);
         o += n;
     }
+    memcpy(out + o, smp_names, sizeof smp_names);
+    o += sizeof smp_names;
     return o;
 }
 int dnc_state_load(const uint8_t *in, uint32_t n)
@@ -682,7 +697,7 @@ int dnc_state_load(const uint8_t *in, uint32_t n)
     static int len[DNC_NOBJ];
     static uint8_t data[DNC_NOBJ][PLAT_STORE_MAX];
     static uint32_t slen[SMP_USER_SLOTS], soff[SMP_USER_SLOTS];
-    if (n < 8u || get32(in) != DNC_MAGIC || (ver = get32(in + 4)) < 1u || ver > 2u)
+    if (n < 8u || get32(in) != DNC_MAGIC || (ver = get32(in + 4)) < 1u || ver > 3u)
         return -1;
     for (i = 0; i < DNC_NOBJ; i++) {                /* (all of it read first: a bad one changes nothing) */
         int32_t l;
@@ -711,6 +726,8 @@ int dnc_state_load(const uint8_t *in, uint32_t n)
         slen[i] = l, soff[i] = o;
         o += l;
     }
+    if (ver >= 3u && o + sizeof smp_names > n)
+        return -1;
     for (i = 0; i < DNC_NOBJ; i++) {
         int *pl = i < OBJ_NOBJ ? &store_len[i] : &sim_ext_len[i - OBJ_NOBJ];
         uint8_t *d = i < OBJ_NOBJ ? store[i] : sim_ext[i - OBJ_NOBJ];
@@ -725,9 +742,23 @@ int dnc_state_load(const uint8_t *in, uint32_t n)
             if (slen[i])
                 smp_user_scan(i);
         }
+        if (ver >= 3u) {
+            memcpy(smp_names, in + o, sizeof smp_names);
+            for (i = 0; i < 48u; i++)
+                smp_names[i][23] = 0;
+        } else {
+            memset(smp_names, 0, sizeof smp_names);
+        }
     } else {
         slots_factory();
     }
     slots_ready = 1;
     return 0;
+}
+
+static void smp_names_factory(void)
+{
+    memset(smp_names, 0, sizeof smp_names);
+    memcpy(smp_names[0], "ROLLER", 7);
+    memcpy(smp_names[1], "STEPPER", 8);
 }

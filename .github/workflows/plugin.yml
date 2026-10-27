@@ -115,14 +115,11 @@ jobs:
         run: |
           tools/ci_step.sh "build (${{ matrix.name }})" cmake --build build/plugin --config Release --parallel 4
 
-      - name: Check (a note and the state at 48 kHz, the editor drawn)
+      - name: Check (a note and the state at 48 kHz, a sample dropped, automation, every page drawn)
         run: |
-          set -o pipefail
           shot=$(find build/plugin -type f \( -name dn_shot -o -name dn_shot.exe \) | head -1)
-          mkdir -p shots
           x=""; [ "$RUNNER_OS" = Linux ] && x="xvfb-run -a"
-          tools/ci_step.sh "dn_shot (${{ matrix.name }})" $x "$shot" shots/plugin-${{ matrix.name }}.png
-          tools/ci_step.sh "dn_shot SEQ (${{ matrix.name }})" $x "$shot" shots/plugin-seq-${{ matrix.name }}.png tap:9 ms:300
+          tools/ci_step.sh "dn_shot (${{ matrix.name }})" $x "$shot" shots
 
       - name: pluginval (the VST3 opened, played, its state and editor, as DAWs use them)
         run: |

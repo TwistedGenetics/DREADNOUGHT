@@ -67,6 +67,13 @@ else()
     target_compile_options(dn_core PRIVATE -w -ffp-contract=off)
 endif()
 
+# ---- the GUI's fonts (Barlow Semi Condensed, OFL: the web editor's and the manual's) ----
+juce_add_binary_data(dn_fonts SOURCES "${DN_ROOT}/web/editor/fonts/BarlowSemiCondensed-Medium.ttf"
+                                      "${DN_ROOT}/web/editor/fonts/BarlowSemiCondensed-SemiBold.ttf"
+                                      "${DN_ROOT}/web/editor/fonts/BarlowSemiCondensed-Bold.ttf")
+set_target_properties(dn_fonts PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set(DN_GUI src/PluginProcessor.cpp src/PluginEditor.cpp src/SoundPage.cpp src/PatternPage.cpp src/SamplesPage.cpp)
+
 # ---- the plugin ----
 juce_add_plugin(Dreadnought
     PRODUCT_NAME "DREADNOUGHT"
@@ -83,7 +90,7 @@ juce_add_plugin(Dreadnought
     AU_MAIN_TYPE kAudioUnitType_MusicDevice
     VST3_CATEGORIES Instrument Synth
     DESCRIPTION "Jungle and drum & bass groovebox (the FM-1 firmware)")
-target_sources(Dreadnought PRIVATE src/PluginProcessor.cpp src/PluginEditor.cpp)
+target_sources(Dreadnought PRIVATE ${DN_GUI})
 target_compile_definitions(Dreadnought PUBLIC
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 JUCE_DISPLAY_SPLASH_SCREEN=0
     DN_VERSION_STR="${DN_VERSION}")
@@ -91,20 +98,20 @@ if(DN_X11_MIN)
     target_compile_definitions(Dreadnought PUBLIC JUCE_USE_XRANDR=0 JUCE_USE_XINERAMA=0 JUCE_USE_XCURSOR=0 JUCE_ALSA=0
                                                   JUCE_JACK=0)
 endif()
-target_link_libraries(Dreadnought PRIVATE dn_core juce::juce_audio_utils
+target_link_libraries(Dreadnought PRIVATE dn_core dn_fonts juce::juce_audio_utils
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_lto_flags juce::juce_recommended_warning_flags)
 
 # ---- the editor drawn to a PNG (the tests and the manual: no host needed) ----
 option(DN_SHOT "build dn_shot (the editor to a PNG)" ON)
 if(DN_SHOT)
     juce_add_console_app(dn_shot PRODUCT_NAME "dn_shot")
-    target_sources(dn_shot PRIVATE src/Shot.cpp src/PluginProcessor.cpp src/PluginEditor.cpp)
+    target_sources(dn_shot PRIVATE src/Shot.cpp ${DN_GUI})
     target_compile_definitions(dn_shot PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 DN_VERSION_STR="${DN_VERSION}"
                                                JucePlugin_Name="DREADNOUGHT" DN_NO_PLUGIN_ENTRY=1
                                                DN_NO_EDITOR_PORT=1)
     if(DN_X11_MIN)
         target_compile_definitions(dn_shot PRIVATE JUCE_USE_XRANDR=0 JUCE_USE_XINERAMA=0 JUCE_USE_XCURSOR=0)
     endif()
-    target_link_libraries(dn_shot PRIVATE dn_core juce::juce_audio_processors juce::juce_gui_basics
+    target_link_libraries(dn_shot PRIVATE dn_core dn_fonts juce::juce_audio_processors juce::juce_audio_formats juce::juce_gui_basics
                                           juce::juce_recommended_config_flags)
 endif()

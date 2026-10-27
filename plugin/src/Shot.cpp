@@ -1,19 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// dn_shot: the plugin's editor drawn to a PNG, with no host (the tests, the manual). The processor plays at 48 kHz
-// for a while (past the splash) and the panel is worked as the steps say:
-//   dn_shot OUT.png [STEP ...]   STEP: ms:N  tap:BUTTON (0..13)  key:K (0..26)  turn:ENC:N (0..6)
-//                                note:CH:NOTE
-// It also checks the sound (a note at 48 kHz, through the resampler: heard, no NaN) and the state (saved, loaded).
+// dn_shot: the plugin with no host (the tests, the manual). It plays at 48 kHz (through the resampler: a note heard,
+// no NaN), saves and loads its state, takes a sample as if dropped on it, and draws its pages to PNGs:
+//   dn_shot DIR          DIR/plugin-<page>.png for every page, and the SOUND page of every instrument
 // Copyright (C) 2026 Jamie (TwistedGenetics).
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "dn_core.h"
 
 namespace
 {
 float peak = 0.0f;
 bool bad = false;
+int fails = 0;
+void check(const char* what, bool ok)
+{
+    std::printf("%s %s\n", ok ? "  ok  " : "  FAIL", what);
+    fails += !ok;
+}
 void play(DreadnoughtProcessor& p, int ms, juce::MidiBuffer* midi = nullptr)
 {
     juce::AudioBuffer<float> b(2, 480);
@@ -31,20 +37,30 @@ void play(DreadnoughtProcessor& p, int ms, juce::MidiBuffer* midi = nullptr)
             }
     }
 }
+void shot(DreadnoughtEditor& e, const juce::File& f)
+{
+    const auto img = e.createComponentSnapshot(e.getLocalBounds(), true, 1.0f);
+    f.deleteFile();
+    juce::FileOutputStream os(f);
+    juce::PNGImageFormat png;
+    if (!os.openedOk() || !png.writeImageToStream(img, os))
+        check(("write " + f.getFileName()).toRawUTF8(), false);
+}
 }
 
 int main(int argc, char** argv)
 {
     if (argc < 2) {
-        std::printf("usage: dn_shot OUT.png [ms:N tap:B turn:E:N note:CH:NOTE ...]\n");
+        std::printf("usage: dn_shot DIR\n");
         return 2;
     }
     juce::ScopedJuceInitialiser_GUI gui;
-    int fails = 0;
+    const juce::File dir = juce::File::getCurrentWorkingDirectory().getChildFile(argv[1]);
+    dir.createDirectory();
     {
         DreadnoughtProcessor proc;
         proc.prepareToPlay(48000.0, 480);
-        play(proc, 1600);                           // (past the splash)
+        play(proc, 300);
         peak = 0.0f;
         {
             juce::MidiBuffer m;
@@ -54,67 +70,88 @@ int main(int argc, char** argv)
             off.addEvent(juce::MidiMessage::noteOff(1, 45), 0);
             play(proc, 400, &off);
         }
-        std::printf("%s a note at 48 kHz: peak %.3f\n", peak > 0.05f && !bad ? "  ok  " : "  FAIL", peak);
-        fails += !(peak > 0.05f && !bad);
+        check("a note at 48 kHz, heard (no NaN)", peak > 0.05f && !bad);
         {
-            juce::MemoryBlock st, st2, st3;         // (the state: saved and loaded twice, the same the second time;
-            proc.getStateInformation(st);           //  the first may differ: a start leaves a SEQ page for HOME's)
+            juce::MemoryBlock st, st2, st3;         // (the state: saved and loaded twice, the same the second time)
+            proc.getStateInformation(st);
             proc.setStateInformation(st.getData(), (int)st.getSize());
-            play(proc, 1600);
+            play(proc, 200);
             proc.getStateInformation(st2);
             proc.setStateInformation(st2.getData(), (int)st2.getSize());
-            play(proc, 1600);
+            play(proc, 200);
             proc.getStateInformation(st3);
-            const bool same = st2 == st3 && st.getSize() > 100 && st.getSize() == st3.getSize();
-            std::printf("%s the state: %d bytes, saved and loaded the same\n", same ? "  ok  " : "  FAIL",
-                        (int)st.getSize());
-            fails += !same;
+            check("the state saved and loaded, the same", st2 == st3 && st.getSize() > 1000);
         }
-        {                                           // (0.45) the web editor's INFO, as the port hands it in
-            const uint8_t info[] = { 0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7 };
+        {
+            const uint8_t info[] = { 0xF0, 0x7D, 0x46, 0x4C, 0x01, 0xF7 };   // (the web editor's INFO, as the port hands it)
             proc.editorFrame(info, (int)sizeof info);
             play(proc, 30);
             uint8_t r[256];
             const int n = proc.editorReply(r, (int)sizeof r);
-            const bool ok = n > 10 && juce::String((const char*)r + 5, (size_t)juce::jmin(24, n - 5)).contains("PLUGIN");
-            std::printf("%s the web editor's INFO answered (%d bytes)\n", ok ? "  ok  " : "  FAIL", n);
-            fails += !ok;
+            check("the web editor's INFO answered", n > 10 && juce::String((const char*)r + 5, (size_t)juce::jmin(24, n - 5)).contains("PLUGIN"));
         }
-        for (int i = 2; i < argc; ++i) {
-            const auto a = juce::StringArray::fromTokens(argv[i], ":", "");
-            if (a[0] == "ms")
-                play(proc, a[1].getIntValue());
-            else if (a[0] == "tap") {
-                proc.post(DreadnoughtProcessor::evButton, a[1].getIntValue(), 1);
-                play(proc, 60);
-                proc.post(DreadnoughtProcessor::evButton, a[1].getIntValue(), 0);
-                play(proc, 60);
-            } else if (a[0] == "key") {
-                proc.post(DreadnoughtProcessor::evKey, a[1].getIntValue(), 1);
-                play(proc, 60);
-                proc.post(DreadnoughtProcessor::evKey, a[1].getIntValue(), 0);
-                play(proc, 60);
-            } else if (a[0] == "turn") {
-                proc.post(DreadnoughtProcessor::evTurn, a[1].getIntValue(), a[2].getIntValue());
-                play(proc, 60);
-            } else if (a[0] == "note") {
-                juce::MidiBuffer m;
-                m.addEvent(juce::MidiMessage::noteOn(a[1].getIntValue(), a[2].getIntValue(), (juce::uint8)100), 0);
-                play(proc, 200, &m);
-            }
+        check("the DAW sees the instruments' values as parameters", proc.getParameters().size() > 40);
+        {
+            auto* p0 = dynamic_cast<juce::AudioParameterFloat*>(proc.getParameters()[0]);   // (REESE's first: CUTOFF)
+            int32_t before = 0, after = 0;
+            uint16_t ids[8];
+            dnc_auto_ids(1, ids);
+            proc.withCore([&] { before = dnc_auto_get(1, ids[0]); return 0; });
+            p0->setValueNotifyingHost(before > 60 ? 0.1f : 0.9f);
+            play(proc, 20);
+            proc.withCore([&] { after = dnc_auto_get(1, ids[0]); return 0; });
+            check("... automation moves the instrument", p0 != nullptr && after != before);
         }
+
         std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
-        auto* e = static_cast<DreadnoughtEditor*>(ed.get());
-        e->refreshNow();
-        const auto img = e->createComponentSnapshot(e->getLocalBounds(), true, 1.0f);
-        juce::File out = juce::File::getCurrentWorkingDirectory().getChildFile(argv[1]);
-        out.deleteFile();
-        juce::FileOutputStream os(out);
-        juce::PNGImageFormat png;
-        if (!os.openedOk() || !png.writeImageToStream(img, os)) {
-            std::printf("  FAIL could not write %s\n", argv[1]);
-            ++fails;
+        auto& e = *static_cast<DreadnoughtEditor*>(ed.get());
+        {
+            juce::WavAudioFormat wav;                // (a sample dropped on the plugin)
+            const juce::File f = dir.getChildFile("dropped-hit.wav");
+            f.deleteFile();
+            juce::AudioBuffer<float> b(2, 22050);
+            for (int i = 0; i < 22050; ++i) {
+                b.setSample(0, i, 0.7f * std::sin(i * 0.07f) * std::exp(-i / 5000.0f));
+                b.setSample(1, i, b.getSample(0, i));
+            }
+            {
+                std::unique_ptr<juce::OutputStream> os(new juce::FileOutputStream(f));
+                auto w = wav.createWriterFor(os, juce::AudioFormatWriterOptions().withSampleRate(44100.0).withNumChannels(2).withBitsPerSample(16));
+                if (w != nullptr)
+                    w->writeFromAudioSampleBuffer(b, 0, b.getNumSamples());
+            }
+            uint32_t n0 = 0, n1 = 0;
+            juce::String nm;
+            proc.withCore([&] { n0 = dnc_sample_count(); return 0; });
+            e.filesDropped(juce::StringArray(f.getFullPathName()), 0, 0);
+            proc.withCore([&] { n1 = dnc_sample_count(); nm = dnc_sample_name(n0); return 0; });
+            check("a WAV dropped on the plugin: a new sample", n1 == n0 + 1 && nm == "DROPPED-HIT");
+            f.deleteFile();
         }
+        play(proc, 100);
+        e.show(0, DreadnoughtEditor::tabSound);
+        shot(e, dir.getChildFile("plugin-sound-reese.png"));
+        e.show(0, DreadnoughtEditor::tabPattern);
+        shot(e, dir.getChildFile("plugin-pattern-reese.png"));
+        e.show(1, DreadnoughtEditor::tabSound);
+        shot(e, dir.getChildFile("plugin-sound-breaks.png"));
+        e.show(1, DreadnoughtEditor::tabPattern);
+        shot(e, dir.getChildFile("plugin-pattern-breaks.png"));
+        e.show(0, DreadnoughtEditor::tabFx);
+        shot(e, dir.getChildFile("plugin-effects.png"));
+        e.show(0, DreadnoughtEditor::tabSamples);
+        shot(e, dir.getChildFile("plugin-samples.png"));
+        const char* const names[] = { "", "reese", "breaks-a", "breaks-b", "midi", "sub", "sampler", "fm", "wave", "juno", "sampler2" };
+        for (int en : { 5, 6, 7, 8, 9 }) {           // (the others on track 4, each in turn)
+            proc.withCore([&] { dnc_track_set_engine(3, en); return 0; });
+            play(proc, 50);
+            e.show(3, DreadnoughtEditor::tabSound);
+            shot(e, dir.getChildFile(juce::String("plugin-sound-") + names[en] + ".png"));
+        }
+        proc.withCore([&] { dnc_track_set_engine(3, 6); dnc_track_select(3); dnc_set(dnc_id_special(5), 0, 0, 1); return 0; });   // (SAMPLER: KEYS)
+        play(proc, 50);
+        e.show(3, DreadnoughtEditor::tabSound);
+        shot(e, dir.getChildFile("plugin-sound-sampler-keys.png"));
         ed.reset();
         proc.releaseResources();
     }
