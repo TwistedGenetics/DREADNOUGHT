@@ -831,3 +831,13 @@ void dnc_auto_set(int e, uint32_t id, int32_t v)
 }
 int32_t dnc_auto_min(int e, uint32_t id) { uint8_t a, b, c; int32_t v; auto_ctx(e, &a, &b, &c); v = dn_min(id); dn.trk = a, dn_smc = b, dn.bk_force = c; return v; }
 int32_t dnc_auto_max(int e, uint32_t id) { uint8_t a, b, c; int32_t v; auto_ctx(e, &a, &b, &c); v = dn_max(id); dn.trk = a, dn_smc = b, dn.bk_force = c; return v; }
+
+/* the screen's skin (the FM-1's setting, kept with the sound): 0 BLOCKS, 1 LIGHT, 2 DARK */
+int dnc_skin(void) { return dn.skin; }
+void dnc_set_skin(int s)
+{
+    if (s != dn.skin && s >= 0 && s < DN_SK_N) {
+        dn_skin(s);
+        dn_mark();
+    }
+}

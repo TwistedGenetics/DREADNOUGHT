@@ -159,11 +159,11 @@ void SamplesPage::paint(juce::Graphics& g)
 {
     const float room = 224.0f, f = juce::jlimit(0.0f, 1.0f, (float)usedKB / room);
     auto bar = juce::Rectangle<float>(630.0f, 6.0f, (float)getWidth() - 630.0f, 32.0f);
-    g.setColour(well);
+    g.setColour(chip(hot, true));
     g.fillRoundedRectangle(bar, 6.0f);
-    g.setColour(f > 0.9f ? hot : tint(hot, 0.6f));
+    g.setColour(f > 0.9f ? red : chip(hot));
     g.fillRoundedRectangle(bar.withWidth(juce::jmax(8.0f, bar.getWidth() * f)), 6.0f);
-    g.setColour(ink);
+    g.setColour(onChip);
     g.setFont(font(18.0f, 700));
     g.drawText(juce::String((int)usedKB) + " KB OF 224 KB USED (THE FM-1'S SAMPLE MEMORY)", bar.toNearestInt().reduced(10, 0),
                juce::Justification::centredLeft);

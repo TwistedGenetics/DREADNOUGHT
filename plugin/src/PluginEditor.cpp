@@ -30,6 +30,10 @@ public:
         follow.setClickingTogglesState(true);
         for (auto* b : { &prev, &next, &presetBtn, &store, &play, &follow, &web })
             addAndMakeVisible(b);
+        skinBtn.onClick = [this] {
+            ui.core([&] { dnc_set_skin(skin == skinBlocks ? 1 : 0); return 0; });
+        };
+        addAndMakeVisible(skinBtn);
         bpm = std::make_unique<FieldControl>("BPM", 60, 200, [](int v) { return juce::String(v); }, false, hot);
         bpm->onChange = [this](int v) { ui.core([&] { dnc_set(dnc_id_bpm(), 0, 0, v); return 0; }); };
         addAndMakeVisible(*bpm);
@@ -57,6 +61,7 @@ public:
         next.setEnabled(n > 0);
         store.setVisible(syn != 0);
         bpm->set(b, true);
+        skinBtn.setButtonText(skin == skinBlocks ? "BLOCKS" : "LIGHT");
         play.setButtonText(playing ? "STOP" : "PLAY");
         play.setToggleState(playing != 0, juce::dontSendNotification);
         follow.setToggleState(ui.proc.syncToHost.load(), juce::dontSendNotification);
@@ -71,6 +76,7 @@ public:
     }
     void resized() override
     {
+        skinBtn.setBounds(150, 44, 76, 24);
         prev.setBounds(236, 14, 44, 44);
         presetBtn.setBounds(284, 14, 300, 44);
         next.setBounds(588, 14, 44, 44);
@@ -86,13 +92,16 @@ public:
         g.fillRect(getLocalBounds());
         g.setColour(edge);
         g.drawHorizontalLine(getHeight() - 1, 0.0f, (float)getWidth());
-        g.setColour(ink);
+        g.setColour(red);                            // (the FM-1's: DREADNOUGHT's red only for its name)
         g.setFont(font(34.0f, 700));
         g.drawText("DREADNOUGHT", 16, 8, 210, 40, juce::Justification::centredLeft);
         g.setColour(soft);
         g.setFont(font(15.0f, 600));
-        g.drawText("v" DN_VERSION_STR + juce::String(message.isNotEmpty() ? "   " + message : juce::String()), 16, 46, 760, 22,
-                   juce::Justification::centredLeft);
+        g.drawText("v" DN_VERSION_STR, 16, 46, 120, 22, juce::Justification::centredLeft);
+        if (message.isNotEmpty()) {
+            g.setColour(ink);
+            g.drawText(message, 236, 58, 560, 14, juce::Justification::centredLeft);
+        }
     }
 private:
     void step(int d)
@@ -151,6 +160,7 @@ private:
         });
     }
     Ui& ui;
+    juce::TextButton skinBtn { "SKIN" };
     juce::TextButton prev { "<" }, next { ">" }, presetBtn, store { "KEEP AS USER..." }, play { "PLAY" }, follow, web;
     std::unique_ptr<FieldControl> bpm;
     juce::String message;
@@ -185,20 +195,26 @@ public:
             auto r = juce::Rectangle<float>(0.0f, (float)(t * rowH), (float)getWidth(), (float)rowH).reduced(0.0f, 3.0f);
             const juce::Colour c = rgb(cols[(size_t)t]);
             const bool sel = t == ui.track;
-            g.setColour(sel ? tint(c, 0.6f) : panel);
+            const bool blk = skin == skinBlocks;    // (BLOCKS: HOME's tiles, each its instrument's colour)
+            const bool off = engs[(size_t)t] == 0;
+            const juce::Colour fill = blk ? (off ? c : sel ? c : chip(c, true)) : sel ? tint(c, 0.6f) : panel;
+            const juce::Colour txt = blk && !off ? onChip : ink;
+            g.setColour(fill);
             g.fillRoundedRectangle(r, 10.0f);
             g.setColour(sel ? ink : edge);
-            g.drawRoundedRectangle(r, 10.0f, sel ? 2.5f : 1.5f);
-            g.setColour(engs[(size_t)t] ? c : well);
-            g.fillRoundedRectangle(r.withWidth(12.0f).reduced(0.0f, 6.0f).translated(6.0f, 0.0f), 4.0f);
-            g.setColour(ink);
+            g.drawRoundedRectangle(r, 10.0f, sel ? 3.0f : 1.5f);
+            if (!blk) {
+                g.setColour(engs[(size_t)t] ? c : well);
+                g.fillRoundedRectangle(r.withWidth(12.0f).reduced(0.0f, 6.0f).translated(6.0f, 0.0f), 4.0f);
+            }
+            g.setColour(txt);
             g.setFont(font(28.0f, 700));
             g.drawText(juce::String(t + 1), (int)r.getX() + 22, (int)r.getY(), 26, (int)r.getHeight(), juce::Justification::centred);
             g.setFont(font(23.0f, 700));
             g.drawFittedText(names[(size_t)t], (int)r.getX() + 54, (int)r.getY() + 8, (int)r.getWidth() - 110, 28,
                              juce::Justification::centredLeft, 1, 0.75f);
-            g.setColour(soft);
-            g.setFont(font(16.0f, 600));
+            g.setColour(txt);
+            g.setFont(font(16.0f, 700));
             g.drawText("P" + juce::String(pats[(size_t)t] + 1), (int)r.getX() + 54, (int)r.getY() + 42, 40, 24,
                        juce::Justification::centredLeft);
             auto ch = changeRect(t);                 // (the instrument: a menu)
@@ -214,11 +230,11 @@ public:
             tri.addTriangle(tx, ty - 3.0f, tx + 9.0f, ty - 3.0f, tx + 4.5f, ty + 3.5f);
             g.fillPath(tri);
             auto m = muteRect(t);                    // M: muted
-            g.setColour(mutes[(size_t)t] ? tint(hot, 0.6f) : panel);
+            g.setColour(mutes[(size_t)t] ? chip(hot) : panel);
             g.fillRoundedRectangle(m, 6.0f);
             g.setColour(mutes[(size_t)t] ? ink : edge);
             g.drawRoundedRectangle(m, 6.0f, mutes[(size_t)t] ? 2.5f : 1.5f);
-            g.setColour(ink);
+            g.setColour(mutes[(size_t)t] ? onChip : ink);
             g.setFont(font(20.0f, 700));
             g.drawText("M", m.toNearestInt(), juce::Justification::centred);
         }
@@ -350,7 +366,7 @@ struct DreadnoughtEditor::Root : public juce::Component
     void paint(juce::Graphics& g) override
     {
         g.fillAll(paper);
-        g.setColour(tint(ui.accent, 0.5f));          // (the page's tab row in the track's colour)
+        g.setColour(chip(ui.accent, true));          // (the page's tab row in the track's colour)
         g.fillRoundedRectangle(juce::Rectangle<float>(258.0f, 84.0f, (float)getWidth() - 270.0f, 54.0f), 10.0f);
     }
     Ui ui;
@@ -366,8 +382,38 @@ struct DreadnoughtEditor::Root : public juce::Component
     uint32_t rev = 0;
 };
 
+static int coreSkin(DreadnoughtProcessor& p)        // (the FM-1's skin: LIGHT, or BLOCKS for BLOCKS and DARK)
+{
+    int s = 0;
+    if (p.active())
+        p.withCore([&] { s = dnc_skin(); return 0; });
+    return s == 1 ? skinLight : skinBlocks;
+}
+
+void DreadnoughtEditor::applySkin(int s)
+{
+    int t = 0;
+    Tab tab = tabSound;
+    if (root != nullptr) {
+        t = root->ui.track, tab = root->tab;
+        removeChildComponent(root.get());
+        root.reset();
+    }
+    setSkin(s);
+    look.apply();
+    root = std::make_unique<Root>(proc);           // (built again: every colour the skin's)
+    root->setBounds(0, 0, baseW, baseH);
+    addAndMakeVisible(*root);
+    root->pick(t);
+    root->setTab(tab);
+    resized();
+    repaint();
+}
+
 DreadnoughtEditor::DreadnoughtEditor(DreadnoughtProcessor& p) : AudioProcessorEditor(&p), proc(p)
 {
+    setSkin(coreSkin(p));
+    look.apply();
     setLookAndFeel(&look);
     juce::LookAndFeel::setDefaultLookAndFeel(&look);
     root = std::make_unique<Root>(p);
@@ -414,6 +460,10 @@ void DreadnoughtEditor::timerCallback()
     proc.idleTick();
     if (!proc.active())
         return;
+    if (coreSkin(proc) != skin) {                    // (the skin changed: here, or a project loaded)
+        applySkin(coreSkin(proc));
+        return;
+    }
     root->poll();
 }
 
@@ -432,6 +482,8 @@ void DreadnoughtEditor::show(int track, Tab tab)
 
 void DreadnoughtEditor::refreshNow()
 {
+    if (coreSkin(proc) != skin)
+        applySkin(coreSkin(proc));
     root->poll();
     root->resized();
 }

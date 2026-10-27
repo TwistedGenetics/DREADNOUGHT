@@ -56,7 +56,7 @@ remember the name from earlier firmware), Connect, and send the text from **Copy
 tracks on the left; for the selected one its **SOUND** (every value of its instrument, with the mouse: FM's six
 operators in one table, BREAKS' loop with its slices, SAMPLER's pads), its **PATTERN** (a piano roll or a drum grid,
 8 patterns, each step's details), the **EFFECTS** and your **SAMPLES** (drop audio files on it). Presets, BPM, PLAY and
-FOLLOW THE DAW at the top. Vector-drawn, sharp on any screen, resizable.
+FOLLOW THE DAW at the top. In the FM-1's own BLOCKS skin (or LIGHT); vector-drawn, sharp on any screen, resizable.
 
 ![The plugin: FM](docs/plugin/editor.png)
 

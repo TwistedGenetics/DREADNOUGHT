@@ -242,11 +242,12 @@ public:
         for (int i = 0; i < n; ++i) {
             auto r = juce::Rectangle<float>((i % cols) * cw, (i / cols) * ch, cw, ch).reduced(4.0f);
             const bool on = ui.selIdx[(size_t)sel] == i;
-            g.setColour(on ? tint(ui.accent, 0.55f) : down == i ? tint(ui.accent, 0.3f) : panel);
+            const bool lit = on || down == i;        // (the pad picked: its colour, dark text; BLOCKS: the rest pale)
+            g.setColour(lit ? chip(ui.accent) : skin == skinBlocks ? chip(ui.accent, true) : panel);
             g.fillRoundedRectangle(r, 8.0f);
             g.setColour(on ? ink : edge);
-            g.drawRoundedRectangle(r, 8.0f, on ? 2.5f : 1.5f);
-            g.setColour(ink);
+            g.drawRoundedRectangle(r, 8.0f, on ? 3.0f : 1.5f);
+            g.setColour(lit || skin == skinBlocks ? onChip : ink);
             g.setFont(font(19.0f, 700));
             g.drawText((mode == 1 ? "ZONE " : "PAD ") + juce::String(i + 1), r.reduced(8.0f, 4.0f).toNearestInt(), juce::Justification::topLeft);
             g.setFont(font(17.0f, 600));
@@ -403,6 +404,7 @@ public:
             for (int k = 0; k < 2; ++k) {
                 auto c = std::make_unique<ValueControl>(ui, dnc_id_send(k), DNC_SEL_TRACK);
                 c->setFixedIndex(t);
+                c->setTile(k * 3);                   // (BLOCKS: SEND A orange, SEND B blue)
                 c->refresh();
                 addAndMakeVisible(*c);
                 ctl.push_back(std::move(c));
@@ -444,9 +446,10 @@ public:
         const float cw = (float)(getWidth() - 16) / 8.0f;
         for (int t = 0; t < 8; ++t) {
             auto h = juce::Rectangle<float>(8 + t * cw, 40, cw, 34).reduced(3.0f, 2.0f);
-            g.setColour(tint(juce::Colour(0xFF000000u | cols[(size_t)t]), 0.55f));
+            const juce::Colour tc(0xFF000000u | cols[(size_t)t]);
+            g.setColour(chip(tc));
             g.fillRoundedRectangle(h, 6.0f);
-            g.setColour(ink);
+            g.setColour(tc.getPerceivedBrightness() > 0.4f ? onChip : ink);
             g.setFont(font(18.0f, 700));
             g.drawFittedText(juce::String(t + 1) + "  " + names[(size_t)t], h.toNearestInt(), juce::Justification::centred, 1, 0.7f);
         }

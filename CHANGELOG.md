@@ -1048,7 +1048,10 @@ computer: it needs the FM-1 (and a DAW) to show the ten inputs.
 
 - **The FM-1's panel is gone from the plugin.** No screen copy, encoders, button rows or keyboard: the plugin is laid
   out as a normal instrument, drawn in vectors (sharp on a Retina screen at any size; the window scales from 60 % to
-  200 %), light, with big bold type (Barlow Semi Condensed) and each instrument in its own colour.
+  200 %), with big bold type (Barlow Semi Condensed), in the FM-1's own skins: **BLOCKS** (its default: the
+  near-black ground, every value a tile of its own colour, orange, yellow, green, blue, filled to its value with dark
+  text on it, the tracks as HOME's tiles in their instrument's colours, DREADNOUGHT in its red) or **LIGHT** (the warm
+  white one). The button under the name switches; the choice is the FM-1's SKIN setting, kept with the project.
   - **The tracks** on the left: the eight, each one's instrument (CHANGE: a menu), its pattern, mute.
   - **SOUND**: every value of the track's instrument, in sections as its pages group them (REESE, SUB, FM, WAVE,
     JUNO, SAMPLER, SAMPLER 2, BREAKS, MIDI): knobs (drag, scroll, shift for fine steps, double-click to type a value)

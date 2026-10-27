@@ -41,7 +41,7 @@ THE WINDOW
   them as loops (BR1, BR2 ...), SAMPLER on its pads and zones. HEAR, rename, REMOVE.
 - Top: the instrument's presets (< > or click the name), KEEP AS USER (REESE, SUB: your own sounds), BPM, PLAY,
   FOLLOW THE DAW (on: the sequencer starts and stops with the DAW, at its tempo), WEB EDITOR.
-- The window scales: drag its corner.
+- The window scales: drag its corner. The button under DREADNOUGHT picks the skin: BLOCKS (the FM-1's own) or LIGHT.
 
 THE DAW
 -------

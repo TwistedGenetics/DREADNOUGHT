@@ -152,6 +152,23 @@ int main(int argc, char** argv)
         play(proc, 50);
         e.show(3, DreadnoughtEditor::tabSound);
         shot(e, dir.getChildFile("plugin-sound-sampler-keys.png"));
+        proc.withCore([&] { dnc_track_set_engine(3, 7); dnc_set_skin(1); return 0; });   // (the LIGHT skin too)
+        play(proc, 50);
+        e.refreshNow();
+        e.show(3, DreadnoughtEditor::tabSound);
+        shot(e, dir.getChildFile("plugin-light-sound-fm.png"));
+        e.show(0, DreadnoughtEditor::tabPattern);
+        shot(e, dir.getChildFile("plugin-light-pattern-reese.png"));
+        {
+            int sk = -1;
+            juce::MemoryBlock st;                   // (the skin kept with the project)
+            proc.getStateInformation(st);
+            proc.withCore([&] { dnc_set_skin(0); return 0; });
+            proc.setStateInformation(st.getData(), (int)st.getSize());
+            proc.withCore([&] { sk = dnc_skin(); return 0; });
+            check("the skin is kept with the project", sk == 1);
+            proc.withCore([&] { dnc_set_skin(0); return 0; });
+        }
         ed.reset();
         proc.releaseResources();
     }

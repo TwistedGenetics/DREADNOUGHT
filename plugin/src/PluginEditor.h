@@ -27,7 +27,10 @@ public:
 
 private:
     void timerCallback() override;
+    void applySkin(int s);
+public:
     struct Root;
+private:
     DreadnoughtProcessor& proc;
     dn::Look look;
     std::unique_ptr<Root> root;

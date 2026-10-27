@@ -75,8 +75,61 @@ public:
         if (onChange)
             onChange();
     }
+    void setTile(int k) { tile = ((k % 4) + 4) % 4; }    // (BLOCKS: which of the four tile colours)
+    void paintTile(juce::Graphics& g)                // BLOCKS: the FM-1's tile, filled from the bottom to the value
+    {
+        auto r = getLocalBounds().toFloat().reduced(compact ? 2.0f : 3.0f);
+        const juce::Colour c = kcol[tile], t = ktint[tile];
+        g.setColour(t);
+        g.fillRoundedRectangle(r, 5.0f);
+        if (list) {
+            g.setColour(c);
+            g.fillRoundedRectangle(r, 5.0f);
+        } else if (vhi > vlo) {
+            const float h = r.getHeight();
+            juce::Graphics::ScopedSaveState ss(g);
+            g.reduceClipRegion(r.toNearestInt());
+            g.setColour(c);
+            if (vlo < 0 && -2 * vlo >= vhi) {        // (either way of 0: from a line at 0)
+                const float m = r.getBottom() - h * (float)(-vlo) / (float)(vhi - vlo);
+                const float e = r.getBottom() - h * (float)(val - vlo) / (float)(vhi - vlo);
+                g.fillRect(r.getX(), juce::jmin(m, e), r.getWidth(), std::abs(m - e));
+                g.setColour(onChip);
+                g.fillRect(r.getX(), m - 1.0f, 10.0f, 2.0f);
+                g.fillRect(r.getRight() - 10.0f, m - 1.0f, 10.0f, 2.0f);
+            } else {
+                const float f = h * (float)(val - vlo) / (float)(vhi - vlo);
+                g.fillRect(r.getX(), r.getBottom() - f, r.getWidth(), f);
+            }
+        }
+        if (dragging) {
+            g.setColour(ink);
+            g.drawRoundedRectangle(r.expanded(1.5f), 6.0f, 2.5f);
+        }
+        g.setColour(onChip);
+        if (!compact) {
+            g.setFont(font(16.0f, 700));
+            g.drawFittedText(name, r.reduced(7.0f, 4.0f).withHeight(22.0f).toNearestInt(), juce::Justification::topLeft, 1, 0.75f);
+        }
+        const float vh = compact ? 20.0f : text.length() <= 4 ? 34.0f : text.length() <= 6 ? 27.0f : 22.0f;
+        g.setFont(font(vh, 700));
+        auto vb = compact ? r.reduced(3.0f, 0.0f) : r.reduced(7.0f, 0.0f).withTrimmedTop(26.0f);
+        if (list)
+            vb = vb.withTrimmedRight(12.0f);
+        g.drawFittedText(text, vb.toNearestInt(), compact ? juce::Justification::centred : juce::Justification::centredLeft, 1, 0.6f);
+        if (list) {
+            juce::Path tri;
+            const float x = r.getRight() - 15.0f, y = vb.getCentreY();
+            tri.addTriangle(x, y - 3.0f, x + 9.0f, y - 3.0f, x + 4.5f, y + 3.5f);
+            g.fillPath(tri);
+        }
+    }
     void paint(juce::Graphics& g) override
     {
+        if (skin == skinBlocks) {
+            paintTile(g);
+            return;
+        }
         auto r = getLocalBounds().toFloat();
         const juce::Colour col = deep(ui.accent);
         g.setColour(ink);
@@ -216,7 +269,7 @@ public:
 private:
     Ui& ui;
     uint32_t vid;
-    int vsel, fixedIdx = -1;
+    int vsel, fixedIdx = -1, tile = 0;
     bool compact = false;
     int32_t val = INT32_MIN, vlo = 0, vhi = 0;
     juce::String name, text;
@@ -246,16 +299,18 @@ public:
         g.setFont(font(16.0f, 600));
         g.drawFittedText(name, getLocalBounds().removeFromTop(20), juce::Justification::centred, 1, 0.8f);
         auto b = getLocalBounds().toFloat().withTrimmedTop(26.0f).withHeight(40.0f).reduced(3.0f, 0.0f);
-        g.setColour(panel);
+        const bool blk = skin == skinBlocks && enabled;   // (BLOCKS: a tile, dark text on it)
+        g.setColour(blk ? (list ? col : chip(col, true)) : panel);
         g.fillRoundedRectangle(b, 6.0f);
         g.setColour(edge);
-        g.drawRoundedRectangle(b, 6.0f, 1.5f);
+        if (!blk)
+            g.drawRoundedRectangle(b, 6.0f, 1.5f);
         if (!list && vhi > vlo && enabled) {         // (a bar: where the value is in its range)
             const float f = (float)(val - vlo) / (float)(vhi - vlo);
-            g.setColour(tint(col, 0.5f));
-            g.fillRoundedRectangle(b.withWidth(juce::jmax(6.0f, b.getWidth() * f)).reduced(1.5f), 5.0f);
+            g.setColour(skin == skinBlocks ? col : tint(col, 0.5f));
+            g.fillRoundedRectangle(b.withWidth(juce::jmax(6.0f, b.getWidth() * f)), 6.0f);
         }
-        g.setColour(enabled ? ink : soft.withAlpha(0.5f));
+        g.setColour(blk ? onChip : enabled ? ink : soft.withAlpha(0.5f));
         g.setFont(font(20.0f, 700));
         g.drawFittedText(enabled ? textOf(val) : "-", b.toNearestInt(), juce::Justification::centred, 1, 0.7f);
     }
@@ -326,6 +381,7 @@ public:
     {
         for (int i = 0; i < s.n; ++i) {
             auto c = std::make_unique<ValueControl>(ui, s.id[i], s.sel);
+            c->setTile(i);
             addAndMakeVisible(*c);
             controls.push_back(std::move(c));
         }
@@ -372,9 +428,9 @@ public:
         g.setColour(edge);
         g.drawRoundedRectangle(r, 10.0f, 1.5f);
         auto h = r.withHeight((float)headH - 4.0f).reduced(4.0f, 4.0f);
-        g.setColour(tint(ui.accent, 0.35f));
+        g.setColour(chip(ui.accent, true));
         g.fillRoundedRectangle(h, 7.0f);
-        g.setColour(ink);
+        g.setColour(onChip);
         g.setFont(font(20.0f, 700));
         juce::String t = title;
         if (selCount(sel) && !t.contains(":"))
@@ -403,6 +459,7 @@ public:
         for (int r = 0; r < selCount(sel); ++r)
             for (auto id : ids) {
                 auto c = std::make_unique<ValueControl>(ui, id, sel);
+                c->setTile((int)ctl.size() % (int)ids.size());
                 c->setFixedIndex(r);
                 c->setCompact(true);
                 c->refresh();
@@ -438,12 +495,13 @@ public:
         g.setColour(edge);
         g.drawRoundedRectangle(r, 10.0f, 1.5f);
         auto h = r.withHeight((float)headH - 4.0f).reduced(4.0f, 4.0f);
-        g.setColour(tint(ui.accent, 0.35f));
+        g.setColour(chip(ui.accent, true));
         g.fillRoundedRectangle(h, 7.0f);
-        g.setColour(ink);
+        g.setColour(onChip);
         g.setFont(font(20.0f, 700));
         g.drawText(title, h.reduced(10.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft);
         const float cw = (float)(getWidth() - labelW - 12) / (float)juce::jmax(1, ncol);
+        g.setColour(ink);
         g.setFont(font(16.0f, 600));
         for (int c = 0; c < ncol; ++c)
             g.drawFittedText(names[c], labelW + (int)(c * cw), headH, (int)cw, colHeadH, juce::Justification::centred, 1, 0.7f);

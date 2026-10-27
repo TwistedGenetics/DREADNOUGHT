@@ -154,6 +154,8 @@ int32_t dnc_auto_get(int e, uint32_t id);
 void dnc_auto_set(int e, uint32_t id, int32_t v);
 int32_t dnc_auto_min(int e, uint32_t id);
 int32_t dnc_auto_max(int e, uint32_t id);
+int dnc_skin(void);                                  /* the FM-1's skin: 0 BLOCKS, 1 LIGHT, 2 DARK */
+void dnc_set_skin(int s);
 void dnc_set_draw(int on);                           /* the FM-1's screen drawn too (off: the plugin's GUI only) */
 uint32_t dnc_convert(const float *x, uint32_t n, uint32_t src_rate, uint32_t rate, int trim, uint8_t *out,
                      uint32_t out_max);
