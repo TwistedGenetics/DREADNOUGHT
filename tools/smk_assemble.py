@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # DREADNOUGHT: puts DREADNOUGHT into M-VAVE's SMK37 OPEN kit as its APP, ready for the kit's own build
 # (sdk\Build.ps1 -Model pro|elite). Copyright (C) 2026 Jamie (TwistedGenetics).
-#   smk_assemble.py KIT        KIT: a checkout of m-vave/smk37_open (the commit .github/workflows/smk37.yml pins)
+#   smk_assemble.py KIT [GEN]  KIT: a checkout of m-vave/smk37_open (the commit .github/workflows/smk37.yml pins);
+#                              GEN: the tables and the font made already (dn_tables.h dn_wt_tables.h dn_font.h: the
+#                              font needs Pillow with libraqm, which Windows lacks), else made here
 #
 # What it does to KIT/app:
 #   - takes out M-VAVE's instrument's APP files (its screen, projects, presets, transfers, samples, MIDI router, DX7
@@ -22,6 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 def main():
     kit = Path(sys.argv[1]).resolve()
+    gen = Path(sys.argv[2]).resolve() if len(sys.argv) > 2 else None
     app = kit / "app"
     if not (kit / "sdk" / "Build.ps1").exists() or not (app / "board" / "audio.c").exists():
         raise SystemExit(f"smk_assemble: {kit} is not the SMK37 OPEN kit")
@@ -75,8 +78,11 @@ def main():
         (dn / f"{name}.inc").write_text(text)
     for script, out in [("gen_dn_tables.py", "dn_tables.h"), ("gen_dn_wt.py", "dn_wt_tables.h"),
                         ("gen_dn_font.py", "dn_font.h")]:
-        subprocess.run([sys.executable, str(REPO / "tools" / script), str(dn / out)], check=True,
-                       stdout=subprocess.DEVNULL)
+        if gen:
+            shutil.copy2(gen / out, dn / out)
+        else:
+            subprocess.run([sys.executable, str(REPO / "tools" / script), str(dn / out)], check=True,
+                           stdout=subprocess.DEVNULL)
     (dn / "dn_smk_version.h").write_text(
         "/* made by tools/smk_assemble.py */\n#pragma once\n"
         f'#define DN_VERSION "{ver}"\n'

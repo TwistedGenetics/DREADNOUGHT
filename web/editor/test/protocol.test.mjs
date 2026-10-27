@@ -150,3 +150,22 @@ test("(0.30) the link: a request unanswered is sent again; a closed link lets go
   await assert.rejects(link.req(60, [], 200), /newer connection/);
   m.close();
 });
+
+test("a long reply in pieces (the SMK-37's 128-byte MIDI queue) is put together", async () => {
+  const { Link: L } = await import("../protocol.js");
+  const input = { onmidimessage: null };
+  const sent = [];
+  const output = { send: (f) => sent.push(f) };
+  const link = new L(input, output);
+  const body = [0x7D, 0x46, 0x4C, 99];
+  for (let i = 0; i < 250; i++) body.push(i & 0x7F);
+  const p = link.req(99, [], 500);
+  await new Promise((r) => setTimeout(r, 10));                // (the request goes out on the link's queue)
+  const pieces = [];
+  for (let at = 0; at < body.length; at += 100) pieces.push(body.slice(at, at + 100));
+  pieces.forEach((b, i) => input.onmidimessage({ data: Uint8Array.from([0xF0, 0x7D, 0x46, 0x4C, 0x7E, i, pieces.length, ...b, 0xF7]) }));
+  const r = await p;
+  assert.equal(r.length, 250);
+  assert.equal(r[249], 249 & 0x7F);
+  link.close();
+});

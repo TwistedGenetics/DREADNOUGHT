@@ -346,10 +346,24 @@ export class Link {
     this.queue = Promise.resolve();
     this.tap = null;                                  // (the Diagnostics panel: every frame both ways)
     this.closed = false;
+    this.pieces = [];                                 // (a long reply in pieces: the SMK-37's, 0.46)
+    this.piecesGot = 0;
     input.onmidimessage = (ev) => {
-      const d = ev.data;
+      let d = ev.data;
       if (this.closed) return;
       if (this.tap && d[0] === 0xF0) this.tap("<", d);
+      // F0 7D 46 4C 7E i n <bytes> F7: piece i of n of a reply too long for the SMK-37's MIDI queue (128 bytes); the
+      // reply is the pieces' bytes put together between an F0 and an F7
+      if (d[0] === 0xF0 && d[1] === HDR[0] && d[2] === HDR[1] && d[3] === HDR[2] && d[4] === 0x7E && d.length >= 8) {
+        const i = d[5], n = d[6];
+        if (i === 0) this.pieces = [], this.piecesGot = 0;
+        if (i !== this.piecesGot || i >= n) { this.pieces = [], this.piecesGot = 0; return; }
+        this.pieces.push(...d.slice(7, d.length - 1));
+        this.piecesGot++;
+        if (i < n - 1) return;
+        d = Uint8Array.from([0xF0, ...this.pieces, 0xF7]);
+        this.pieces = [], this.piecesGot = 0;
+      }
       if (d[0] !== 0xF0 || d[1] !== HDR[0] || d[2] !== HDR[1] || d[3] !== HDR[2] || !this.wait || d[4] !== this.wait.cmd) return;
       const r = [...d.slice(5, d.length - 1)], w = this.wait;
       if (w.match && !w.match(r)) { if (this.tap) this.tap("?", [w.cmd]); return; }   // (not this request's answer)

@@ -19,7 +19,30 @@ permissions:
   contents: read
 
 jobs:
+  tables:                                           # (on Linux: the font needs Pillow with libraqm)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy Pillow
+      - run: |
+          set -e
+          mkdir -p gen
+          python3 tools/gen_dn_tables.py gen/dn_tables.h >/dev/null
+          python3 tools/gen_dn_wt.py gen/dn_wt_tables.h >/dev/null
+          python3 tools/gen_dn_font.py gen/dn_font.h
+          ls -la gen
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smk-tables-${{ github.run_id }}
+          path: gen/
+          if-no-files-found: error
+
   firmware:
+    needs: tables
     runs-on: windows-latest
     timeout-minutes: 60
     strategy:
@@ -43,12 +66,14 @@ jobs:
         shell: bash
         run: bash tools/ci_step.sh "toolchain" pwsh -NoProfile -File tools/smk_toolchain.ps1
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: smk-tables-${{ github.run_id }}
+          path: gen
       - name: Put DREADNOUGHT in as the APP
         if: ${{ !inputs.baseline }}
         shell: bash
-        run: |
-          pip install pillow numpy >/dev/null
-          bash tools/ci_step.sh "assemble" python tools/smk_assemble.py sdkkit
+        run: bash tools/ci_step.sh "assemble" python tools/smk_assemble.py sdkkit gen
 
       - name: Build
         shell: bash

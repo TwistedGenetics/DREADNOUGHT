@@ -6,13 +6,19 @@ New-Item -ItemType Directory -Force C:\JL | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "download failed ($LASTEXITCODE)" }
 $f = Get-Item C:\JL\2.5.3.exe
 Write-Host "installer: $($f.Length) bytes, sha256 $((Get-FileHash $f -Algorithm SHA256).Hash)"
-& 7z x -y -oC:\JL\x C:\JL\2.5.3.exe > C:\JL\7z.log
-Write-Host "7z: $LASTEXITCODE"
-$clang = Get-ChildItem -Recurse -Path C:\JL\x -Filter clang.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'pi32' } | Select-Object -First 1
+# (an Inno Setup installer: installed quietly into C:\JL\inst)
+$p = Start-Process -FilePath C:\JL\2.5.3.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/DIR=C:\JL\inst' -Wait -PassThru
+Write-Host "installer: exit $($p.ExitCode)"
+$clang = $null
+foreach ($root in @('C:\JL\inst','C:\JL','C:\')) {
+    $clang = Get-ChildItem -Recurse -Path $root -Filter clang.exe -ErrorAction SilentlyContinue -Depth 6 |
+        Where-Object { $_.FullName -match 'pi32' -and (Test-Path (Join-Path (Split-Path -Parent $_.FullName) 'pi32v2-ld.exe')) } |
+        Select-Object -First 1
+    if ($clang) { break }
+}
 if (!$clang) {
-    Get-Content C:\JL\7z.log -Tail 15
-    Get-ChildItem -Recurse C:\JL\x -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { $_.FullName }
-    throw 'no pi32 clang.exe found in the installer'
+    Get-ChildItem -Recurse C:\JL -Depth 3 -ErrorAction SilentlyContinue | Select-Object -First 60 | ForEach-Object { $_.FullName }
+    throw 'no pi32 clang.exe (with pi32v2-ld.exe beside it) after the install'
 }
 $pi32 = Split-Path -Parent (Split-Path -Parent $clang.FullName)
 "FM1_PI32_TOOLCHAIN=$pi32" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
