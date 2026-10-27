@@ -89,4 +89,8 @@ for w in build/host/one/*.wav; do
 done
 echo "ok   two cores vs one: $(ls build/host/one/*.wav | wc -l) recordings the same to the bit"
 node tests/host/editor_golden.mjs build/host/editor-golden.json
+# (0.44) the plugin's core (plugin/core): the app and the engines driven as a DAW drives them
+# shellcheck disable=SC2086
+$CC $W -Wno-unused-parameter -Wno-sign-compare -DDN_VERSION="\"$(tr -d ' \n' < VERSION)\"" plugin/core/dnc_test.c plugin/core/dn_core.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c src/dsp/dn_wt.c src/dsp/dn_ju.c -lm -o build/host/dnc_test
+build/host/dnc_test build/host/plugin-core.ppm
 echo "host tests: all ok"

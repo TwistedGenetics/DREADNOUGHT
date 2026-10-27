@@ -50,6 +50,25 @@ address bar and allow MIDI devices. Still nothing: open **Diagnostics** at the b
 ports**, pick the FM-1's port if it's listed under another name (macOS, Windows and Linux name it differently, and
 remember the name from earlier firmware), Connect, and send the text from **Copy all**.
 
+## Plugin: AU / VST3 / standalone (0.44, beta)
+
+**DREADNOUGHT in your DAW.** The FM-1's own app and engines, built for the computer: the same screen, pages, sounds,
+sequencer and effects, with the FM-1's panel to click on (the encoders, the knobs, both rows of buttons, the 27 keys;
+your computer's keys play them too). AU, VST3 and a standalone app for macOS (Apple silicon and Intel), VST3 and the
+app for Windows and Linux: `DREADNOUGHT-plugin-X.Y-macOS.zip` (or `-Windows`, `-Linux`) on each
+[release](https://github.com/TwistedGenetics/DREADNOUGHT/releases/latest), with an install note inside
+([docs/plugin/README.txt](docs/plugin/README.txt)).
+
+- MIDI channels 1–8 play tracks 1–8; channels 9–16 play the track the screen shows. BREAKS (and SAMPLER's pads)
+  take C1 as the first slice.
+- **FOLLOW THE HOST** (on by default): the sequencer starts and stops with the DAW, at its tempo.
+- MIDI tracks send their notes out to the DAW. The project is saved with the DAW's project.
+- For now: one per project, the two built-in loops (your own samples come later), and the sequencer starts from its
+  bar 1 when the DAW plays.
+
+Build it: `cmake -S plugin -B build/plugin -DCMAKE_BUILD_TYPE=Release && cmake --build build/plugin --config Release`
+(JUCE is fetched; Python 3 with numpy and Pillow makes the engines' tables).
+
 ## Download & install
 
 Go to [**Releases**](https://github.com/TwistedGenetics/DREADNOUGHT/releases/latest) and download `DREADNOUGHT-0.11.fwsc`

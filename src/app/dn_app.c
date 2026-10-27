@@ -2308,6 +2308,12 @@ static int str_cmp_dn(const char *a, const char *b)
         a++, b++;
     return (unsigned char)*a - (unsigned char)*b;
 }
+static void mem_zero_dn(void *a, uint32_t n)         /* (the plugin, 0.44: a save's padding zeroed, not the last one's) */
+{
+    uint8_t *p = (uint8_t *)a;
+    while (n--)
+        *p++ = 0;
+}
 static int mem_cmp_dn(const void *a, const void *b, uint32_t n)
 {
     const uint8_t *x = (const uint8_t *)a, *y = (const uint8_t *)b;
@@ -2454,6 +2460,7 @@ static int dn_wv_keep(void)                         /* 0 kept (or unchanged), el
     int rc;
 #define w (*wp)
 #define old (*op)
+    mem_zero_dn(wp, sizeof *wp);
     w.magic = DN_WV_MAGIC;
     w.preset = dn.wv_preset, w.np = WP_N;
     for (b = 0; b < 2u; b++) {
@@ -2547,6 +2554,7 @@ static int dn_x1_keep(void)                         /* 0 kept (or unchanged), el
     int rc;
 #define w (*wp)
 #define old (*op)
+    mem_zero_dn(wp, sizeof *wp);
     w.magic = DN_X1_MAGIC;
     w.ju_preset = dn.ju_preset, w.ju_np = JP_N;
     for (k = 0; k < JP_N; k++)

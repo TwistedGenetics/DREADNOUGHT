@@ -1,0 +1,190 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# DREADNOUGHT as a plugin (0.44): AU, VST3 and the standalone app for macOS (Apple silicon and Intel), VST3 and the
+# standalone app for Windows and Linux, built with JUCE around the FM-1's app and engines (plugin/). Every push and PR
+# builds them and checks them (the core's test, dn_shot: a note and the state at 48 kHz, the editor drawn; auval on
+# the Mac). A push to main or a vX.Y tag adds the zips to the Release vX.Y once build.yml has published it (files
+# already there are left alone, as the firmware's are).
+name: plugin
+
+on:
+  push:
+    branches: [main, x0x-platform]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: plugin-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            name: macOS
+          - os: windows-latest
+            name: Windows
+          - os: ubuntu-22.04
+            name: Linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python packages (the engines' tables, the font)
+        run: pip install numpy Pillow fonttools
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev \
+            libxcomposite-dev libfreetype6-dev libfontconfig1-dev libgl1-mesa-dev xvfb ninja-build
+
+      - name: Version
+        id: ver
+        run: echo "version=$(tr -d ' \r\n' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: The core alone (no JUCE)
+        if: runner.os != 'Windows'
+        run: |
+          set -e
+          mkdir -p build/gen/x0x build/plug
+          python3 tools/gen_dn_tables.py build/gen/dn_tables.h >/dev/null
+          python3 tools/gen_dn_wt.py build/gen/dn_wt_tables.h >/dev/null
+          python3 tools/gen_dn_breaks.py build/gen/dn_breaks_builtin.h >/dev/null
+          python3 x0x-firmware/tools/gen_font.py build/gen/x0x/felucca_font.h >/dev/null
+          W="-O2 -std=c99 -ffp-contract=off -w -Ibuild/gen/x0x -Ibuild/gen -Isrc/dsp -Isrc/app -Ix0x-firmware/firmware/src"
+          cc $W -DDN_VERSION='"${{ steps.ver.outputs.version }}"' plugin/core/dnc_test.c plugin/core/dn_core.c \
+            src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c \
+            src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c \
+            src/dsp/dn_wt.c src/dsp/dn_ju.c -lm -o build/plug/dnc_test
+          build/plug/dnc_test
+
+      - name: Configure
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then gen="-G Ninja"; elif [ "$RUNNER_OS" = Windows ]; then gen="-T ClangCL"; else gen=""; fi
+          cmake -S plugin -B build/plugin $gen -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: |
+          set -o pipefail
+          if ! cmake --build build/plugin --config Release --parallel 4 2>&1 | tee plugin-build.log; then
+            msg=$(grep -E "error|Error" plugin-build.log | head -25)
+            msg=${msg//'%'/'%25'}; msg=${msg//$'\n'/'%0A'}
+            echo "::error title=plugin build (${{ matrix.name }})::$msg"
+            exit 1
+          fi
+
+      - name: Check (a note and the state at 48 kHz, the editor drawn)
+        run: |
+          set -o pipefail
+          shot=$(find build/plugin -type f \( -name dn_shot -o -name dn_shot.exe \) | head -1)
+          mkdir -p shots
+          run() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a "$@"; else "$@"; fi; }
+          run "$shot" shots/plugin-${{ matrix.name }}.png 2>&1 | tee shot.log
+          run "$shot" shots/plugin-seq-${{ matrix.name }}.png tap:9 ms:300 >/dev/null
+
+      - name: pluginval (the VST3 opened, played, its state and editor, as DAWs use them)
+        run: |
+          set -o pipefail
+          case "$RUNNER_OS" in macOS) z=pluginval_macOS.zip ;; Windows) z=pluginval_Windows.zip ;; *) z=pluginval_Linux.zip ;; esac
+          curl -sSL -o pv.zip "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/$z"
+          mkdir -p pv && (cd pv && unzip -q ../pv.zip)
+          pv=$(find pv -type f \( -name pluginval -o -name pluginval.exe \) | head -1)
+          vst=$(find build/plugin -type d -name "DREADNOUGHT.vst3" -path "*VST3*" | head -1)
+          run() { if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a "$@"; else "$@"; fi; }
+          run "$pv" --strictness-level 5 --validate-in-process --validate "$vst" 2>&1 | tee pluginval.log | tail -20
+          grep -q "SUCCESS" pluginval.log && ! grep -q "FAILED" pluginval.log
+
+      - name: auval (the AU, as Logic checks it)
+        if: runner.os == 'macOS'
+        run: |
+          set -o pipefail
+          au=$(find build/plugin -type d -name "DREADNOUGHT.component" | head -1)
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "$au" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 3
+          auval -v aumu Drnt Twgn 2>&1 | tee auval.log | tail -25
+          grep -q "AU VALIDATION SUCCEEDED" auval.log
+
+      - name: Package
+        run: |
+          set -e
+          v=${{ steps.ver.outputs.version }}
+          art=$(find build/plugin -type d -name "Dreadnought_artefacts" | head -1)
+          mkdir -p dist pkg
+          cp docs/plugin/README.txt pkg/README.txt
+          if [ "$RUNNER_OS" = macOS ]; then
+            cp -R "$art/Release/VST3/DREADNOUGHT.vst3" "$art/Release/AU/DREADNOUGHT.component" "$art/Release/Standalone/DREADNOUGHT.app" pkg/
+            for b in pkg/DREADNOUGHT.vst3 pkg/DREADNOUGHT.component pkg/DREADNOUGHT.app; do codesign --force --deep -s - "$b"; done
+            (cd pkg && ditto -c -k --keepParent . "../dist/DREADNOUGHT-plugin-$v-macOS.zip")
+          elif [ "$RUNNER_OS" = Windows ]; then
+            cp -R "$art/Release/VST3/DREADNOUGHT.vst3" pkg/
+            cp "$art/Release/Standalone/DREADNOUGHT.exe" pkg/
+            (cd pkg && 7z a -tzip "../dist/DREADNOUGHT-plugin-$v-Windows.zip" . >/dev/null)
+          else
+            cp -R "$art/Release/VST3/DREADNOUGHT.vst3" pkg/
+            cp "$art/Release/Standalone/DREADNOUGHT" pkg/
+            (cd pkg && zip -qr "../dist/DREADNOUGHT-plugin-$v-Linux.zip" .)
+          fi
+          ls -la dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-${{ matrix.name }}-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plugin-shots-${{ matrix.name }}-${{ github.sha }}
+          path: shots/
+          if-no-files-found: ignore
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: plugin-*-${{ github.sha }}
+          path: dl
+      - name: Add the zips to the Release (once build.yml has published it)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          v=$(tr -d ' \r\n' < VERSION)
+          tag="v$v"
+          for i in $(seq 1 60); do
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "waiting for the release $tag ($i)"; sleep 30
+          done
+          have=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name')
+          for f in $(find dl -name "DREADNOUGHT-plugin-*.zip"); do
+            n=$(basename "$f")
+            if echo "$have" | grep -qx "$n"; then echo "$n: already there"; continue; fi
+            gh release upload "$tag" "$f" --repo "$GITHUB_REPOSITORY"
+            echo "::notice title=plugin::$n added to $tag"
+          done

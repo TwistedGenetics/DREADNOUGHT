@@ -1024,3 +1024,22 @@ computer: it needs the FM-1 (and a DAW) to show the ten inputs.
 - docs/RECOVERY.md: what to do when a unit shows nothing at all (the FM-1 Transporter on an RP2040 board), and how
   to write DREADNOUGHT straight back with it.
 
+## 0.44 — DREADNOUGHT as a plugin (2026-10-27)
+
+- **AU, VST3 and a standalone app** (plugin/): the FM-1's app and engines, unchanged, on a simulated FM-1 inside a
+  JUCE plugin. The editor is the FM-1's panel: the screen twice its size (pixel-sharp), SELECT, PRESETS, ALGORITHM and
+  OCT on the left, K1–K4 and the two rows of buttons on the right (lit as on the FM-1), the 27 keys below; drag or
+  scroll a knob, shift-click a button to hold it, the computer's keys play the keys. The window scales.
+- The sound is made at 44.1 kHz, as on the FM-1, and resampled (cubic) to the project's rate; notes and the panel are
+  taken every 32 samples (under a millisecond).
+- The DAW's MIDI: channels 1–8 play tracks 1–8, 9–16 the track shown (BREAKS and SAMPLER's pads from C1). MIDI tracks
+  send their notes to the DAW. FOLLOW THE HOST: the sequencer starts and stops with the DAW, at its tempo.
+- The project (sounds, patterns, song, settings: the FM-1's flash objects) goes into the DAW's project; the plugin
+  does SAVE when the DAW saves.
+- CI builds it for macOS (universal), Windows and Linux, checks it (a note at 48 kHz through the resampler, the state
+  saved and loaded, the editor drawn; auval for the AU) and adds the zips to the release.
+- Tests: the core alone (plugin/core/dnc_test.c, in tests/run_host.sh): quiet at the start, a host note per channel,
+  a break's slice, the host's transport and tempo, PLAY on the panel, the state saved, loaded and the same.
+- Firmware: SAVE zeroes WAVE's and JUNO's records before filling them, so an unchanged sound no longer counts as
+  changed (their padding held the last record's bytes) and isn't written to the flash again.
+- For now: one per project; the two built-in loops only; the sequencer starts from its bar 1 when the DAW plays.

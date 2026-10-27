@@ -672,6 +672,27 @@ def body():
              "sets their slices.</p>")
     o.append(tip("If the editor won't connect: close everything else using the FM-1's MIDI port (a DAW, the flasher or the breaks page in another tab), reload, Connect again. Diagnostics at the bottom of the page lists the ports.", 3))
 
+    # ---- the plugin (0.44)
+    o.append(chapter("IN YOUR DAW: THE PLUGIN", 2, "AU, VST3 and a standalone app: DREADNOUGHT-plugin-X.Y-macOS.zip "
+                     "(or -Windows, -Linux) on each GitHub release."))
+    o.append("<p>The same app and instruments as on the FM-1, on the computer: the screen, the pages, the sounds, the "
+             "sequencer and the effects, with the FM-1's panel to click on. Everything in this manual works there.</p>")
+    o.append(f'<figure class="shot"><img src="{png_uri(REPO / "docs" / "plugin" / "editor.png")}" alt="" '
+             'style="image-rendering:auto;border-width:2pt"><figcaption>The plugin in a DAW: the FM-1\'s panel, its '
+             'screen twice the size.</figcaption></figure>')
+    o.append(table([
+        ("Knobs and encoders", "Drag up or down, or scroll. Shift: four steps at a time."),
+        ("Buttons", "Click. Shift-click (or right-click) holds one down for the combinations: SAVE + FX, HOME + SELECT, SEQ + a key. Click it again to let go."),
+        ("Keys", "Click, or play the computer's keys: Z S X D C ... from F3, Q 2 W 3 E ... from F4."),
+        ("MIDI from the DAW", "Channels 1-8 play tracks 1-8; channels 9-16 play the track on the screen. BREAKS and SAMPLER's pads: C1 (note 36) is the first slice."),
+        ("FOLLOW THE HOST", "On: the sequencer starts and stops with the DAW, at its tempo. Off: PLAY on the panel, at its own."),
+        ("MIDI tracks", "Their notes go out of the plugin to the DAW: route them to another instrument."),
+        ("Saving", "The project is kept in the DAW's project: the plugin does SAVE when the DAW saves."),
+    ], head=["", "HOW"]))
+    o.append(tip("For now: one DREADNOUGHT per project, the two built-in loops (ROLLER, STEPPER), and the sequencer starts "
+                 "from its bar 1 when the DAW plays: start the DAW on a bar. On a Mac the files aren't signed by Apple yet: "
+                 "the README in the zip says how to let them open.", 2, "BETA"))
+
     # ---- limits
     o.append(chapter("MEMORY AND CPU", 0, brk=False))
     o.append(table([
