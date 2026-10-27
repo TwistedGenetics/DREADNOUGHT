@@ -6,11 +6,12 @@
  * effect whose memory doesn't fit is refused. MASSIVE takes what the other slot leaves (its longest time follows).
  *
  *   DELAY      0.12's: a ping-pong at half rate (dark, dub-like), TIME synced, FEEDBACK, TONE.        (dn_fx.c)
- *   TAPE, BBD  Carnac OS's echoes: a tape loop (wow, flutter, head loss, saturation) and a bucket brigade (held
- *              buckets, compander breath); DEGRADE wears them, FEEDBACK past 100 runs away. (dn_fxc.c)
+ *   TAPE, BBD  (2026-10, our own) the echoes: a varispeed tape loop (wow, flutter, head loss, saturation) and a
+ *              bucket brigade (held buckets, compander breath); DEGRADE wears them, FEEDBACK past 100 runs away.
  *   SPRING, TOMB, MOD, CELESTIAL, DOLMEN, TUMULUS
- *              Carnac OS's reverbs: two dispersive springs; a Freeverb-style room; Dattorro's tank moving (MOD),
- *              with an octave-up shimmer (CELESTIAL), small and still (DOLMEN), long and dark (TUMULUS). (dn_fxc.c)
+ *              (2026-10, our own) the reverbs, at half rate: two dispersive springs; a dark Schroeder room; a
+ *              Dattorro-style tank, moving (MOD), with an octave-up shimmer (CELESTIAL), small and still (DOLMEN),
+ *              long and dark (TUMULUS). (dn_fxc.c)
  *   QUADRA     an Alesis Quadraverb-style chain: configurations of EQ, chorus / flange / detune, delay and a small
  *              plate, with a 16-BIT switch for the 1989 grit. (dn_fxq.c)
  *   FILTER, PHASER, CHORUS, CRUSH, RING, DRIVE
@@ -18,8 +19,8 @@
  *   MASSIVE    Jamie's Super-Massive ("Horizon", microKORG 2): an 8-line feedback delay network with ten modes, from a
  *              room to a self-oscillating dub echo, at half rate. (dn_fxm.c)
  *
- * Every effect limits its send first (Carnac's law: a peak over full scale ducks it, ~0.1 s back), so a loud chord
- * into a reverb never clips inside it. */
+ * Every effect limits its send first (a peak limiter: a peak over full scale turns the send down at once, the gain
+ * comes back over ~0.1 s), so a loud chord into a reverb never clips inside it. */
 #pragma once
 #include <stdint.h>
 
@@ -44,50 +45,58 @@ typedef struct {                                    /* DELAY */
     uint8_t ph;
 } dn_fxd_t;
 
-typedef struct {                                    /* TAPE, BBD (Carnac's TapeState) */
-    int16_t *tape;
-    uint32_t wpos_q16;
-    int32_t gap_q16, gap_tgt_q16, speed_q24, speed_tgt_q24;
-    uint32_t last_len, wow_ph, flutter_ph;
-    int32_t aa_lp, loss_lp, loss2_lp;
-    int32_t bb_aa1, bb_aa2, bb_rc1, bb_rc2, bb_rc1b, bb_rc2b, bb_env;
-    float hp_lp, hp2_lp, bb_hp, bb_hpb;             /* the high-passes (float: an integer one this slow sticks up to
-                                                     * 127 LSB off zero, a DC left for ever) */
-    uint32_t bb_rng, seed_rng;
-    int32_t run_lp;
+typedef struct {                                    /* TAPE, BBD (dn_fxc.c) */
+    int16_t *line;                                  /* TAPE: the tape's cells; BBD: the buckets */
+    uint32_t w;                                     /* the cell being recorded / the next bucket filled */
+    float ph;                                       /* TAPE: the record head's way through its cell; BBD: the clock */
+    float acc;                                      /* TAPE: the cell being recorded, so far */
+    float rate, gap;                                /* TAPE: cells a sample, the head gap (cells); BBD: the clock */
+    float lfo[2];                                   /* wow's and flutter's phases (BBD: its clock's wobble), turns */
+    float mod;                                      /* the play heads' swing at the last block's end, cells */
+    float f[8];                                     /* the filters' states */
+    float env[3];                                   /* BBD: the compressor's, the expanders' (end, half-way) */
+    float hold[2];                                  /* BBD: the buckets leaving, expanded (half-way, end) */
+    float c[8];                                     /* the coefficients, made when a value or the tempo changes */
+    uint32_t rng;
+    uint16_t bpm;                                   /* the tempo they were made for */
+    uint8_t last[4];                                /* the values they were made for */
+    uint8_t started;
 } dn_fxt_t;
 
-typedef struct { uint32_t w, c; int32_t aa1, aa2, hp, lp; } dn_fxsh_t;   /* CELESTIAL's octave-up shifter */
-typedef struct {                                    /* the reverbs' common front: low cut, predelay */
-    int16_t *pre;
+typedef struct {                                    /* the reverbs' common front and back (dn_fxc.c) */
+    int16_t *pre;                                   /* the predelay (half rate) */
     uint32_t pre_w;
-    float lc;                                       /* LOW CUT's state */
+    float lc[2];                                    /* LOW CUT's two one-poles */
+    float x0, yl, yr;                               /* the pair's first sample; the last half-rate outputs */
+    float c[8];                                     /* the coefficients (c[0]: LOW CUT's), made when a value changes */
+    uint8_t last[4], made;
+    uint8_t ph;
 } dn_fxf_t;
-typedef struct {                                    /* MOD, CELESTIAL, DOLMEN, TUMULUS: Dattorro's tank */
+#define DN_FXK_LINES 12
+typedef struct {                                    /* MOD, CELESTIAL, DOLMEN, TUMULUS: a Dattorro-style tank */
     dn_fxf_t f;
-    int16_t *ring, *sh_buf;
-    uint32_t p;
-    int32_t lp_l, lp_r, dc_l, dc_r;
-    uint32_t ph_l, ph_r;
-    int32_t wander[2], wander_tgt[2];
-    uint32_t rng, wander_n;
-    int32_t mod_l, mod_r, duck, duck_g, duck_step;
-    dn_fxsh_t sh;
+    int16_t *ring, *sh;                             /* the lines (one ring, one pointer); CELESTIAL's shifter */
+    uint32_t mask, p;
+    uint32_t off[DN_FXK_LINES], len[DN_FXK_LINES];  /* each line's place in the ring and its length */
+    uint32_t tap[2][7];                             /* the outputs' taps (ring offsets) */
+    float bw, damp[2], z[2];                        /* the input's low-pass; the halves' damping; their ends */
+    float lph[2], m[2];                             /* the LFOs' phases; the swings at the last block's end */
+    float shl[4];                                   /* the shimmer's band (two low-passes, a high-pass), its output */
+    uint32_t sh_w, sh_c;
 } dn_fxk_t;
-#define DN_SP_STAGES 12
-typedef struct { float lp; float h[DN_SP_STAGES / 2][3][3]; } dn_fxspr_t;
+#define DN_SP_M 16                                  /* SPRING: allpass stages a spring */
 typedef struct {                                    /* SPRING */
     dn_fxf_t f;
-    int16_t *ring;
-    uint32_t p;
-    float hp;
-    dn_fxspr_t sp[2];
+    int16_t *line[2];
+    float *ap;                                      /* the stretched allpasses' states: 2 springs x DN_SP_M x 2 */
+    uint32_t w[2], k;
+    float lp[2], hp[2];
 } dn_fxs_t;
-typedef struct {                                    /* TOMB: 4 combs, 2 allpasses */
+typedef struct {                                    /* TOMB: four damped combs, an allpass a side */
     dn_fxf_t f;
-    int16_t *comb, *ap;
-    uint32_t ci[4], ai[2];
-    int32_t clp[4];
+    int16_t *cell;                                  /* its ring (one pointer for all its lines) */
+    uint32_t p;
+    float lp[4];
 } dn_fxr_t;
 
 typedef struct {                                    /* QUADRA */
@@ -137,7 +146,7 @@ typedef struct {
     uint8_t type;
     void *mem;
     uint32_t bytes;                                 /* its memory in the arena */
-    float lim;                                      /* the send limiter's envelope */
+    float lim;                                      /* the send limiter's gain (1: open) */
     union { dn_fxd_t d; dn_fxt_t t; dn_fxk_t k; dn_fxs_t s; dn_fxr_t r; dn_fxq_t q; dn_fxm_t m; dn_fxl_t l; } u;
 } dn_fx_s_t;
 

@@ -14,7 +14,7 @@
  * The plate: two input allpasses into four lines mixed by a Hadamard matrix, damped, gains set for the DECAY's RT60
  * (0.2 .. 6 s); float, the lines int16 truncated toward zero (a tail ends in silence). The delay runs at half rate
  * (0.74 s), darker each repeat. 16-BIT ON: the wet held over pairs of samples and cut to 12 bits, the 1989 grain.
- * Memory 52 KB: smaller than Carnac's reverbs, one slot's worth. */
+ * Memory 52 KB: smaller than the tank reverbs, one slot's worth. */
 #include "dn_fx.h"
 #include "dsp/fastmath.h"
 

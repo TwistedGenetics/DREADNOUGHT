@@ -424,7 +424,7 @@ static dn_brk_t dn_bk[DN_NBRK] X0X_POOL;
 static dn_lfo_p_t dn_lp[DN_NLFO_ALL];               /* their settings ... */
 static dn_lfo_s_t dn_ls[DN_NLFO_ALL];               /* ... and where each one is (audio) */
 /* ---- the project (0.12): its name, each track's sends, the FX rack (two send slots in one memory arena) ---- */
-#define DN_FX_ARENA (176u * 1024u)                  /* (0.16: DELAY's 96 KB and the biggest reverb's 77 KB) */
+#define DN_FX_ARENA (176u * 1024u)                  /* (0.16: DELAY's 96 KB and the biggest reverb's, now 72 KB) */
 static uint32_t dn_fx_mem[DN_FX_ARENA / 4u] X0X_POOL;
 /* (0.42) USB audio's ten channels (tracks 1-8, each mono and dry; then FX A + B's returns, L R) borrow the arena's top:
  * the USB ring (2048 frames) and the block the mix fills for it (256 frames). The effects get what's left. */
@@ -1186,33 +1186,31 @@ static void dn_mix_render(int32_t *lr, uint32_t k)
 }
 
 /* The master limiter (0.16.1): with the reverbs' and MASSIVE's returns on top of the engines a mix went past full
- * scale, and the soft knee below clipped it (Jamie: "a buzz sometimes, like it's distorting"). Carnac OS's law: the
- * envelope jumps to a peak over the ceiling (no sample passes it) and comes back with tau ~0.15 s; the gain is ceiling /
- * envelope, the same both sides (the stereo image holds). The ceiling sits just under the knee, so the knee only
- * catches what slips through the float's rounding. */
+ * scale, and the soft knee below clipped it (Jamie: "a buzz sometimes, like it's distorting"). A peak limiter
+ * (DREADNOUGHT's own, 2026-10, worked on the gain): the gain recovers toward 1 by a one-pole (tau 0.15 s); a sample
+ * that would still pass the ceiling at that gain sets it, at once, to ceiling / its peak (no sample passes), the same
+ * both sides (the stereo image holds). The ceiling sits just under the knee, so the knee only catches what slips
+ * through the float's rounding. */
 #define DN_LIM_TOP 24000.f
-static float dn_lim_env = DN_LIM_TOP;
+#define DN_LIM_BACK (1.f / 6615.f)                  /* the gain's recovery a sample: 1 / (0.15 s x 44.1 kHz) */
+static float dn_lim_g = 1.f;
 static uint32_t dn_knee;
 static void dn_master_limit(int32_t *lr, uint32_t n)
 {
-    float env = dn_lim_env;
+    float g = dn_lim_g;
     uint32_t i;
     for (i = 0; i < n; i++) {
         int32_t l = lr[2u * i], r = lr[2u * i + 1u];
-        float a = (float)(l < 0 ? -l : l), b = (float)(r < 0 ? -r : r);
-        if (b > a)
-            a = b;
-        if (env > DN_LIM_TOP)
-            env = DN_LIM_TOP + (env - DN_LIM_TOP) * 0.99985f;
-        if (a > env)
-            env = a;
-        if (env > DN_LIM_TOP) {
-            float g = DN_LIM_TOP / env;
+        uint32_t al = (uint32_t)(l < 0 ? -l : l), ar = (uint32_t)(r < 0 ? -r : r), pk = al > ar ? al : ar;
+        g += (1.f - g) * DN_LIM_BACK;
+        if ((float)pk * g > DN_LIM_TOP)
+            g = DN_LIM_TOP / (float)pk;
+        if (g < 0.99999f) {
             lr[2u * i] = (int32_t)((float)l * g);
             lr[2u * i + 1u] = (int32_t)((float)r * g);
         }
     }
-    dn_lim_env = env;
+    dn_lim_g = g > 0.99999f ? 1.f : g;
 }
 
 /* (0.42) the USB block: full (DN_MO_N frames) or not; dn_app_usb_next() starts the next, cleared */

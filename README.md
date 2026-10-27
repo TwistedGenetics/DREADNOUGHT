@@ -174,10 +174,10 @@ beat.
 | Effect | What it is | Values |
 |---|---|---|
 | DELAY | the dark half-rate ping-pong of 0.12 | TIME (synced), FEEDBACK (over 100 it howls), TONE |
-| TAPE | Carnac OS's tape echo: wow, flutter, head loss, saturation; long times slow the tape (darker) | TIME (synced), FEEDBACK (over 100 it runs away into a held howl), DEGRADE (new … worn out), PINGPONG |
-| BBD | Carnac OS's bucket brigade: crumbly, dark, the compander's breath | as TAPE |
-| SPRING | Carnac OS's two springs: every echo a falling chirp (the dub "drip") | TIME, DAMP, PREDELAY, LOW CUT |
-| TOMB | a small stone room (Freeverb-style) | as SPRING |
+| TAPE | a varispeed tape echo: wow, flutter, head loss, saturation; long times slow the tape (darker) | TIME (synced), FEEDBACK (over 100 it runs away into a held howl), DEGRADE (new … worn out), PINGPONG |
+| BBD | a bucket brigade: held buckets, crumbly, dark, the compander's breath | as TAPE |
+| SPRING | two springs: every echo a falling chirp (the dub "drip") | TIME, DAMP, PREDELAY, LOW CUT |
+| TOMB | a small dark stone room (Schroeder / Freeverb-style combs) | as SPRING |
 | MOD | a big moving hall, its tail chorused (Lexicon-style) | as SPRING |
 | CELESTIAL | MOD with an octave-up shimmer climbing in its tail | as SPRING |
 | DOLMEN | a small dense chamber, bright | as SPRING |

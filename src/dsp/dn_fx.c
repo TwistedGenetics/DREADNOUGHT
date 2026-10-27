@@ -41,7 +41,7 @@ void dn_fx_default(dn_fx_p_t *p, uint32_t type)
     static const uint8_t D[DN_FX_FILTER][DN_FX_NP] = {
         {0},
         {7, 60, 70},                                /* DELAY: 1/8D, the jungle dub default */
-        {7, 70, 36, 1},                             /* TAPE: 1/8D, ping-pong, Carnac's wear */
+        {7, 70, 36, 1},                             /* TAPE: 1/8D, ping-pong, a little worn */
         {7, 70, 36, 1},                             /* BBD */
         {60, 40, 0, 30},                            /* SPRING */
         {70, 50, 10, 30},                           /* TOMB */
@@ -228,7 +228,7 @@ void dn_fx_init(dn_fx_s_t *s, uint32_t type, void *mem, uint32_t bytes)
     s->type = (uint8_t)type;
     s->mem = mem;
     s->bytes = mem ? bytes : 0u;
-    s->lim = 32767.f;
+    s->lim = 1.f;
     if (!mem || type == DN_FX_OFF) {
         s->mem = 0;
         return;
@@ -302,33 +302,28 @@ static void dn_fxd_run(dn_fxd_t *s, const dn_fx_p_t *p, const int32_t *mono, int
     }
 }
 
-/* The send limiter (Carnac OS fx.c send_limit, 2026-10-16): the envelope jumps to a peak over full scale and falls
- * back with tau ~0.1 s; the gain is full scale / envelope. Float: a divide only while it limits. */
+/* The send limiter (DREADNOUGHT's own, 2026-10): a peak limiter worked on the gain. The gain recovers toward 1 by a
+ * one-pole (tau 0.1 s); a sample that would still pass full scale at that gain sets it, at once, to just what lets it
+ * through (full scale / its peak). Both sides get the same gain (the image holds); a divide only on such a sample. */
 #define DN_LIM_CEIL 32767.f
-#define DN_LIM_REL 0.99977f
-static void dn_fx_limit(float *envp, const int32_t *in, int32_t *st, int32_t *mono, uint32_t n)
+#define DN_LIM_BACK (1.f / 4410.f)                  /* the gain's recovery a sample: 1 / (0.1 s x 44.1 kHz) */
+static void dn_fx_limit(float *gp, const int32_t *in, int32_t *st, int32_t *mono, uint32_t n)
 {
-    float env = *envp;
+    float g = *gp;
     uint32_t i;
     for (i = 0; i < n; i++) {
         int32_t l = in[2u * i], r = in[2u * i + 1u];
-        float a = (float)(l < 0 ? -l : l), b = (float)(r < 0 ? -r : r);
-        if (b > a)
-            a = b;
-        if (env > DN_LIM_CEIL)
-            env = DN_LIM_CEIL + (env - DN_LIM_CEIL) * DN_LIM_REL;
-        if (a > env)
-            env = a;
-        if (env > DN_LIM_CEIL) {
-            float g = DN_LIM_CEIL / env;
-            l = (int32_t)((float)l * g);
-            r = (int32_t)((float)r * g);
-        }
+        uint32_t al = (uint32_t)(l < 0 ? -l : l), ar = (uint32_t)(r < 0 ? -r : r), pk = al > ar ? al : ar;
+        g += (1.f - g) * DN_LIM_BACK;
+        if ((float)pk * g > DN_LIM_CEIL)
+            g = DN_LIM_CEIL / (float)pk;
+        if (g < 0.99999f)
+            l = (int32_t)((float)l * g), r = (int32_t)((float)r * g);
         st[2u * i] = dn_fx_c16(l);
         st[2u * i + 1u] = dn_fx_c16(r);
         mono[i] = (st[2u * i] + st[2u * i + 1u]) >> 1;
     }
-    *envp = env;
+    *gp = g > 0.99999f ? 1.f : g;
 }
 
 void dn_fx_run(dn_fx_s_t *s, const dn_fx_p_t *p, const int32_t *in, int32_t *out, uint32_t n, uint32_t bpm,

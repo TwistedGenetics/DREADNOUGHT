@@ -264,7 +264,7 @@ export function noteName(n) {
 }
 
 // ---- the project (0.12): PROJ ---------------------------------------------------------------------------------
-// the FX rack's effects (src/dsp/dn_fx.h; 0.16 adds Carnac OS's echoes and reverbs, QUADRA and MASSIVE)
+// the FX rack's effects (src/dsp/dn_fx.h; 0.16 adds the echoes and reverbs, QUADRA and MASSIVE)
 export const FX_NAMES = ["OFF", "DELAY", "TAPE", "BBD", "SPRING", "TOMB", "MOD", "CELESTIAL", "DOLMEN", "TUMULUS", "QUADRA",
   "MASSIVE", "FILTER", "PHASER", "CHORUS", "CRUSH", "RING", "DRIVE"];   // (0.41: the light ones from FILTER)
 export const FX_KB = [0, 96, 32, 32, 17, 20, 73, 77, 73, 73, 52, 64, 0, 0, 4, 0, 0, 0];   // memory (MASSIVE: at least; it takes the rest)

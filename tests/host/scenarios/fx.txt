@@ -46,27 +46,27 @@ shot fx-03-massive-dub.png
 # FX B to CELESTIAL (KNOB 1 down to it: memory for it beside DELAY)
 turn K1 -4
 expect fxb 7
-expect fxbkb 76
+expect fxbkb 72
 expect fxbp.0 90
 tap FX
 expect fxview 4
 tap FX
 expect fxview 0
-# FX A to TUMULUS (FX A's view; from DELAY up): beside CELESTIAL it fits (73 + 76 KB)
+# FX A to TUMULUS (FX A's view; from DELAY up): beside CELESTIAL it fits (68 + 72 KB)
 tap FX
 expect fxview 1
 turn K1 8
 expect fxa 9
 shot fx-04-a-tumulus.png
-# FX B to MASSIVE: beside TUMULUS it still has 103 KB
+# FX B to MASSIVE: beside TUMULUS it still has 107 KB
 tap FX
 tap FX
 expect fxview 3
 turn K1 4
 expect fxb 11
-expect fxbkb 103
-# FX A to DELAY beside a QUADRA on B: fits (96 + 52); then B to CELESTIAL: 96 + 76 fits; FX A to DELAY was refused
-# never; a CELESTIAL on A beside B's CELESTIAL: fits (152 KB)
+expect fxbkb 107
+# FX A to DELAY beside a QUADRA on B: fits (96 + 52); then B to CELESTIAL: 96 + 72 fits; FX A to DELAY was refused
+# never; a CELESTIAL on A beside B's CELESTIAL: fits (144 KB)
 turn K1 -1
 expect fxb 10
 turn K2 3
