@@ -39,7 +39,7 @@
  */
 #include "dn_app.h"
 #include <stddef.h>
-#include "dsp/fastmath.h"
+#include "dn_math.h"
 #include "dn_wt_tables.h"                         /* (0.32) WAVE's factory tables */
 
 /* the editor's panel (0.26): buttons, keys and encoders the web editor presses, merged with the FM-1's own (so every
@@ -401,7 +401,7 @@ static uint8_t dn_smc;                              /* (0.36) the one the pages 
 static void dn_smc_sync(void);
 static dn_fm_t dn_fmx;                              /* FM (0.25) */
 static dn_wt_t dn_wv;                              /* WAVE (0.32) */
-static dn_ju_t dn_ju X0X_POOL;                      /* JUNO (0.36: the pool keeps its 8 KB headroom beside it) */
+static dn_ju_t dn_ju DN_POOL;                      /* JUNO (0.36: the pool keeps its 8 KB headroom beside it) */
 /* chords (0.27): 15 of them (a step's flags pick one: DN_ST_CHORD), each its notes above the step's, and the chord
  * each sounding note of each track started with (so its note-off lets go of the whole chord) */
 static const int8_t dn_chord[DN_CHORDS][DN_CHORD_N] = {
@@ -418,14 +418,14 @@ static uint32_t dn_smx_key[2][DN_SMP_NSRC];         /* each pad's / zone's sampl
 #define dn_sm_key (dn_smx_key[dn_smc])
 static dn_seq_t dn_sq;
 static uint32_t dn_rev;                             /* moves on whenever the sound or the pattern changes (the editor) */
-static dn_brk_t dn_bk[DN_NBRK] X0X_POOL;
+static dn_brk_t dn_bk[DN_NBRK] DN_POOL;
 /* the LFOs (0.15: each synth has its own four, part of its sound: 0-3 REESE's, 4-7 SUB's) */
 #define DN_NLFO_ALL (2u * DN_NLFO)
 static dn_lfo_p_t dn_lp[DN_NLFO_ALL];               /* their settings ... */
 static dn_lfo_s_t dn_ls[DN_NLFO_ALL];               /* ... and where each one is (audio) */
 /* ---- the project (0.12): its name, each track's sends, the FX rack (two send slots in one memory arena) ---- */
 #define DN_FX_ARENA (176u * 1024u)                  /* (0.16: DELAY's 96 KB and the biggest reverb's, now 72 KB) */
-static uint32_t dn_fx_mem[DN_FX_ARENA / 4u] X0X_POOL;
+static uint32_t dn_fx_mem[DN_FX_ARENA / 4u] DN_POOL;
 /* (0.42) USB audio's ten channels (tracks 1-8, each mono and dry; then FX A + B's returns, L R) borrow the arena's top:
  * the USB ring (2048 frames) and the block the mix fills for it (256 frames). The effects get what's left. */
 #define DN_MO_CH 10u
@@ -937,7 +937,7 @@ static void dn_sq_clock(uint8_t st) { plat_midi_out(0x0Fu | (uint32_t)st << 8); 
  * pattern to end (dn_pq: queued; the sequencer's LST says its last pass); stopped, it's at once. A track keeps its
  * mute and MIDI channel across its patterns. Kept in flash, only the notes that are on (see dn_pat_save). */
 #define DN_NPAT 8u
-static dn_track_t dn_bank[DN_SEQ_TRACKS][DN_NPAT] X0X_POOL;
+static dn_track_t dn_bank[DN_SEQ_TRACKS][DN_NPAT] DN_POOL;
 static uint8_t dn_pcur[DN_SEQ_TRACKS], dn_pq[DN_SEQ_TRACKS];   /* playing; queued (0xFF: none) */
 static void dn_pat_switch(uint32_t t, uint32_t n)   /* (the lock held, or in the audio interrupt) */
 {
@@ -1465,7 +1465,7 @@ typedef struct {
     } fm;
 } dn_mans_t;
 #define DN_MAN2_SIZE ((uint32_t)(sizeof(dn_mans_t) - sizeof(((dn_mans_t *)0)->fm)))   /* (0.23 / 0.24: no FM) */
-static dn_mans_t dn_man X0X_POOL;
+static dn_mans_t dn_man DN_POOL;
 /* the object as 0.22 kept it (and 0.4-0.21, without the names): 24 loops' slices, then the names */
 #define DN_MAN1_T 8u                                /* (where its loops start) */
 #define DN_MAN1_NAMES (DN_MAN1_T + DN_MAN_N1 * sizeof(dn_man_t))
@@ -3259,7 +3259,7 @@ static void dn_save_fill(dn_save_t *sp)
 #define DN_PB_MAX (4u * DN_PB_CHUNK)
 #define DN_PB_HEAD (10u + 3u * DN_SEQ_TRACKS + 3u * DN_SEQ_TRACKS * DN_NPAT)
 static const uint8_t DN_PB_OBJ[4] = {OBJ_PAT0, OBJ_PAT1, OBJ_SET, OBJ_MOTION};
-static uint8_t dn_pbuf[DN_PB_MAX] X0X_POOL;
+static uint8_t dn_pbuf[DN_PB_MAX] DN_POOL;
 static const dn_track_t *dn_pat_get(uint32_t t, uint32_t n)   /* track t's pattern n, wherever it is now */
 {
     return n == dn_pcur[t] ? &dn_sq.pat.tr[t] : &dn_bank[t][n];
@@ -3320,7 +3320,7 @@ static uint32_t dn_pat_pack(void)                   /* into dn_pbuf; its length 
 }
 static int dn_pat_unpack(uint32_t len)              /* from dn_pbuf; 0: not ours (the patterns stay as they are) */
 {
-    static dn_pattern_t p X0X_POOL;
+    static dn_pattern_t p DN_POOL;
     const uint8_t *b = dn_pbuf;
     uint32_t t, n, i, o = 10u, k;
     if (len < DN_PB_HEAD || (b[0] | b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24) != DN_PB_MAGIC || b[4] != 1u ||
@@ -5982,7 +5982,7 @@ static int dn_tile_fit_name(const char *s)
 {
     return text_w(&FONT_T, s) <= DN_TILE_TXT ? 0 : -1;
 }
-static const felucca_font_t *dn_tile_font(const char *t)
+static const dn_font_t *dn_tile_font(const char *t)
 {
     uint32_t i;
     int digits = 1;
@@ -6074,7 +6074,7 @@ static void dn_knob(int32_t cx, int32_t cy, uint32_t id, int focus)
     if (dn.skin == DN_SK_BLOCKS) {                  /* (0.31) BLOCKS: a tile of the knob's colour, filled from the
                                                      * bottom as far as the value, the name and the value on it */
         int32_t k = (cx - 30) / 60, x0 = cx - 28, w = 56, y0 = cy - 47, h = 86, f, r = 0;
-        const felucca_font_t *fn = &FONT_L;
+        const dn_font_t *fn = &FONT_L;
         uint32_t i;
         k = k < 0 ? 0 : k > 3 ? 3 : k;
         cv_rect(x0, y0, w, h, DN_KTINT[k]);
@@ -6114,7 +6114,7 @@ static void dn_knob(int32_t cx, int32_t cy, uint32_t id, int focus)
     }
     if (dn.skin == DN_SK_LIGHT) {                   /* (0.30) LIGHT: the name, the value big, a bar under it */
         int32_t x0 = cx - 26, w = 52, f, r = 0;
-        const felucca_font_t *fn = &FONT_L;
+        const dn_font_t *fn = &FONT_L;
         uint32_t i;
         cv_text(x0, cy - 44, &FONT_T, dn_name(id), DN_C_LABEL);
         dn_text(id, v, t);
@@ -6761,7 +6761,7 @@ static void dn_step_marks(const dn_step_t *st, int32_t x0, int32_t y, int32_t w,
 static void dn_tile(int32_t x0, int32_t y0, int32_t w, int32_t h, uint32_t k, const char *name, const char *val,
                     int32_t q8, int bip, const char *sub)
 {
-    const felucca_font_t *fn = dn_tile_font(val);
+    const dn_font_t *fn = dn_tile_font(val);
     int blocks = dn.skin == DN_SK_BLOCKS;
     uint16_t ink = blocks ? DN_C_ONACC : DN_C_FG, bar = dn.skin == DN_SK_DARK ? DN_C_BLUE : DN_C_ACC;
     int32_t fy = fn == &FONT_L ? 32 : fn == &FONT_M ? 24 : fn == &FONT_S ? 16 : 12;

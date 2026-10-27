@@ -9,13 +9,15 @@ mkdir -p build/gen build/host
 python3 tools/gen_dn_tables.py build/gen/dn_tables.h >/dev/null
 python3 tools/gen_dn_wt.py build/gen/dn_wt_tables.h >/dev/null   # (0.32: the factory wavetables)
 python3 tools/gen_dn_breaks.py build/gen/dn_breaks_builtin.h --wav build/host >/dev/null
-mkdir -p build/gen/x0x
-[ -f build/gen/x0x/felucca_font.h ] || python3 x0x-firmware/tools/gen_font.py build/gen/x0x/felucca_font.h >/dev/null
-W="-O2 -std=c99 -ffp-contract=off -Wall -Wextra -Werror -Wno-unused-function -Ibuild/gen/x0x -Ibuild/gen -Isrc/dsp -Isrc/app -Ix0x-firmware/firmware/src"
+[ -f build/gen/dn_font.h ] || python3 tools/gen_dn_font.py build/gen/dn_font.h   # (needs Pillow with libraqm)
+W="-O2 -std=c99 -ffp-contract=off -Wall -Wextra -Werror -Wno-unused-function -Ibuild/gen -Isrc/core -Isrc/dsp -Isrc/app"
 # the engines as the FM-1 builds them: one unit of every src/dsp/*.c (names must not clash)
 for f in src/dsp/*.c; do echo "#include \"../../$f\""; done > build/host/dsp_unity.c
 # shellcheck disable=SC2086
 $CC $W -c build/host/dsp_unity.c -o build/host/dsp_unity.o
+# shellcheck disable=SC2086
+$CC $W tests/host/math_test.c -o build/host/math_test -lm
+build/host/math_test
 # shellcheck disable=SC2086
 $CC $W tests/host/reese_test.c src/dsp/reese.c -o build/host/reese_test
 build/host/reese_test build/host
@@ -69,7 +71,7 @@ node tests/host/wt_xcheck.mjs build/host/wtx
 # (0.29) X0X's storage.c as built (tools/dn_patches.py): the settings objects in slot 3's top 16 KB
 python3 tools/dn_patches.py storage x0x-firmware/firmware/src build/gen/storage_dn.c
 # shellcheck disable=SC2086
-$CC $W -Ix0x-firmware/firmware/src/app tests/host/store_test.c -o build/host/store_test
+$CC $W -Ix0x-firmware/firmware/src -Ix0x-firmware/firmware/src/app tests/host/store_test.c -o build/host/store_test
 build/host/store_test
 # shellcheck disable=SC2086
 $CC $W tests/host/slices_xcheck.c src/dsp/dn_breaks.c -o build/host/slices_xcheck

@@ -4,7 +4,7 @@
  * written here in float; the chorus's rates and sweeps follow published measurements of the Juno-60's. */
 #include "dn_ju.h"
 #include "dn_dsp.h"
-#include "dsp/fastmath.h"
+#include "dn_math.h"
 
 #define JU_TICK 32u
 #define JU_FS 44100.0f

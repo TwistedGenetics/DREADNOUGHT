@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * DREADNOUGHT on the host: the app (src/app/dn_app.c) and the engines, against a simulated FM-1 driven by a script,
- * as X0X's host/x0x_host.c does for X0X. The screen goes to PNGs, the sound to WAVs. Copyright (C) 2026 Jamie
- * (TwistedGenetics); the screen and panel stubs follow x0x_host.c (Charles Vestal, GPL-3.0-only).
+ * the way X0X's host build tests X0X. The screen goes to PNGs, the sound to WAVs. Copyright (C) 2026 Jamie
+ * (TwistedGenetics); the screen and the panel over src/core (dn_gfx.h, dn_plat.h).
  *
  *   dn_host SCRIPT [OUTDIR]
  *
@@ -18,7 +18,6 @@
  *                                 playing rec trk view swing clocks midinotes len.T mute.T on.T st.T.I nt.T.I ln.T.I;
  *                                 peak (the output's peak since the last expect peak, Q15); VALUE "<N" / ">N" a bound
  */
-#define X0X_HOST 1
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,13 +41,13 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
     for (j = 0; j < h; j++)
         for (i = 0; i < w; i++)
             if (x + i < 240u && y + j < 240u)
-                fb[(y + j) * 240u + x + i] = px[j * w + i];
+                fb[(y + j) * 240u + x + i] = (uint16_t)((px[j * w + i] >> 8) | (px[j * w + i] << 8));   /* (fb: the panel's order) */
 }
-#include "../../x0x-firmware/firmware/src/gfx.c"
+#include "dn_gfx.h"
 #undef __attribute__
 
 /* --------------------------------------------------------------------------------------------- platform --- */
-#include "../../x0x-firmware/firmware/src/app/plat.h"
+#include "dn_plat.h"
 static uint32_t now_ms, held_btn, held_keys, lit_btn, lit_keys;
 static int32_t enc_acc[NE];
 uint32_t plat_ms(void) { return now_ms; }
@@ -405,7 +404,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: dn_host SCRIPT [OUTDIR]\n");
         return 2;
     }
-    palette_set(0);
     dn_app_init();
     dn_app_draw(1);
     while (fgets(ln, sizeof ln, sc)) {

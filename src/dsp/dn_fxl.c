@@ -16,7 +16,7 @@
  * once a 32-sample block, float inside. Memory: CHORUS 4 KB (its lines), the others none of their own (16 bytes, so a
  * slot holds them like any other). */
 #include "dn_fx.h"
-#include "dsp/fastmath.h"
+#include "dn_math.h"
 
 #define FL_FS 44100.f
 #define FL_CH 1024u                                 /* CHORUS: a side's line, samples (23 ms) */

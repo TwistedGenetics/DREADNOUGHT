@@ -2,9 +2,7 @@
  * DREADNOUGHT as a plugin: the C core. The app (src/app/dn_app.c) and the engines on a simulated FM-1, as
  * tests/host/dn_host.c runs them for the tests, here driven by the plugin instead of a script: its panel (buttons,
  * encoders, keys), the host's MIDI and transport, the screen into a framebuffer, the flash objects into the
- * plugin's state. Copyright (C) 2026 Jamie (TwistedGenetics); the screen and panel stubs follow X0X's
- * host/x0x_host.c (Charles Vestal, GPL-3.0-only). */
-#define X0X_HOST 1
+ * plugin's state. Copyright (C) 2026 Jamie (TwistedGenetics); the screen and the panel over src/core. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,17 +37,17 @@ static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint1
     for (j = 0; j < h; j++)
         for (i = 0; i < w; i++)
             if (x + i < 240u && y + j < 240u)
-                fb[(y + j) * 240u + x + i] = px[j * w + i];
+                fb[(y + j) * 240u + x + i] = (uint16_t)((px[j * w + i] >> 8) | (px[j * w + i] << 8));   /* (fb: the panel's order) */
     fb_serial++;
 }
-#include "../../x0x-firmware/firmware/src/gfx.c"
+#include "dn_gfx.h"
 #ifndef DNC_NO_ATTR_UNDEF
 #undef __attribute__
 #define __attribute__(x)
 #endif
 
 /* --------------------------------------------------------------------------------------------- platform --- */
-#include "../../x0x-firmware/firmware/src/app/plat.h"
+#include "dn_plat.h"
 static uint32_t now_ms, held_btn, held_keys, lit_btn, lit_keys, dim_keys;
 static int32_t enc_acc[NE];
 uint32_t plat_ms(void) { return now_ms; }
@@ -162,7 +160,6 @@ void dnc_init(void)
     frames_acc = 0;
     host_playing = 0;
     host_bpm = 0;
-    palette_set(0);
     dn_app_init();
     dn_splash(DN_VERSION);
     splash_left = 1200u;

@@ -13,12 +13,12 @@
  * oscillation grows until the saturator holds it). sat(v) = v (27 + v^2) / (27 + 9 v^2), held at +-1 from |v| = 3: a
  * rational tanh (same slope at 0, meets 1 at 3 with zero slope, within 0.025 of tanh).
  *
- * Float (the FM-1's FPU is single precision); no libm, X0X's fastmath for the coefficients. Signals: the engines'
+ * Float (the FM-1's FPU is single precision); no libm, dn_math.h for the coefficients. Signals: the engines'
  * integers, 65536 = the saturator's 1.0. A constant 1e-20 rides on the input: the states settle on it, never on a
  * denormal. Stable for every cutoff and k (the solved loop's denominator is >= 1). */
 #pragma once
 #include <stdint.h>
-#include "dsp/fastmath.h"
+#include "dn_math.h"
 
 typedef struct {
     float G, H, G4;      /* a stage's G, 1 - G, the cascade's G^4 */

@@ -8,7 +8,7 @@
  * double at note-on, a voice freed when its carriers have gone silent, last-note mono. */
 #include "dn_fm.h"
 #include "dn_tables.h"
-#include "dsp/fastmath.h"
+#include "dn_math.h"
 
 /* ---- the lookups (sin.h, exp2.h, freqlut.cc) ---------------------------------------------------------------- */
 static inline int32_t fm_sin(int32_t phase)

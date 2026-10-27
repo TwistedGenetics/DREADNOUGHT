@@ -16,7 +16,7 @@
  * (0.74 s), darker each repeat. 16-BIT ON: the wet held over pairs of samples and cut to 12 bits, the 1989 grain.
  * Memory 52 KB: smaller than the tank reverbs, one slot's worth. */
 #include "dn_fx.h"
-#include "dsp/fastmath.h"
+#include "dn_math.h"
 
 #define QD_LEN 16384u                               /* the delay, half-rate samples */
 #define QC_LEN 2048u                                /* the chorus / flanger / detune line */

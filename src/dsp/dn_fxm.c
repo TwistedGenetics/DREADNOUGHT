@@ -17,12 +17,12 @@
  *     less than asked). Horizon had a fixed 1 MB at 48 kHz (1.25 s); with DELAY in the other slot MASSIVE has 80 KB
  *     (HALL ~0.3 s, the echo modes ~0.45 s), alone 176 KB (HALL ~0.75 s, PONG ~1.1 s). Long tails come from FEEDBACK,
  *     as in Horizon;
- *   - scalar float instead of NEON vectors (the FM-1's FPU is single, no SIMD), the maths from X0X's fastmath;
+ *   - scalar float instead of NEON vectors (the FM-1's FPU is single, no SIMD), the maths from dn_math.h;
  *   - each line and diffuser a ring of its own length, laid out end to end in the slot's memory;
  *   - no dry / wet MIX (a send effect returns the wet), TIME on 7 bits: 0..12 the synced divisions (1/32 .. 1/2D, a
  *     division too long for the lines halved until it fits, on the beat), 13..127 10 ms .. 1250 ms. */
 #include "dn_fx.h"
-#include "dsp/fastmath.h"
+#include "dn_math.h"
 
 #define FS 22050.f
 #define KQ 16384.f

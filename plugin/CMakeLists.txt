@@ -32,13 +32,13 @@ else()
 endif()
 
 # ---- the tables the engines read (made as tests/run_host.sh makes them) ----
-# (-DDN_GEN_DIR=dir: the tables made elsewhere, as CI makes them once on Linux: gen_font.py needs Pillow with libraqm,
+# (-DDN_GEN_DIR=dir: the tables made elsewhere, as CI makes them once on Linux: gen_dn_font.py needs Pillow with libraqm,
 #  which macOS and Windows wheels lack: brew install libraqm, or take CI's "tables" artifact)
 set(DN_GEN_DIR "${CMAKE_BINARY_DIR}/gen" CACHE PATH "the generated tables (made here when missing)")
 set(DN_GEN "${DN_GEN_DIR}")
 file(MAKE_DIRECTORY "${DN_GEN}")
 foreach(g "tools/gen_dn_tables.py;dn_tables.h" "tools/gen_dn_wt.py;dn_wt_tables.h"
-          "tools/gen_dn_breaks.py;dn_breaks_builtin.h" "x0x-firmware/tools/gen_font.py;felucca_font.h")
+          "tools/gen_dn_breaks.py;dn_breaks_builtin.h" "tools/gen_dn_font.py;dn_font.h")
     list(GET g 0 script)
     list(GET g 1 out)
     if(NOT EXISTS "${DN_GEN}/${out}")
@@ -58,7 +58,7 @@ list(TRANSFORM DN_DSP APPEND ".c")
 add_library(dn_core STATIC "${DN_ROOT}/plugin/core/dn_core.c" ${DN_DSP})
 set_target_properties(dn_core PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON POSITION_INDEPENDENT_CODE ON)
 target_include_directories(dn_core PRIVATE "${DN_GEN}" "${DN_ROOT}/src/dsp" "${DN_ROOT}/src/app"
-                                           "${DN_ROOT}/x0x-firmware/firmware/src")
+                                           "${DN_ROOT}/src/core")
 target_include_directories(dn_core PUBLIC "${DN_ROOT}/plugin/core")
 target_compile_definitions(dn_core PRIVATE DN_VERSION="${DN_VERSION}" _USE_MATH_DEFINES)
 if(MSVC)

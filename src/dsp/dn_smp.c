@@ -4,7 +4,7 @@
 #include "dn_smp.h"
 #include "dn_dsp.h"
 #include "dn_ima.h"
-#include "dsp/fastmath.h"
+#include "dn_math.h"
 
 #define SM_FS 44100.f
 #define SM_CTL 32u                                  /* the envelopes: once every 32 samples, the amp ramped between */

@@ -4,7 +4,7 @@
  * no 64-bit divides. */
 #include "dn_wt.h"
 #include "dn_tables.h"
-#include "dsp/fastmath.h"
+#include "dn_math.h"
 
 #define WT_TICK 32u                                 /* control: every 32 samples */
 static const uint16_t WT_MIPOFF[7] = {0, 512, 768, 896, 960, 992, 1008};   /* each version's first sample in a frame */

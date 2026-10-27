@@ -35,6 +35,9 @@ extern uint32_t _rt_text_end[] __attribute__((weak));   /* (Carnac's --dsp-ram l
 static void dn_lock(void) { (void)irq_save(); }
 static void dn_unlock(void) { irq_restore(0); }
 
+/* the app's names for the platform's canvas font and pool section (elsewhere src/core gives them) */
+typedef felucca_font_t dn_font_t;
+#define DN_POOL X0X_POOL
 #include "dn_app.c"
 #include "dn_splash.c"
 

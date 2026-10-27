@@ -25,10 +25,10 @@
  * stored is held at full scale and rounded to the nearest above 16 LSB, toward zero below; every loop's gain is
  * under 1 below FEEDBACK 100, so a tail ends in exact silence. Float states are flushed each block (no denormals).
  * Coefficients are made again only when a value (or the tempo) changes. No 64-bit arithmetic; no libm (X0X's
- * fastmath). */
+ * dn_math.h). */
 #include "dn_fx.h"
 #include "dn_dsp.h"
-#include "dsp/fastmath.h"
+#include "dn_math.h"
 
 #define FXC_FS 44100.f
 #define FXC_FH 22050.f                                  /* the reverbs' rate */
@@ -72,7 +72,7 @@ static inline float fxc_tiny(float v) { return v < 1e-12f && v > -1e-12f ? 0.f :
  * below (no loop can hold a small value up: the tail ends in silence). No branch. */
 static inline int16_t fxc_cell(float v)
 {
-    fm_bits_t h;
+    dn_f32_t h;
     uint32_t sg, big;
     v = v > 32767.f ? 32767.f : v < -32767.f ? -32767.f : v;
     h.f = v;

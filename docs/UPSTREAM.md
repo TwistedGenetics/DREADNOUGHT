@@ -21,7 +21,6 @@ M-UPGRADE update entry and the update loader, the package maker and the build ch
 | Device glue (`src/hardware/dn_main_fm1.c`) | Carnac OS `src/hardware/synth_main_fm1.c`, after X0X's `app/main_fm1.c` | 2026-10-23 | GPL-3.0-only |
 | Build script (`tools/build_fm1.py`) | Carnac OS `src/hardware/build_fm1.py` | 2026-10-23 | GPL-3.0-only |
 | Start-up preflight (`tools/fm1_preflight.py`) | Carnac OS `src/hardware/fm1_preflight.py` (objdump path only changed) | 2026-10-23 | GPL-3.0-only |
-| Host harness's screen stubs (`tests/host/dn_host.c`) | X0X `host/x0x_host.c` | via the submodule | GPL-3.0-only |
 | REESE's and SUB's ladder filter (`src/dsp/dn_ladder.h`, used by `reese.c` and `dn_sub.c`) and REESE's stack spacing (`reese.c` `RS_POS`) | **Ours** since 2026-10, written anew (not from Clipper's `dsp.c` / `eng_hybrid.c`, which they replace) from published designs: V. Zavalishin, *The Art of VA Filter Design* (the TPT one-pole, the zero-delay-feedback ladder, a saturator in the loop); A. Szabo, *How to Emulate the Super Saw* (2010) for the shape of the spread (the curve is our own) | 2026-10 | Jamie's (GPL-3.0-only here) |
 | SVF, polyBLEP, soft clip (`src/dsp/dn_dsp.h`) | **Ours** since 2026-10, written anew (not from Felucca's `dsp.c`, which they replace) from published designs: Zavalishin's TPT SVF (as in A. Simper's public-domain Cytomic notes, `SvfLinearTrapOptimised2`); V. Välimäki and A. Huovilainen, *Antialiasing Oscillators in Subtractive Synthesis* (2007) for the polyBLEP; a rational tanh of our own for the soft clip | 2026-10 | Jamie's (GPL-3.0-only here) |
 | Sample-slot upload commands (`src/hardware/dn_main_fm1.c`, editor section) | X0X `app/editor.c`, after Felucca's `editor.c` | via the submodule | GPL-3.0-only |
@@ -32,6 +31,24 @@ M-UPGRADE update entry and the update loader, the package maker and the build ch
 | FX: MASSIVE (`src/dsp/dn_fxm.c`) | Jamie's own Horizon / Super-Massive (`core/horizon_engine.h`, `horizon_modes.h`, `horizon_sync.h`), ported to C at half rate | TwistedGenetics/Super-Massive | Jamie's (GPL-3.0-only here) |
 | FM engine (`src/dsp/dn_fm.c`, tables in `tools/gen_dn_tables.py`) | Dexed's MSFA (`source/msfa`: env, dx7note, fm_core, fm_op_kernel, lfo, pitchenv, sin, exp2, freqlut), Copyright 2012 Google Inc., Pascal Gauthier and the Dexed authors; ported to C, the same integer maths (what changed: the file's header) | Dexed `fea2f0f` | Apache-2.0 (compatible with GPL-3.0; the port is GPL-3.0-only here) |
 | FM reference for the tests (`tests/host/ref/msfa/`, host only, not in the firmware) | the same MSFA files, unchanged, with stand-ins for Dexed's tuning, MTS and logger (`tests/host/ref/README.md`) | Dexed `fea2f0f` | Apache-2.0 |
+
+## Ours alone: everything but the FM-1's platform (from 0.46)
+
+The SMK-37 build (`smk/`) links DREADNOUGHT with M-VAVE's closed engine library, which GPL-3.0-only code from other
+authors does not allow. So everything that build takes is DREADNOUGHT's own (Copyright (C) 2026 Jamie /
+TwistedGenetics), licensed GPL-3.0-only with the SMK37 SDK's linking exception (`smk/LICENSE-EXCEPTION.md`):
+
+- `src/app/`, `src/dsp/` (the third-party parts written again in 2026-10 from published designs: the ladders, the
+  stack spacing, the SVF, polyBLEP and soft clip, the IMA decoder, the FX rack's echoes and reverbs, the limiters);
+- `src/dsp/dn_math.h`, the maths without libm (in place of X0X's `fastmath.h`; its polynomials fitted by
+  `tools/fit_dn_math.py`, checked by `tests/host/math_test.c`);
+- `src/core/dn_gfx.h`, the canvas and text (in place of X0X's `gfx.c`; the host's 173 test screens come out
+  pixel-identical), with the fonts made by `tools/gen_dn_font.py` from Barlow Semi Condensed (SIL OFL 1.1,
+  `assets/fonts/`);
+- `src/core/dn_plat.h`, the calls the app makes of the machine under it (in place of X0X's `plat.h`).
+
+The host harness and the plugin use `src/core` too. The FM-1 build keeps X0X's platform, `gfx.c` and `plat.h`
+(`src/hardware/dn_main_fm1.c` names its font type and pool section for the app); the FM-1 links nothing closed.
 
 ## What the build changes on the way through
 
