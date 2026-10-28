@@ -74,6 +74,7 @@ void plat_leds(uint32_t b, uint32_t k)
     lit_btn = b;
     lit_keys = k;
 }
+static int lock_depth, store_in_lock;                /* (dn_lock's depth; store writes made inside it: below) */
 static uint8_t store[OBJ_NOBJ][PLAT_STORE_MAX];
 static int store_len[OBJ_NOBJ] = {-1, -1, -1, -1, -1, -1, -1};
 int plat_store_load(uint32_t obj, void *dst, uint32_t max)
@@ -88,6 +89,8 @@ int plat_store_load(uint32_t obj, void *dst, uint32_t max)
 }
 int plat_store_save(uint32_t obj, const void *src, uint32_t len)
 {
+    if (lock_depth)
+        store_in_lock++;
     if (obj >= OBJ_NOBJ || len > PLAT_STORE_MAX)
         return -1;
     memcpy(store[obj], src, len);
@@ -158,8 +161,10 @@ const uint8_t *plat_slot(int k, int z, uint32_t *n, uint32_t *rate, char name[9]
     memcpy(name, "DX7", 4);
     return sim_fmz;
 }
-static void dn_lock(void) {}
-static void dn_unlock(void) {}
+/* (0.46) the lock counted: the SMK-37's flash may only be written with interrupts on, so no store write may happen
+ * inside dn_lock (store_in_lock counts any that do; the run fails on one) */
+static void dn_lock(void) { lock_depth++; }
+static void dn_unlock(void) { lock_depth--; }
 
 #include "../../src/app/dn_app.c"
 /* (0.29) the settings objects in slot 3's top 16 KB (the FM-1's: src/hardware/dn_main_fm1.c; storage: store_test.c) */
@@ -1075,6 +1080,10 @@ int main(int argc, char **argv)
         fclose(wavf);
     }
     fclose(sc);
+    if (store_in_lock) {
+        printf("FAIL %d store writes inside dn_lock (the SMK's flash needs interrupts on)\n", store_in_lock);
+        fails++;
+    }
 #ifdef DN_GFX_BAND_ROWS
     /* (the SMK's banded screen: what the busiest screen needed, and nothing lost) */
     printf("bands: %u ops, %u characters at most (room for %u, %u)\n", (unsigned)dg_ops_peak, (unsigned)dg_chars_peak,
