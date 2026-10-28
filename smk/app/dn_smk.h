@@ -13,6 +13,7 @@
 /* screen.c */
 void dn_smk_render(int32_t *q23, unsigned frames);   /* the audio interrupt: one block, stereo, Q23 */
 extern volatile uint8_t dn_smk_ready;
+extern volatile uint8_t dn_smk_volume;               /* 0..127: the output's level (the 8th encoder; audio_output.c) */
 
 /* transfer.c (control task) */
 void dn_smk_store_init(void);

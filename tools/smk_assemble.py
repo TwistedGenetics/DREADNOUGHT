@@ -117,6 +117,15 @@ def main():
 """)
     text = text.replace('#include "audio_output.h"\n', '#include "audio_output.h"\n#include "dn_smk.h"\n')
     audio.write_text(text, encoding="utf-8")
+    # ... and the output's level is DREADNOUGHT's volume (the 8th encoder), not M-VAVE's instrument's master
+    mix = app / "audio_output.c"
+    text = mix.read_text(encoding="utf-8")
+    old = "    unsigned target = fm1_engine_output_level();\n"
+    if text.count(old) != 1 or text.count('#include "fm1_audio_io.h"\n') != 1:
+        raise SystemExit("smk_assemble: app/audio_output.c has changed; look at it again")
+    text = text.replace(old, "    unsigned target = dn_smk_volume;                  /* (DREADNOUGHT: tools/smk_assemble.py) */\n")
+    text = text.replace('#include "fm1_audio_io.h"\n', '#include "fm1_audio_io.h"\n#include "dn_smk.h"\n')
+    mix.write_text(text, encoding="utf-8")
     # the kit's build script, as build-dn.ps1 beside it: the same build and checks, but for the parts of M-VAVE's own
     # instrument (DREADNOUGHT does not use it, so the linker leaves it out): absent is fine; present, the same checks
     b = (kit / "sdk" / "Build.ps1").read_text(encoding="utf-8-sig")

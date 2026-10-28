@@ -20,7 +20,6 @@
 #include "dn/dn_smk_version.h"                     /* (DN_VERSION: tools/smk_assemble.py, from VERSION) */
 #include <string.h>
 
-int groove_master_update(unsigned adc);              /* (the SDK: the output level, from a knob's 0..1023) */
 
 /* ------------------------------------------------------------------------------------------------- screen --- */
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *px)
@@ -49,7 +48,7 @@ static const uint8_t PAD_KEY[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21
 
 static uint32_t ph_down, ph_as_lfo, keys_down, pads_down, btn_held;
 static int32_t enc_acc[NE];
-static uint8_t volume = 100;
+volatile uint8_t dn_smk_volume = 100;               /* (audio_output.c reads it; tools/smk_assemble.py) */
 static uint32_t lit_btn = ~0u, lit_keys, dim_keys;
 
 void smk37_control_event(unsigned kind, unsigned id, int value)
@@ -66,8 +65,8 @@ void smk37_control_event(unsigned kind, unsigned id, int value)
         if (id < 7u)
             enc_acc[EN_ROLE[id]] += value;
         else {
-            int v = (int)volume + value;
-            volume = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+            int v = (int)dn_smk_volume + value;
+            dn_smk_volume = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
         }
     } else if (kind == SMK37_BUTTON && id < PH_N) {
         uint32_t b = 1u << id;
@@ -238,7 +237,7 @@ void dn_smk_render(int32_t *o, unsigned frames)
 
 /* ------------------------------------------------------------------------------------------- control task --- */
 static uint8_t started;
-static uint32_t splash_until, drawn_at, knob_sent = ~0u;
+static uint32_t splash_until, drawn_at;
 
 void groove_screen_init(void)
 {
@@ -260,15 +259,10 @@ static void start(void)
 void groove_screen_control(void)
 {
     struct fm1_controls c;
-    uint32_t now, knob;
+    uint32_t now;
     if (!started)
         start();
     fm1_controls_read(&c);                           /* (the board's scan: smk37_control_event for each change) */
-    knob = (volume * 1023u + 63u) / 127u;
-    if (knob != knob_sent) {
-        (void)groove_master_update(knob);
-        knob_sent = knob;
-    }
     dn_app_input();
     dn_smk_midi_poll();
     dn_smk_editor_poll();
