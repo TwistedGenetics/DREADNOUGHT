@@ -8,9 +8,10 @@
  *   0x00000  the store: 9 objects (the app's 7, then the two settings objects), two sectors each, written in turn;
  *            a record is "DNO1", its number, its length, the CRC-32 of its bytes, then the bytes (up to 3840); the
  *            newer good one is read
- *   0x12000  sample slot 1 (80 KB), 0x26000 slot 2 (80 KB), 0x3A000 slot 3 (64 KB): each a 512-byte header ("FSMP",
- *            zones) and its 4-bit ADPCM, as on the FM-1, read in place (fm1_flash_map)
- *   0x4A000  free
+ *   0x12000  sample slot 1 (40 KB), 0x1C000 slot 2 (40 KB), 0x26000 slot 3 (24 KB): each a 512-byte header ("FSMP",
+ *            zones) and its 4-bit ADPCM, as on the FM-1 (whose slots are 80, 80 and 64 KB), read in place (fm1_flash_map)
+ *   0x2C000  the end: the user area is 176 KB (tools/smk_assemble.py USER_BYTES; M-VAVE's own layout keeps 524 KB,
+ *            which leaves too little room for DREADNOUGHT's code)
  * Nothing of M-VAVE's own instrument's data is kept: its projects, voices and samples are written over (back them up
  * with M-VAVE's workbench before changing firmware). */
 #include "fm1.h"
@@ -46,9 +47,10 @@ static uint32_t crc32_run(uint32_t c, const uint8_t *p, uint32_t n)
 #define SLOT_N 3u
 #define SLOT_DATA 512u
 #define SLOT_MAGIC 0x504D5346u                       /* "FSMP" */
-static const uint32_t SLOT_OFF[SLOT_N] = {SLOT_BASE, SLOT_BASE + 0x14000u, SLOT_BASE + 0x28000u};
-static const uint32_t SLOT_SIZE[SLOT_N] = {0x14000u, 0x14000u, 0x10000u};
-#define LAYOUT_END (SLOT_BASE + 0x38000u)
+static const uint32_t SLOT_OFF[SLOT_N] = {SLOT_BASE, SLOT_BASE + 0xA000u, SLOT_BASE + 0x14000u};
+static const uint32_t SLOT_SIZE[SLOT_N] = {0xA000u, 0xA000u, 0x6000u};
+#define LAYOUT_END (SLOT_BASE + 0x1A000u)
+_Static_assert(LAYOUT_END == 176u * 1024u, "the layout fills the user area (tools/smk_assemble.py USER_BYTES)");
 
 struct rec { uint32_t magic, seq, len, crc; };
 static uint8_t flash_ok;
@@ -277,6 +279,8 @@ static void ed_handle(unsigned port, const uint8_t *f, uint32_t n)   /* f: 7D 46
             put_str(nm, 8);
             put(nz && h ? (h->data_len + 1023u) / 1024u : 0u);
         }
+        for (i = 0; i < SLOT_N; i++)                 /* (0.46, after what an FM-1 sends: each slot's KB, as they differ) */
+            put(SLOT_SIZE[i] / 1024u);
         break;
     case ED_SMP_READ: {                              /* slot, offset, pairs -> slot, offset, the bytes packed */
         uint32_t off, cnt, k, j;

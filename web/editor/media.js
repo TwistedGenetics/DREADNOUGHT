@@ -12,7 +12,23 @@ export const SLOT_SIZE = 0x14000, SLOT_DATA_OFF = 512, SLOT_ZONES = 16, NSLOT = 
 export const SLOT_HDR_LEN = 32 + SLOT_ZONES * 28, SLOT_MAX_DATA = SLOT_SIZE - SLOT_DATA_OFF;
 // (0.29) slot 3 is 64 KB: its top 16 KB holds the FM-1's settings. The data each slot holds:
 export const SLOT_SIZES = [SLOT_SIZE, SLOT_SIZE, 0x10000], slotMax = (k) => SLOT_SIZES[k] - SLOT_DATA_OFF;
-export const CAP = SLOT_SIZES.reduce((a, s) => a + s - SLOT_DATA_OFF, 0);
+export let CAP = SLOT_SIZES.reduce((a, s) => a + s - SLOT_DATA_OFF, 0);
+// (0.46) the SMK-37's slots are smaller (40, 40 and 24 KB): its SMP_INFO reply ends with each slot's KB, after what an
+// FM-1 sends; an FM-1's sizes stay as above
+export function slotSizesFrom(info) {
+  let i = 2;
+  for (let k = 0; k < info[0]; k++) i = info.indexOf(0, i + 1) + 2;
+  if (i < 2 || info.length < i + NSLOT) return false;
+  const kb = info.slice(i, i + NSLOT);
+  if (kb.some((v) => !v)) return false;
+  kb.forEach((v, k) => { SLOT_SIZES[k] = v * 1024; });
+  CAP = SLOT_SIZES.reduce((a, s) => a + s - SLOT_DATA_OFF, 0);
+  return true;
+}
+export async function learnSlots(link) {
+  try { slotSizesFrom(await link.req(15, [], 1500)); } catch (_) { /* (an older FM-1: the sizes above) */ }
+  return SLOT_SIZES.slice();
+}
 export const RATES = [44100, 32000, 26040, 22050, 16000, 11025, 8000];
 export const RATE_NAME = { 44100: "44.1 kHz", 32000: "32 kHz", 26040: "26 kHz (SP-1200)", 22050: "22 kHz", 16000: "16 kHz",
   11025: "11 kHz", 8000: "8 kHz" };
@@ -331,6 +347,7 @@ async function readBytes(link, k, off, n, onPart) {
 // the three slots as they are on the FM-1: [{hdr, data} | null]
 export async function readSlots(link, onPart = () => {}) {
   const info = await link.req(15, []), nz = [];
+  slotSizesFrom(info);
   for (let k = 0, i = 2; k < info[0]; k++) { nz.push(info[i]); i = info.indexOf(0, i + 1) + 2; }
   const dev = [null, null, null];
   for (let k = 0; k < NSLOT; k++) {

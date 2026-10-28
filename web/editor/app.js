@@ -10,7 +10,7 @@ import {
 } from "./protocol.js";
 import {
   readWav, convert, costAt, seconds, fitToSpace, packPlan, imaEncode, imaDecode, imagesOf, readSlots, writeSlots,
-  slotSamples, CAP, RATES, RATE_NAME, FOLDS, fromDevice, rescaleSlices,
+  slotSamples, CAP, RATES, RATE_NAME, FOLDS, fromDevice, rescaleSlices, learnSlots,
 } from "./media.js";
 import { key7, pos7 } from "../breaks/slices.js";
 import { initPanel } from "./panel.js";
@@ -44,6 +44,7 @@ async function start(link, label) {
   if (S.link && S.link !== link && S.link.close) S.link.close();   // (0.30: one connection at a time)
   S.link = link;
   say("Reading…");
+  await learnSlots(link);                             // (0.46: the SMK-37's slots are smaller than an FM-1's)
   S.st = await link.state();
   S.presets = await link.names(0);
   S.subPresets = await link.names(5).catch(() => []);
