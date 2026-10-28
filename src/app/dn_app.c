@@ -418,7 +418,10 @@ static uint32_t dn_smx_key[2][DN_SMP_NSRC];         /* each pad's / zone's sampl
 #define dn_sm_key (dn_smx_key[dn_smc])
 static dn_seq_t dn_sq;
 static uint32_t dn_rev;                             /* moves on whenever the sound or the pattern changes (the editor) */
-static dn_brk_t dn_bk[DN_NBRK] DN_POOL;
+#ifndef DN_POOL_FAST                                /* (a second place for big buffers: the SMK's spare cache RAM) */
+#define DN_POOL_FAST DN_POOL
+#endif
+static dn_brk_t dn_bk[DN_NBRK] DN_POOL_FAST;
 /* the LFOs (0.15: each synth has its own four, part of its sound: 0-3 REESE's, 4-7 SUB's) */
 #define DN_NLFO_ALL (2u * DN_NLFO)
 static dn_lfo_p_t dn_lp[DN_NLFO_ALL];               /* their settings ... */
@@ -1316,8 +1319,10 @@ static uint8_t dn_brk_src_of(uint8_t v)
     return (v & 0x80u) ? (uint8_t)(v & 0x7Fu) : v >= DN_OLD_BUILTIN ? (uint8_t)(v - DN_OLD_BUILTIN) : 0u;
 }
 /* the sample slots: bytes used (4-bit ADPCM: half a byte a sample, plus each slot's header), and in all */
+#ifndef DN_SLOT_BYTES                               /* (a target with less flash may have smaller slots: the SMK-37) */
 #define DN_SLOT_BYTES 0x14000u
 #define DN_SLOT3_BYTES (64u * 1024u)                    /* (0.29: slot 3's top 16 KB holds settings) */
+#endif
 static uint32_t dn_smp_cap(void) { return (PLAT_NSLOTS - 1u) * DN_SLOT_BYTES + DN_SLOT3_BYTES; }
 static uint32_t dn_smp_used(void)
 {
@@ -3257,7 +3262,12 @@ static void dn_save_fill(dn_save_t *sp)
 #define DN_PB_MAX (4u * DN_PB_CHUNK)
 #define DN_PB_HEAD (10u + 3u * DN_SEQ_TRACKS + 3u * DN_SEQ_TRACKS * DN_NPAT)
 static const uint8_t DN_PB_OBJ[4] = {OBJ_PAT0, OBJ_PAT1, OBJ_SET, OBJ_MOTION};
+#ifdef DN_PBUF_SHARED                               /* (short of RAM: a buffer only drawing uses; the screen is not drawn
+                                                     * while the patterns are packed for the store or unpacked) */
+static uint8_t *const dn_pbuf = DN_PBUF_SHARED;
+#else
 static uint8_t dn_pbuf[DN_PB_MAX] DN_POOL;
+#endif
 static const dn_track_t *dn_pat_get(uint32_t t, uint32_t n)   /* track t's pattern n, wherever it is now */
 {
     return n == dn_pcur[t] ? &dn_sq.pat.tr[t] : &dn_bank[t][n];

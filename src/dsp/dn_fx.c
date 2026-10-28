@@ -4,7 +4,11 @@
 #include "dn_fx.h"
 #include "dn_dsp.h"
 
+#ifdef DN_FX_SMALL                                   /* (a target short of RAM, the SMK-37: the echoes half as long) */
+#define DN_DLY_LEN 12288u                           /* DELAY: half-rate samples a line, 0.56 s */
+#else
 #define DN_DLY_LEN 24576u                           /* DELAY: half-rate samples a line, 1.11 s */
+#endif
 
 const char *const DN_FX_NAME[DN_FX_N] = {"OFF", "DELAY", "TAPE", "BBD", "SPRING", "TOMB", "MOD", "CELESTIAL",
                                          "DOLMEN", "TUMULUS", "QUADRA", "MASSIVE", "FILTER", "PHASER", "CHORUS",

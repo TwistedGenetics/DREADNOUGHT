@@ -195,6 +195,7 @@ static void dn_unlock(void)
         fm1_device_irq_restore(lock_state);
 }
 
+_Static_assert(sizeof dg_strip >= 4u * 3840u, "DN_PBUF_SHARED: the screen band holds the patterns' store buffer");
 #include "dn/dn_app.inc"
 #include "dn/dn_splash.inc"
 

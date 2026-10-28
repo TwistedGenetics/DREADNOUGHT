@@ -34,13 +34,21 @@
 #define FXC_FH 22050.f                                  /* the reverbs' rate */
 
 /* the memory */
+#ifdef DN_FX_SMALL                                      /* (short of RAM, the SMK-37: echoes half as long, tanks half the size) */
+#define TP_CELLS 8192u
+#define BB_N 4096u
+#define TK_RING 16384u
+#define TK_SCALE 0.5f
+#else
 #define TP_CELLS 16384u                                 /* TAPE: the tape's cells */
 #define BB_N 8192u                                      /* BBD: buckets */
+#define TK_RING 32768u                                  /* the tanks' ring (DOLMEN: half) */
+#define TK_SCALE 1.0f                                   /* (the tanks' lines: their lengths times this) */
+#endif
 #define PRE_N 2224u                                     /* the reverbs' predelay, half rate (127 x 35 / 2 + 1) */
 #define SP_L0 811u                                      /* SPRING: the two springs' round trips, half rate */
 #define SP_L1 1031u
 #define TB_RING 4096u                                   /* TOMB: its ring (six lines, 2858 cells) */
-#define TK_RING 32768u                                  /* the tanks' ring (DOLMEN: half) */
 #define SH_N 2048u                                      /* CELESTIAL: the shifter's line */
 
 uint32_t dn_fxc_ram(uint32_t type)
@@ -143,8 +151,8 @@ static int fxc_stale(dn_fxt_t *t, const dn_fx_p_t *p, uint32_t bpm)
  * feeds the left, the far head the right and the loop (a lap is then two echoes: the right's at the square root of
  * the lap's gain, so they fall evenly). */
 #define TP_MASK (TP_CELLS - 1u)
-#define TP_GAPMAX 16000.f
-#define TP_MAXD 96000u
+#define TP_GAPMAX ((float)TP_CELLS - 384.f)              /* (16000 of 16384) */
+#define TP_MAXD (TP_CELLS * 6u - 2304u)                 /* (96000: the tape at its slowest) */
 
 static inline float fxc_tp_rd(const int16_t *line, float pos)   /* between cells; pos >= 0 */
 {
@@ -238,8 +246,8 @@ static void fxc_tape(dn_fxt_t *t, const dn_fx_p_t *p, const int32_t *in, int32_t
 #define BB_MASK (BB_N - 1u)
 #define BB_REF 32767.f                                  /* the compander's unity: full scale in, full scale out */
 #define BB_GMAX 12.f
-#define BB_MAXD 54000u
-#define BB_MIND 1024u
+#define BB_MAXD (BB_N * 54000u / 8192u)                 /* (54000: clocked at 0.15 a sample) */
+#define BB_MIND (BB_N / 8u)                             /* (1024: clocked at 8 a sample) */
 
 static void fxc_bbd(dn_fxt_t *t, const dn_fx_p_t *p, const int32_t *in, int32_t *wl, int32_t *wr, uint32_t n,
                     uint32_t bpm)
@@ -532,7 +540,7 @@ static void fxc_tank_init(dn_fxk_t *k, uint32_t type, int16_t *ring, uint32_t ce
     uint32_t j, t, at = 0, ex = (uint32_t)c->ex + 1u;
     k->ring = ring, k->mask = cells - 1u;
     for (j = 0; j < DN_FXK_LINES; j++) {
-        float s = j < 4u ? (c->size < 1.3f ? c->size : 1.3f) : c->size;
+        float s = (j < 4u ? (c->size < 1.3f ? c->size : 1.3f) : c->size) * TK_SCALE;
         k->len[j] = ((uint32_t)((float)TK_LEN[j] * s)) | 1u;
         k->off[j] = at;
         at += k->len[j] + 2u + ((j == 4u || j == 8u) ? 2u * ex : 0u);

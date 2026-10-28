@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+USER_BYTES = 176 * 1024                              # (the user area: smk/app/transfer.c's layout must agree)
 
 
 def main():
@@ -87,9 +88,14 @@ def main():
     (dn / "dn_smk_version.h").write_text(
         "/* made by tools/smk_assemble.py */\n#pragma once\n"
         f'#define DN_VERSION "{ver}"\n'
-        f"#define DN_FX_ARENA ({os.environ.get('SMK_FX_KB', '112')}u * 1024u)  /* (the SMK's RAM: less than the FM-1's 176 KB) */\n"
-        "#define DN_GFX_BAND_ROWS 24                         /* (the screen drawn in bands: src/core/dn_gfx.h) */\n"
-        "#define DN_GFX_OPS 640u\n#define DN_GFX_CHARS 2048u\n#define DN_GFX_ARGS 512u\n")
+        f"#define DN_FX_ARENA ({os.environ.get('SMK_FX_KB', '80')}u * 1024u)  /* (the SMK's RAM: less than the FM-1's 176 KB) */\n"
+        "#define DN_GFX_BAND_ROWS 32                         /* (the screen drawn in bands: src/core/dn_gfx.h) */\n"
+        "#define DN_GFX_OPS 640u\n#define DN_GFX_CHARS 2048u\n#define DN_GFX_ARGS 512u\n"
+        "#define DN_SLOT_BYTES (40u * 1024u)                 /* (the sample slots: transfer.c) */\n"
+        "#define DN_SLOT3_BYTES (24u * 1024u)\n"
+        "#define DN_POOL_FAST __attribute__((section(\".memp_memory_x\"), aligned(4)))   /* (the D-cache's spare ways) */\n"
+        "#define DN_FX_SMALL 1                               /* (the echoes half as long: the FX arena is small) */\n"
+        "#define DN_PBUF_SHARED ((uint8_t *)(void *)dg_strip) /* (the patterns' store buffer: the screen band's 15 KB) */\n")
 
     # the audio interrupt renders DREADNOUGHT
     audio = app / "board" / "audio.c"
@@ -125,6 +131,20 @@ $sdk = Join-Path $root 'sdk'"""),
             continue
         }"""),
     ]
+    # (0.46) a smaller user area: M-VAVE's layout keeps 524 KB for user data, which leaves the firmware ~460 KB with
+    # the SDK's ~280 KB in it; DREADNOUGHT needs ~800 KB. 176 KB of user flash (the store, and 104 KB of samples):
+    # smk/app/transfer.c lays it out. The packager (Package.cs, MIT) takes the size as given (Package-dn.cs).
+    edits += [
+        ("$variant = [pscustomobject]@{user_bytes=536576;", f"$variant = [pscustomobject]@{{user_bytes={USER_BYTES};"),
+        ("Add-Type -Path (Join-Path $sdk 'Package.cs')", "Add-Type -Path (Join-Path $root 'Package-dn.cs')"),
+    ]
+    pk = (kit / "sdk" / "Package.cs").read_text(encoding="utf-8-sig")
+    old_pk = "const int FlashLimit = 0xff000, UserSize = 536576, BtSize = 4096, MinimumVm = 32768;"
+    if pk.count(old_pk) != 1:
+        raise SystemExit("smk_assemble: sdk/Package.cs has changed; look at it again")
+    pk = pk.replace(old_pk, f"const int FlashLimit = 0xff000, UserSize = {USER_BYTES}, BtSize = 4096, MinimumVm = 32768;")
+    (kit / "Package-dn.cs").write_text("// DREADNOUGHT: the SMK37 OPEN kit's sdk/Package.cs, its user area " + str(USER_BYTES)
+                                       + " bytes (tools/smk_assemble.py)\n" + pk, encoding="utf-8")
     for old, new in edits:
         if b.count(old) != 1:
             raise SystemExit("smk_assemble: sdk/Build.ps1 has changed; look at it again: " + old.splitlines()[0][:70])
