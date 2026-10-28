@@ -69,6 +69,12 @@ app for Windows and Linux: `DREADNOUGHT-plugin-X.Y-macOS.zip` (or `-Windows`, `-
 Build it: `cmake -S plugin -B build/plugin -DCMAKE_BUILD_TYPE=Release && cmake --build build/plugin --config Release`
 (JUCE is fetched; Python 3 with numpy and Pillow makes the engines' tables).
 
+## M-VAVE SMK-37 Pro / Elite (beta, smk37 branch)
+
+DREADNOUGHT on M-VAVE's SMK-37 keyboards, built on M-VAVE's own SMK37 OPEN kit: one flasher page per model, with a
+way back to M-VAVE's V16 on the same page. Not yet tried on a keyboard; less sample memory (104 KB) and smaller
+effects than on the FM-1. See [smk/README.md](smk/README.md).
+
 ## Download & install
 
 Go to [**Releases**](https://github.com/TwistedGenetics/DREADNOUGHT/releases/latest) and download `DREADNOUGHT-0.11.fwsc`

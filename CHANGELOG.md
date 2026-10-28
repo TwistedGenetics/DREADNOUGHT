@@ -1043,3 +1043,24 @@ computer: it needs the FM-1 (and a DAW) to show the ten inputs.
 - Firmware: SAVE zeroes WAVE's and JUNO's records before filling them, so an unchanged sound no longer counts as
   changed (their padding held the last record's bytes) and isn't written to the flash again.
 - For now: one per project; the two built-in loops only; the sequencer starts from its bar 1 when the DAW plays.
+
+## Unreleased (smk37 branch) — the M-VAVE SMK-37 Pro and Elite (beta, not yet tried on a keyboard)
+
+- **DREADNOUGHT on the SMK-37** (smk/, smk/README.md): built as the APP of M-VAVE's SMK37 OPEN kit (pinned), with its
+  update path, USB / Bluetooth MIDI and panel drivers. The SMK's keys, pads, encoders and buttons stand in for the
+  FM-1's panel (the pads are the 16 white keys: SEQ's steps). One flasher page per model (`tools/smk_flasher.py`),
+  with the firmware, M-VAVE's own updater and M-VAVE's V16 to go back. CI: `.github/workflows/smk37.yml` (Windows,
+  JieLi 2.5.3).
+- To fit: a 176 KB user area (the kit keeps 524 KB): 104 KB of samples (40 + 40 + 24 KB slots); the effects in 84 KB
+  (`DN_FX_SMALL`: echoes half as long, the tank reverbs half the size); the screen drawn in bands from a display list
+  (`DN_GFX_BAND_ROWS`, 173 host screens the same as drawn whole).
+- **All ours**: what the SMK build links is DREADNOUGHT's own code, so it may carry the kit's linking permission
+  (smk/LICENSE-EXCEPTION.md). Written again from published designs: the ladders and the stack spacing, the SVF,
+  polyBLEP, soft clip, the IMA decoder (one, dn_ima.h, for BREAKS and SAMPLER), TAPE, BBD and the six reverbs, both
+  limiters; and new: the maths without libm (dn_math.h, checked against libm), the canvas and text (src/core/dn_gfx.h,
+  the fonts from tools/gen_dn_font.py: every host screen pixel-identical), the platform calls (src/core/dn_plat.h).
+  The FM-1 build keeps X0X's platform. Effects sound a little different (docs/UPSTREAM.md).
+- Web editor: long replies in pieces (the SMK's MIDI queue takes 128 bytes) and the device's slot sizes.
+- Fixes on every target: the SONG page's bottom line overran its buffer; a short sound name was copied past its end;
+  dn_app_slices_set kept a 12 KB loop on the stack; CI's ci_step.sh always reported success.
+
