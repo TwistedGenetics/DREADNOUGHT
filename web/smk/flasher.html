@@ -1,0 +1,147 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception
+     DREADNOUGHT for the M-VAVE SMK-37: the flasher, one page with the firmware in it (made by tools/smk_flasher.py).
+     Copyright (C) 2026 Jamie (TwistedGenetics). The update protocol is M-VAVE's own updater (WebUpdate.js, from the
+     SMK37 OPEN kit, GPL-3.0-only with its linking exception), below as it ships. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DREADNOUGHT for SMK-37 /*DN_MODEL_NAME*/</title>
+<style>
+  :root { --bg: #f4f1ea; --card: #ffffff; --ink: #141414; --dim: #555; --acc: #d4561c; --ok: #1d7a3a; --bad: #b3261e; --line: #d9d3c7; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 18px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 34px; margin: 8px 0 2px; letter-spacing: 0.02em; }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 17px; }
+  section { background: var(--card); border: 2px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  h2 { font-size: 22px; margin: 0 0 8px; }
+  button { font: inherit; font-weight: 700; font-size: 20px; padding: 12px 22px; border-radius: 10px; border: 2px solid var(--ink);
+           background: var(--ink); color: #fff; cursor: pointer; margin: 6px 8px 6px 0; }
+  button.alt { background: #fff; color: var(--ink); }
+  button:disabled { opacity: 0.35; cursor: default; }
+  label { display: block; margin: 8px 0; font-size: 18px; }
+  input[type=checkbox] { width: 22px; height: 22px; vertical-align: -4px; margin-right: 8px; }
+  #status { font-size: 22px; font-weight: 700; min-height: 1.5em; }
+  #status.ok { color: var(--ok); } #status.bad { color: var(--bad); }
+  .bar { height: 18px; border: 2px solid var(--ink); border-radius: 9px; overflow: hidden; margin: 10px 0; background: #fff; }
+  .bar > div { height: 100%; width: 0; background: var(--acc); transition: width 0.2s; }
+  .warn { border-color: var(--acc); }
+  pre { white-space: pre-wrap; font-size: 14px; color: var(--dim); max-height: 220px; overflow: auto; margin: 6px 0 0; }
+  a { color: var(--acc); }
+  small { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>DREADNOUGHT for SMK-37 /*DN_MODEL_NAME*/</h1>
+  <p class="sub">Version /*DN_VERSION*/ &middot; build <span id="build"></span> &middot; for the <b>SMK-37 /*DN_MODEL_NAME*/</b> only</p>
+
+  <section class="warn">
+    <h2>Before you start</h2>
+    <p>Installing DREADNOUGHT replaces M-VAVE's firmware <b>and erases what it stored</b>: its projects, DX7 voices and
+      samples. Back them up first with <a href="https://open.m-vave.com/smk37-workbench" target="_blank" rel="noopener">M-VAVE's
+      workbench</a>. Use desktop Chrome or Edge, a USB data cable, and close any other app that uses MIDI (DAWs,
+      other update pages). Keep the keyboard powered and plugged in until the page says it is done.</p>
+    <p>DREADNOUGHT is not M-VAVE's software and is not supported by M-VAVE. To go back, use <b>Restore M-VAVE V16</b>
+      below.</p>
+    <label><input type="checkbox" id="backedup"> I have backed up what I want to keep</label>
+  </section>
+
+  <section>
+    <h2>1. Connect</h2>
+    <label><input type="checkbox" id="force"> The keyboard is running M-VAVE's own firmware (the first install:
+      allows a forced install)</label>
+    <button id="connect">Connect</button>
+    <div id="ident"><small>Not connected.</small></div>
+  </section>
+
+  <section>
+    <h2>2. Install</h2>
+    <button id="install" disabled>Install DREADNOUGHT /*DN_VERSION*/</button>
+    <button id="restore" class="alt" disabled>Restore M-VAVE V16</button>
+    <div id="status"></div>
+    <div class="bar"><div id="bar"></div></div>
+    <pre id="log"></pre>
+  </section>
+
+  <p><small>Source and licence: <a href="https://github.com/TwistedGenetics/DREADNOUGHT">github.com/TwistedGenetics/DREADNOUGHT</a>
+    (GPL-3.0 with the SMK37 SDK's linking exception). The firmware contains M-VAVE's SMK37 OPEN binary SDK, used and passed on under
+    its terms (THIRD_PARTY.md in the kit). Updater: M-VAVE's WebUpdate.js. "M-VAVE" and "SMK-37" are M-VAVE's names; this page
+    is not M-VAVE's.</small></p>
+</main>
+<script>
+/*DN_WEBUPDATE*/
+</script>
+<script>
+(() => {
+  "use strict";
+  const MODEL = "/*DN_MODEL*/";
+  const OPEN = /*DN_PACKAGE*/;
+  const STOCK = /*DN_STOCK*/;
+  const $ = (id) => document.getElementById(id);
+  const log = (t) => { $("log").textContent += t + "\n"; $("log").scrollTop = 1e9; };
+  const status = (t, v, cls = "") => {
+    $("status").textContent = t || ""; $("status").className = cls;
+    if (typeof v === "number") $("bar").style.width = Math.max(0, Math.min(100, v)) + "%";
+  };
+  $("build").textContent = OPEN.build_id.slice(0, 12);
+  let access = null, updater = null, connected = null, busy = false;
+  const enable = () => {
+    const ok = !busy && $("backedup").checked;
+    $("connect").disabled = busy;
+    $("install").disabled = !ok || !connected || connected.kind !== "open";
+    $("restore").disabled = !ok;
+  };
+  $("backedup").onchange = enable;
+  async function connectAs(kind) {
+    if (!navigator.requestMIDIAccess) throw new Error("This browser has no Web MIDI: use desktop Chrome or Edge.");
+    if (!access) access = await navigator.requestMIDIAccess({ sysex: true });
+    if (updater) await updater.disconnect().catch(() => {});
+    const pkg = await FM1Web.prepare(kind === "stock" ? STOCK : OPEN);
+    updater = new FM1Web.Updater(access, pkg, (text, value) => status(text, value));
+    const dev = await updater.connect({ force: $("force").checked });
+    connected = { kind, dev };
+    log(`connected: ${dev.identity}${dev.migration ? " (M-VAVE's firmware: tick the first box and Connect again)" : ""}` +
+        `${dev.legacy ? " (forced install armed)" : ""}${dev.resume ? " (the update loader is waiting)" : ""}${dev.same ? " (already this build)" : ""}`);
+    $("ident").textContent = `Connected: ${dev.identity}`;
+    return dev;
+  }
+  $("connect").onclick = async () => {
+    busy = true; enable(); status("Connecting…", 0);
+    try {
+      const dev = await connectAs("open");
+      if (dev.migration) status("This is M-VAVE's firmware: tick “running M-VAVE's own firmware” and Connect again.", 0, "bad");
+      else if (dev.same) status("DREADNOUGHT " + "/*DN_VERSION*/" + " is already on it.", 100, "ok");
+      else status("Connected. Ready to install.", 0, "ok");
+    } catch (e) { connected = null; status(e.message, 0, "bad"); log("connect: " + e.message); }
+    busy = false; enable();
+  };
+  async function run(kind, label) {
+    if (!confirm(kind === "stock" ? "Restore M-VAVE's V16 firmware? DREADNOUGHT's sounds, patterns and samples on the keyboard are erased."
+                                   : "Install DREADNOUGHT? What M-VAVE's firmware stored on the keyboard is erased.")) return;
+    busy = true; enable();
+    try {
+      if (!connected || connected.kind !== kind) await connectAs(kind);
+      if (connected.dev.migration) throw new Error("Tick “running M-VAVE's own firmware” and Connect again first.");
+      status(label, 0);
+      await updater.install({ force: $("force").checked, confirmedModel: MODEL });
+      status(kind === "stock" ? "M-VAVE V16 is back. Turn the keyboard off and on." : "Done: DREADNOUGHT is installed.", 100, "ok");
+      log("done");
+    } catch (e) { status(e.message, null, "bad"); log("install: " + e.message); }
+    busy = false; connected = null; enable();
+  }
+  $("install").onclick = () => run("open", "Installing…");
+  $("restore").onclick = async () => {
+    // (the restore runs on the stock package: connect for it, then install it)
+    busy = true; enable();
+    try { await connectAs("stock"); } catch (e) { status(e.message, 0, "bad"); busy = false; enable(); return; }
+    busy = false; enable();
+    await run("stock", "Restoring M-VAVE V16…");
+  };
+  enable();
+})();
+</script>
+</body>
+</html>

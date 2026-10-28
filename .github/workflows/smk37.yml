@@ -89,6 +89,15 @@ jobs:
           s=sdk\\Build.ps1; [ -f build-dn.ps1 ] && s=build-dn.ps1
           bash ../tools/ci_step.sh "build ${{ matrix.model }}" pwsh -NoProfile -Command ".\\$s -Model ${{ matrix.model }} -FirmwareOnly -Toolchain \"$FM1_PI32_TOOLCHAIN\""
 
+      - name: The flasher page
+        if: ${{ !inputs.baseline }}
+        shell: bash
+        run: |
+          v=$(tr -d ' \r\n' < VERSION)
+          m=${{ matrix.model }}; M=$([ $m = pro ] && echo Pro || echo Elite)
+          bash tools/ci_step.sh "flasher $m" python tools/smk_flasher.py sdkkit $m "sdkkit/build/$m/generated/DREADNOUGHT-$v-SMK37-$M.html"
+          cp "sdkkit/build/$m/generated/SMK37_${m^^}_OPEN.fwsc" "sdkkit/build/$m/generated/DREADNOUGHT-$v-SMK37-$M.fwsc"
+
       - name: Reports
         if: always()
         shell: bash
@@ -112,6 +121,7 @@ jobs:
           name: smk37-${{ matrix.model }}${{ inputs.baseline && '-baseline' || '' }}
           path: |
             sdkkit/build/${{ matrix.model }}/generated/*.fwsc
+            sdkkit/build/${{ matrix.model }}/generated/*.html
             sdkkit/build/${{ matrix.model }}/*.json
             sdkkit/build/${{ matrix.model }}/sdk.map
           if-no-files-found: warn

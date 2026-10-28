@@ -132,6 +132,9 @@ $sdk = Join-Path $root 'sdk'"""),
             continue
         }"""),
     ]
+    # the spare cache RAM's buffers (DN_POOL_FAST) come out of the compiler as PROGBITS; the startup clears that
+    # section (it reads cache_ram_bss_vma / _size), so it is not packaged, as .boot_info is not
+    edits += [("elseif ($name -cne '.boot_info')", "elseif ($name -cnotin @('.boot_info','.cache_ram_bss'))")]
     # (0.46) a smaller user area: M-VAVE's layout keeps 524 KB for user data, which leaves the firmware ~460 KB with
     # the SDK's ~280 KB in it; DREADNOUGHT needs ~800 KB. 176 KB of user flash (the store, and 104 KB of samples):
     # smk/app/transfer.c lays it out. The packager (Package.cs, MIT) takes the size as given (Package-dn.cs).
