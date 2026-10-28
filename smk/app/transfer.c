@@ -1,7 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception
  * DREADNOUGHT on the SMK-37 Pro / Elite: the store, the sample slots and the editor's SysEx. Copyright (C) 2026 Jamie
  * (TwistedGenetics); written 2026-10 for the SMK, after the FM-1's editor protocol (x0x-firmware/web/EDITOR_PROTOCOL.md:
- * the frame, the slot commands and the slot format), so the web editor and the breaks page work as with an FM-1.
+ * the frame, the slot commands and the slot format), so the web editor works as with an FM-1 (replies over 128 bytes
+ * go in pieces, and SMP_INFO ends with the slots' sizes: the editor takes both; the FM-1's breaks page does not: on the
+ * SMK the editor sends the loops).
  *
  * The user flash (fm1_flash_*: the SDK finds it; 4 KB sectors; erases and writes from the control task only, the
  * audio silenced while they run), DREADNOUGHT's layout:
@@ -92,7 +94,10 @@ int dn_smk_store_load(uint32_t obj, void *dst, uint32_t max)
     int i = obj_index(obj);
     uint32_t off;
     struct rec r;
-    if (i < 0 || !obj_seq[i] || !rec_read(off = obj_off((uint32_t)i, obj_side[i]), &r))
+    if (i < 0 || !obj_seq[i])
+        return -1;
+    if (!rec_read(off = obj_off((uint32_t)i, obj_side[i]), &r) &&
+        !rec_read(off = obj_off((uint32_t)i, 1u - obj_side[i]), &r))   /* (the newer gone bad since: the older) */
         return -1;
     if (r.len > max)
         r.len = max;
@@ -134,7 +139,7 @@ static void slot_scan(uint32_t k)                    /* how many zones slot k ho
         h->data_len > SLOT_SIZE[k] - SLOT_DATA)
         return;
     for (z = 0; z < h->nz; z++)
-        if (h->zone[z].off > h->data_len || h->zone[z].n / 2u > h->data_len - h->zone[z].off)
+        if (h->zone[z].off > h->data_len || (h->zone[z].n + 1u) / 2u > h->data_len - h->zone[z].off)
             return;
     slot_nz[k] = h->nz;
 }
@@ -346,7 +351,8 @@ static void ed_handle(unsigned port, const uint8_t *f, uint32_t n)   /* f: 7D 46
     (void)dn_smk_send(port, out, out_n);
 }
 
-/* frames arrive on the control task (fm1_app_sysex) and wait here for dn_smk_editor_poll */
+/* frames arrive on the SDK's MIDI routing task (fm1_app_sysex: copied, nothing else done there) and wait here for
+ * dn_smk_editor_poll on the control task, where the flash may be written */
 #define FRAME_MAX 1024u
 static struct { uint8_t b[FRAME_MAX]; volatile uint32_t n; uint8_t port; } inq[2];
 void fm1_app_sysex(const uint8_t *m, size_t n)
@@ -370,6 +376,7 @@ void dn_smk_editor_poll(void)
     uint32_t i;
     for (i = 0; i < 2u; i++)
         if (inq[i].n) {
+            __asm__ volatile("csync" ::: "memory");   /* (the frame's bytes after its length) */
             ed_handle(inq[i].port, inq[i].b + 1, inq[i].n - 2u);
             inq[i].n = 0;
         }

@@ -1881,6 +1881,8 @@ static void dn_fx_layout(void)                      /* (inside the lock) the are
         a = dn_fx_arena - b;
     else if (dn_fx_flex(tb))
         b = dn_fx_arena - a;
+    if (a > dn_fx_arena)                            /* (0.46: one alone bigger than the arena, a smaller target's: off) */
+        dn_fx_default(&dn_fxp[0], DN_FX_OFF), ta = DN_FX_OFF, a = 0;
     if (a + b > dn_fx_arena)                        /* (0.42: a pair kept from a bigger arena: B off) */
         dn_fx_default(&dn_fxp[1], DN_FX_OFF), tb = DN_FX_OFF, b = 0;
     dn_fx_init(&dn_fxs[0], ta, a ? m : 0, a);
@@ -5577,9 +5579,9 @@ void dn_app_input(void)
             static char t[16];
             char was[10];                           /* (0.22: the name it goes in with: the sound's own) */
             const char *w = dn_sound_name(set, set ? dn.sb_preset : dn.preset);
-            for (j = 0; j < 9u; j++)
+            for (j = 0; j < 9u && w[j]; j++)          /* (0.46: not past a shorter name's end) */
                 was[j] = w[j];
-            was[9] = 0;
+            was[j] = 0;
             dn_patch_store(set, &dn_user[set][u]);
             if (set)
                 dn.sb_preset = (uint8_t)(dn_sub_preset_count() + u);
@@ -7276,7 +7278,7 @@ static void dn_draw_song(void)
     if (dn.msg && (int32_t)(dn.msg_t - plat_ms()) > 0)
         cv_text(232 - text_w(&FONT_T, dn.msg), 127, &FONT_T, dn.msg, DN_C_RED);
     else {
-        static char l[40];
+        static char l[72];                          /* (0.46: was 40, the line is ~55: it ran over) */
         l[0] = 0;
         dn_cat(l, "ROW ");
         dn_num(v, (int32_t)sel + 1);

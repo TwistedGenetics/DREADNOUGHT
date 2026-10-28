@@ -65,8 +65,11 @@ def main():
         shutil.rmtree(dn)
     dn.mkdir()
     for f in (REPO / "src" / "dsp").iterdir():
-        if f.suffix in (".c", ".h"):
+        if f.suffix == ".h":
             shutil.copy2(f, dn / f.name)
+        elif f.suffix == ".c":                       # (built one by one: each sees the SMK's settings, DN_FX_SMALL ...)
+            (dn / f.name).write_text('#include "dn_smk_version.h"                  /* (tools/smk_assemble.py) */\n'
+                                     + f.read_text(encoding="utf-8"), encoding="utf-8")
     for f in (REPO / "src" / "core").glob("*.h"):
         shutil.copy2(f, dn / f.name)
     for f in (REPO / "src" / "app").glob("*.h"):

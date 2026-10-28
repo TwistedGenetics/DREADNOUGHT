@@ -40,6 +40,7 @@ int dn_smk_midi_in(uint32_t *pkt)
     uint32_t r = in_r;
     if (r == in_w)
         return 0;
+    barrier();                                       /* (the packet after the index that says it is there) */
     *pkt = in_ring[r & (IN_N - 1u)];
     barrier();
     in_r = r + 1u;
@@ -89,15 +90,20 @@ int dn_smk_send(unsigned port, const uint8_t *m, size_t n)
 {
     uint8_t f[PIECE + 8u];
     size_t body, k, i, pieces;
-    if (n <= 128u)
-        return fm1_midi_send_port(port, m, n);
+    if (n <= 128u) {
+        uint32_t tries = 50;
+        int rc;
+        while ((rc = fm1_midi_send_port(port, m, n)) == -2 && tries--)
+            fm1_device_delay(1);                     /* (the port's queue full: a moment for it) */
+        return rc;
+    }
     body = n - 2u;
     pieces = (body + PIECE - 1u) / PIECE;
     if (pieces > 127u)
         return -1;
     for (i = 0; i < pieces; i++) {
         size_t at = i * PIECE, len = body - at > PIECE ? PIECE : body - at;
-        uint32_t tries = 200;
+        uint32_t tries = 50;
         f[0] = 0xF0, f[1] = 0x7D, f[2] = 0x46, f[3] = 0x4C, f[4] = 0x7E, f[5] = (uint8_t)i, f[6] = (uint8_t)pieces;
         for (k = 0; k < len; k++)
             f[7u + k] = m[1u + at + k] & 0x7Fu;
