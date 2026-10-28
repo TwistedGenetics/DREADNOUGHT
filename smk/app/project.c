@@ -29,6 +29,20 @@ static __attribute__((noinline)) void keep(void)
     (void)groove_tuning_apply(t);
     (void)groove_project_apply_edit(&scratch, 0);
     (void)fm1_engine_render(block, FM1_BLOCK_FRAMES);
+    {
+        struct fm1_ble_status st;
+        struct fm1_ble_device d;
+        struct fm1_bluetooth_status bs;
+        (void)fm1_ble_set_role(FM1_BLE_PERIPHERAL);
+        (void)fm1_ble_scan();
+        (void)fm1_ble_connect(0);
+        (void)fm1_ble_disconnect();
+        (void)fm1_ble_forget_bonds();
+        fm1_ble_get_status(&st);
+        (void)fm1_ble_get_device(0, &d);
+        (void)fm1_bluetooth_configure(FM1_BT_MIDI);
+        fm1_bluetooth_get_status(&bs);
+    }
 }
 void groove_project_poll(void)
 {

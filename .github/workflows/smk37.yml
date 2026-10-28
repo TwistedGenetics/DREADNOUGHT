@@ -95,6 +95,8 @@ jobs:
           cd sdkkit/build/${{ matrix.model }} 2>/dev/null || exit 0
           cat firmware-report.json package-report.json 2>/dev/null | head -80
           if [ -f sdk.map ]; then
+            f=$(grep -n -m3 -B2 -A2 "dn_strip\|dn_fx_mem" sdk.map | head -20 | tr -d '\r'); f=${f//'%'/'%25'}; f=${f//$'\n'/'%0A'}
+            echo "::notice title=map format::$f"
             python ../../../tools/smk_mapsum.py sdk.map > ramsum.txt || true
             m=$(head -90 ramsum.txt | tr -d '\r'); m=${m//'%'/'%25'}; m=${m//$'\n'/'%0A'}
             echo "::notice title=RAM ${{ matrix.model }}::$m"
