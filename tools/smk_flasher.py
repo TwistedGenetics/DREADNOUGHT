@@ -27,10 +27,10 @@ def main():
     build = kit / "build" / model
     fw = (build / "generated" / f"SMK37_{model.upper()}_OPEN.fwsc").read_bytes()
     ident = json.loads((build / "build-identity.json").read_text(encoding="utf-8-sig"))
-    vh = (kit / "app" / "version.h").read_text()
+    vh = (kit / "app" / "version.h").read_text(encoding="utf-8")
     rel = re.search(r'FM1_RELEASE_VERSION "(V\d+)"', vh).group(1)
     product = re.search(r'FM1_UPDATE_PRODUCT_%s "([^"]+)"' % model.upper(), vh).group(1)
-    ver = (REPO / "VERSION").read_text().strip()
+    ver = (REPO / "VERSION").read_text(encoding="utf-8").strip()
     family = 8 if model == "pro" else 9
     stock = (kit / "sdk" / "firmware" / f"SMK37-{name}-V16.fwsc").read_bytes()
     if sha(stock) != stock_hash:
@@ -43,7 +43,7 @@ def main():
           "profile": f"SMK37 {name} Original V16", "family": family, "release_version": "V16", "build_id": stock_hash,
           "sha256": stock_hash, "bytes": len(stock), "loader_sha256": STOCK_LOADER,
           "data": base64.b64encode(stock).decode()}
-    page = (REPO / "web" / "smk" / "flasher.html").read_text()
+    page = (REPO / "web" / "smk" / "flasher.html").read_text(encoding="utf-8")
     for k, v in [("/*DN_WEBUPDATE*/", (kit / "sdk" / "WebUpdate.js").read_text(encoding="utf-8-sig")),
                  ("/*DN_PACKAGE*/", json.dumps(pkg)), ("/*DN_STOCK*/", json.dumps(st)),
                  ("/*DN_MODEL_NAME*/", name), ("/*DN_MODEL*/", model), ("/*DN_VERSION*/", ver)]:

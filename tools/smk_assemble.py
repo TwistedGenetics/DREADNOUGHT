@@ -42,7 +42,7 @@ def main():
             shutil.copy2(f, app / f.name)
 
     # the version: VERSION X.Y -> the kit's release "V<Y>" (X = 0), the update identity 8000000 + Y
-    ver = (REPO / "VERSION").read_text().strip()
+    ver = (REPO / "VERSION").read_text(encoding="utf-8").strip()
     m = re.fullmatch(r"(\d+)\.(\d+)", ver)
     if not m:
         raise SystemExit(f"smk_assemble: VERSION {ver!r} is not X.Y")
@@ -72,12 +72,12 @@ def main():
     for f in (REPO / "src" / "app").glob("*.h"):
         shutil.copy2(f, dn / f.name)
     for name in ["dn_app", "dn_editor", "dn_splash"]:
-        text = (REPO / "src" / "app" / f"{name}.c").read_text()
+        text = (REPO / "src" / "app" / f"{name}.c").read_text(encoding="utf-8")
         if name == "dn_app":
             if text.count('#include "dn_editor.c"') != 1:
                 raise SystemExit("smk_assemble: dn_app.c no longer includes dn_editor.c once")
             text = text.replace('#include "dn_editor.c"', '#include "dn_editor.inc"')
-        (dn / f"{name}.inc").write_text(text)
+        (dn / f"{name}.inc").write_text(text, encoding="utf-8")
     for script, out in [("gen_dn_tables.py", "dn_tables.h"), ("gen_dn_wt.py", "dn_wt_tables.h"),
                         ("gen_dn_font.py", "dn_font.h")]:
         if gen:
@@ -100,7 +100,7 @@ def main():
 
     # the audio interrupt renders DREADNOUGHT
     audio = app / "board" / "audio.c"
-    text = audio.read_text()
+    text = audio.read_text(encoding="utf-8")
     old = """    /* The library renders the instrument; APP mixes external audio. */
     if (fm1_engine_render(rendered, FM1_BLOCK_FRAMES) != 0) {
         ++statistics.overruns;
@@ -113,7 +113,7 @@ def main():
     dn_smk_render(rendered, FM1_BLOCK_FRAMES);
 """)
     text = text.replace('#include "audio_output.h"\n', '#include "audio_output.h"\n#include "dn_smk.h"\n')
-    audio.write_text(text)
+    audio.write_text(text, encoding="utf-8")
     # the kit's build script, as build-dn.ps1 beside it: the same build and checks, but for the parts of M-VAVE's own
     # instrument (DREADNOUGHT does not use it, so the linker leaves it out): absent is fine; present, the same checks
     b = (kit / "sdk" / "Build.ps1").read_text(encoding="utf-8-sig")
