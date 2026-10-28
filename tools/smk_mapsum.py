@@ -27,14 +27,14 @@ for line in open(sys.argv[1], errors="replace"):
             by_file[base] += size
         elif ROM_LO <= addr < ROM_HI and size and name:
             rom_file[base] += size
+print(f"flash (code and constants): {sum(rom_file.values())} bytes; by file:")
+for f, s in sorted(rom_file.items(), key=lambda x: -x[1])[:15]:
+    print(f"{s:7d} {f}")
 total = sum(s for s, _, _ in rows)
 print(f"internal RAM taken by input sections: {total} bytes")
-for s, n, src in sorted(rows, reverse=True)[:45]:
+for s, n, src in sorted(rows, reverse=True)[:30]:
     base = re.sub(r".*[\\/]", "", src)
     print(f"{s:7d} {n[:48]:48s} {base[:40]}")
 print("by file:")
 for f, s in sorted(by_file.items(), key=lambda x: -x[1])[:15]:
-    print(f"{s:7d} {f}")
-print(f"flash (code and constants): {sum(rom_file.values())} bytes; by file:")
-for f, s in sorted(rom_file.items(), key=lambda x: -x[1])[:15]:
     print(f"{s:7d} {f}")

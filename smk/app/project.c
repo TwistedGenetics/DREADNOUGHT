@@ -3,8 +3,9 @@
  * its samples). DREADNOUGHT keeps its own project and samples (transfer.c), so these hold nothing. Copyright (C) 2026
  * Jamie (TwistedGenetics).
  *
- * keep(): the SDK's build checks that parts of M-VAVE's instrument are in the image; nothing of DREADNOUGHT's calls
- * them, so the linker would drop them. keep() names them behind a flag that is never set. */
+ * keep(): the kit's build checks that the SDK's Bluetooth calls are in the image; nothing of DREADNOUGHT's calls them
+ * yet, so the linker would drop them. keep() names them behind a flag that is never set. (M-VAVE's instrument itself
+ * is left out: build-dn.ps1, tools/smk_assemble.py.) */
 #include "fm1.h"
 #include "fm1_engine_control.h"
 #include "instrument.h"
@@ -23,12 +24,6 @@ void groove_samples_poll(void) {}
 volatile uint8_t dn_smk_keep_flag;
 static __attribute__((noinline)) void keep(void)
 {
-    static struct groove_tuning t[GROOVE_TRACKS];
-    static int32_t block[FM1_BLOCK_WORDS];
-    (void)groove_tuning_capture(t);
-    (void)groove_tuning_apply(t);
-    (void)groove_project_apply_edit(&scratch, 0);
-    (void)fm1_engine_render(block, FM1_BLOCK_FRAMES);
     {
         struct fm1_ble_status st;
         struct fm1_ble_device d;

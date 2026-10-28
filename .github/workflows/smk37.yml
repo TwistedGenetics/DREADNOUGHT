@@ -86,7 +86,8 @@ jobs:
         shell: bash
         run: |
           cd sdkkit
-          bash ../tools/ci_step.sh "build ${{ matrix.model }}" pwsh -NoProfile -Command ".\sdk\Build.ps1 -Model ${{ matrix.model }} -FirmwareOnly -Toolchain \"$FM1_PI32_TOOLCHAIN\""
+          s=sdk\\Build.ps1; [ -f build-dn.ps1 ] && s=build-dn.ps1
+          bash ../tools/ci_step.sh "build ${{ matrix.model }}" pwsh -NoProfile -Command ".\\$s -Model ${{ matrix.model }} -FirmwareOnly -Toolchain \"$FM1_PI32_TOOLCHAIN\""
 
       - name: Reports
         if: always()

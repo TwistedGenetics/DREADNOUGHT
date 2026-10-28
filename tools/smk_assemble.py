@@ -107,6 +107,30 @@ def main():
 """)
     text = text.replace('#include "audio_output.h"\n', '#include "audio_output.h"\n#include "dn_smk.h"\n')
     audio.write_text(text)
+    # the kit's build script, as build-dn.ps1 beside it: the same build and checks, but for the parts of M-VAVE's own
+    # instrument (DREADNOUGHT does not use it, so the linker leaves it out): absent is fine; present, the same checks
+    b = (kit / "sdk" / "Build.ps1").read_text(encoding="utf-8-sig")
+    edits = [
+        ("""$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$sdk = $PSScriptRoot""", """$root = [IO.Path]::GetFullPath($PSScriptRoot)
+$sdk = Join-Path $root 'sdk'"""),
+        ("""    foreach ($name in $required) { if (!$info.ContainsKey($name)) { throw "Required runtime symbol absent: $name" } }""",
+         """    foreach ($name in $required) { if ($name -like 'groove_*') { continue }; if (!$info.ContainsKey($name)) { throw "Required runtime symbol absent: $name" } }"""),
+        ("""    foreach ($name in @('fm1_r_dee1ea411566','fm1_r_d16405f329ed','fm1_r_f03cc16d330d','fm1_r_1993f9b103e3',
+            'fm1_io_trs_midi_enabled','fm1_r_05431712fb7b','fm1_r_0aa010fe1de1','fm1_r_33d5e5b63b6b','fm1_app_sysex')) {""",
+         """    foreach ($name in @('fm1_io_trs_midi_enabled','fm1_app_sysex')) {"""),
+        ("""        if (!$info.ContainsKey($name)) { throw "Audio callback absent: $name" }""",
+         """        if (!$info.ContainsKey($name)) {
+            if ($name -in @('fm1_audio_irq','fm1_audio_copy','fm1_output_mix','fm1_usb_audio_read','fm1_usb_audio_write','fm1_flash_worker_prepare','cpu_enter_sfc_critical','cpu_exit_sfc_critical')) { throw "Audio callback absent: $name" }
+            continue
+        }"""),
+    ]
+    for old, new in edits:
+        if b.count(old) != 1:
+            raise SystemExit("smk_assemble: sdk/Build.ps1 has changed; look at it again: " + old.splitlines()[0][:70])
+        b = b.replace(old, new)
+    (kit / "build-dn.ps1").write_text("# DREADNOUGHT: the SMK37 OPEN kit's sdk/Build.ps1, its checks of M-VAVE's instrument relaxed "
+                                      "(tools/smk_assemble.py)\n" + b, encoding="utf-8")
     print(f"smk_assemble: DREADNOUGHT {ver} ({rel}) in {app}")
 
 
