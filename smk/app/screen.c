@@ -197,6 +197,7 @@ static void dn_unlock(void)
 
 _Static_assert(sizeof dg_strip >= 4u * 3840u, "DN_PBUF_SHARED: the screen band holds the patterns' store buffer");
 #include "dn/dn_app.inc"
+_Static_assert(sizeof dg_ops >= sizeof(dn_pattern_t), "DN_PAT_TMP_SHARED: the display list holds a pattern");
 #include "dn/dn_splash.inc"
 
 /* the settings objects (on the FM-1, slot 3's top): store objects of their own here */

@@ -3328,7 +3328,12 @@ static uint32_t dn_pat_pack(void)                   /* into dn_pbuf; its length 
 }
 static int dn_pat_unpack(uint32_t len)              /* from dn_pbuf; 0: not ours (the patterns stay as they are) */
 {
+#ifdef DN_PAT_TMP_SHARED                             /* (short of RAM: a buffer only drawing uses, as dn_pbuf) */
+    dn_pattern_t *const pp = DN_PAT_TMP_SHARED;
+#define p (*pp)
+#else
     static dn_pattern_t p DN_POOL;
+#endif
     const uint8_t *b = dn_pbuf;
     uint32_t t, n, i, o = 10u, k;
     if (len < DN_PB_HEAD || (b[0] | b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24) != DN_PB_MAGIC || b[4] != 1u ||
@@ -3396,6 +3401,9 @@ static int dn_pat_unpack(uint32_t len)              /* from dn_pbuf; 0: not ours
     }
     dn_sq.pat = p;
     return 1;
+#ifdef DN_PAT_TMP_SHARED
+#undef p
+#endif
 }
 static int dn_pat_save(void)                        /* 0 kept; 1 too many notes; 2 the flash said no */
 {

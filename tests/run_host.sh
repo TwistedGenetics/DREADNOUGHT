@@ -89,7 +89,7 @@ done
 # (0.46) the SMK's banded screen (src/core/dn_gfx.h, DN_GFX_BAND_ROWS): every scenario's screens, drawn band by band,
 # the same pixels as drawn whole; and nothing left out of its lists
 # shellcheck disable=SC2086
-$CC $W -Wno-unused-parameter -Wno-sign-compare -DDN_GFX_BAND_ROWS=32 -DDN_GFX_OPS=640u -DDN_PBUF_SHARED="((uint8_t *)(void *)dg_strip)" -DDN_GFX_CHARS=2048u -DDN_GFX_ARGS=512u tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c src/dsp/dn_wt.c src/dsp/dn_ju.c -o build/host/dn_host_band
+$CC $W -Wno-unused-parameter -Wno-sign-compare -DDN_GFX_BAND_ROWS=32 -DDN_GFX_OPS=640u -DDN_PBUF_SHARED="((uint8_t *)(void *)dg_strip)" -DDN_PAT_TMP_SHARED="((dn_pattern_t *)(void *)dg_ops)" -DDN_GFX_CHARS=2048u -DDN_GFX_ARGS=512u tests/host/dn_host.c src/dsp/reese.c src/dsp/dn_seq.c src/dsp/dn_breaks.c src/dsp/dn_lfo.c src/dsp/dn_fx.c src/dsp/dn_fxc.c src/dsp/dn_fxq.c src/dsp/dn_fxm.c src/dsp/dn_fxl.c src/dsp/dn_sub.c src/dsp/dn_smp.c src/dsp/dn_fm.c src/dsp/dn_wt.c src/dsp/dn_ju.c -o build/host/dn_host_band
 mkdir -p build/host/band
 for s in tests/host/scenarios/*.txt; do
     build/host/dn_host_band "$s" build/host/band > build/host/band/last.txt || { cat build/host/band/last.txt; echo "FAIL banded: $s"; exit 1; }

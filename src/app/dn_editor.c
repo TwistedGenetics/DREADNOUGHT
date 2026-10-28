@@ -115,7 +115,7 @@ static uint32_t dn_ed_smp_id(uint32_t kind, uint32_t k)
 {
     return kind == 0u ? DN_PX_PD0 + k : kind == 1u ? DN_PX_ZN0 + k : kind == 2u ? DN_PX_KY0 + k : DN_PX_SMODE;
 }
-static dn_pattern_t dn_ed_pat DN_POOL;             /* PAT_WRITE's copy, until PAT_COMMIT */
+static dn_pattern_t dn_ed_pat DN_POOL_FAST;             /* PAT_WRITE's copy, until PAT_COMMIT */
 
 /* editor parameter i: the app's id, and which BREAKS (0 / 1; -1 none) */
 static uint32_t dn_ed_id(uint32_t i, int32_t *brk)

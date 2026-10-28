@@ -17,7 +17,7 @@ on:
       fx_kb:
         description: "the FX arena, KB (a RAM experiment)"
         type: string
-        default: "112"
+        default: ""
 
 permissions:
   contents: read
@@ -79,7 +79,7 @@ jobs:
         if: ${{ !inputs.baseline }}
         shell: bash
         env:
-          SMK_FX_KB: ${{ inputs.fx_kb || '112' }}
+          SMK_FX_KB: ${{ inputs.fx_kb }}
         run: bash tools/ci_step.sh "assemble" python tools/smk_assemble.py sdkkit gen
 
       - name: Build

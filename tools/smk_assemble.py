@@ -88,14 +88,15 @@ def main():
     (dn / "dn_smk_version.h").write_text(
         "/* made by tools/smk_assemble.py */\n#pragma once\n"
         f'#define DN_VERSION "{ver}"\n'
-        f"#define DN_FX_ARENA ({os.environ.get('SMK_FX_KB', '80')}u * 1024u)  /* (the SMK's RAM: less than the FM-1's 176 KB) */\n"
+        f"#define DN_FX_ARENA ({os.environ.get('SMK_FX_KB') or '84'}u * 1024u)  /* (the SMK's RAM: less than the FM-1's 176 KB) */\n"
         "#define DN_GFX_BAND_ROWS 32                         /* (the screen drawn in bands: src/core/dn_gfx.h) */\n"
         "#define DN_GFX_OPS 640u\n#define DN_GFX_CHARS 2048u\n#define DN_GFX_ARGS 512u\n"
         "#define DN_SLOT_BYTES (40u * 1024u)                 /* (the sample slots: transfer.c) */\n"
         "#define DN_SLOT3_BYTES (24u * 1024u)\n"
         "#define DN_POOL_FAST __attribute__((section(\".memp_memory_x\"), aligned(4)))   /* (the D-cache's spare ways) */\n"
         "#define DN_FX_SMALL 1                               /* (the echoes half as long: the FX arena is small) */\n"
-        "#define DN_PBUF_SHARED ((uint8_t *)(void *)dg_strip) /* (the patterns' store buffer: the screen band's 15 KB) */\n")
+        "#define DN_PBUF_SHARED ((uint8_t *)(void *)dg_strip) /* (the patterns' store buffer: the screen band's 15 KB) */\n"
+        "#define DN_PAT_TMP_SHARED ((dn_pattern_t *)(void *)dg_ops)   /* (a pattern unpacked: the display list's) */\n")
 
     # the audio interrupt renders DREADNOUGHT
     audio = app / "board" / "audio.c"

@@ -56,18 +56,20 @@ struct rec { uint32_t magic, seq, len, crc; };
 static uint8_t flash_ok;
 static uint32_t obj_seq[NOBJ];                       /* the newest record's number (0: none) */
 static uint8_t obj_side[NOBJ];                       /* which of its two sectors holds it */
-static uint8_t rec_buf[OBJ_MAX] __attribute__((aligned(4)));
-
-static int obj_index(uint32_t obj) { return obj < 7u ? (int)obj : obj == 16u ? 7 : obj == 17u ? 8 : -1; }
-static uint32_t obj_off(uint32_t i, uint32_t side) { return (2u * i + side) * SEC; }
+static uint8_t chunk[256] __attribute__((aligned(4)));
 
 static int rec_read(uint32_t off, struct rec *r)     /* 1: a good record (its bytes checked) */
 {
+    uint32_t at, c = 0;
     if (fm1_flash_read(off, r, sizeof *r) || r->magic != REC_MAGIC || r->len > OBJ_MAX || !r->seq)
         return 0;
-    if (fm1_flash_read(off + sizeof *r, rec_buf, r->len))
-        return 0;
-    return crc32_run(0, rec_buf, r->len) == r->crc;
+    for (at = 0; at < r->len; at += sizeof chunk) {  /* (the CRC a piece at a time: no 4 KB buffer) */
+        uint32_t n = r->len - at < sizeof chunk ? r->len - at : sizeof chunk;
+        if (fm1_flash_read(off + sizeof *r + at, chunk, n))
+            return 0;
+        c = crc32_run(c, chunk, n);
+    }
+    return c == r->crc;
 }
 
 void dn_smk_store_init(void)
@@ -85,12 +87,14 @@ void dn_smk_store_init(void)
 int dn_smk_store_load(uint32_t obj, void *dst, uint32_t max)
 {
     int i = obj_index(obj);
+    uint32_t off;
     struct rec r;
-    if (i < 0 || !obj_seq[i] || !rec_read(obj_off((uint32_t)i, obj_side[i]), &r))
+    if (i < 0 || !obj_seq[i] || !rec_read(off = obj_off((uint32_t)i, obj_side[i]), &r))
         return -1;
     if (r.len > max)
         r.len = max;
-    memcpy(dst, rec_buf, r.len);
+    if (fm1_flash_read(off + sizeof r, dst, r.len))
+        return -1;
     return (int)r.len;
 }
 int dn_smk_store_save(uint32_t obj, const void *src, uint32_t len)
@@ -100,11 +104,10 @@ int dn_smk_store_save(uint32_t obj, const void *src, uint32_t len)
     struct rec r;
     if (i < 0 || len > OBJ_MAX || !flash_ok)
         return -1;
-    memcpy(rec_buf, src, len);                       /* (stable while it is written) */
-    side = obj_seq[i] ? 1u - obj_side[i] : 0u;
+    side = obj_seq[i] ? 1u - obj_side[i] : 0u;      /* (src: the app's, in RAM, still while this runs) */
     off = obj_off((uint32_t)i, side);
-    r.magic = REC_MAGIC, r.seq = obj_seq[i] + 1u, r.len = len, r.crc = crc32_run(0, rec_buf, len);
-    if (fm1_flash_erase(off) || (len && fm1_flash_write(off + sizeof r, rec_buf, len)) || fm1_flash_write(off, &r, sizeof r))
+    r.magic = REC_MAGIC, r.seq = obj_seq[i] + 1u, r.len = len, r.crc = crc32_run(0, (const uint8_t *)src, len);
+    if (fm1_flash_erase(off) || (len && fm1_flash_write(off + sizeof r, src, len)) || fm1_flash_write(off, &r, sizeof r))
         return -2;                                   /* (the older record still stands) */
     obj_seq[i] = r.seq, obj_side[i] = (uint8_t)side;
     return 0;
