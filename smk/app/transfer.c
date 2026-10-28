@@ -58,6 +58,9 @@ static uint32_t obj_seq[NOBJ];                       /* the newest record's numb
 static uint8_t obj_side[NOBJ];                       /* which of its two sectors holds it */
 static uint8_t chunk[256] __attribute__((aligned(4)));
 
+static int obj_index(uint32_t obj) { return obj < 7u ? (int)obj : obj == 16u ? 7 : obj == 17u ? 8 : -1; }
+static uint32_t obj_off(uint32_t i, uint32_t side) { return (2u * i + side) * SEC; }
+
 static int rec_read(uint32_t off, struct rec *r)     /* 1: a good record (its bytes checked) */
 {
     uint32_t at, c = 0;
