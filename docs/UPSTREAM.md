@@ -47,6 +47,17 @@ TwistedGenetics), licensed GPL-3.0-only with the SMK37 SDK's linking exception (
   `assets/fonts/`);
 - `src/core/dn_plat.h`, the calls the app makes of the machine under it (in place of X0X's `plat.h`).
 
+What the SMK build takes from M-VAVE's kit ([m-vave/smk37_open](https://github.com/m-vave/smk37_open), the commit
+`.github/workflows/smk37.yml` pins), at build time (none of it is in this repository):
+
+| Part | From | Licence |
+|---|---|---|
+| The board drivers (`app/board/`: scan, panel and LCD, audio; `audio.c` changed in one place: it calls DREADNOUGHT's render), `app/audio_output.c`, the headers, `app/synth/` | the SMK37 OPEN APP, Copyright (c) 2026 M-VAVE | GPL-3.0-only with the SMK37 SDK linking exception |
+| The build script, as `build-dn.ps1` (its checks of M-VAVE's own instrument relaxed, the user area 176 KB) | `sdk/Build.ps1` | GPL-3.0-only with the linking exception |
+| The packager, as `Package-dn.cs` (the user area 176 KB) | `sdk/Package.cs` (after jl-misctools) | MIT |
+| The updater in the flasher page | `sdk/WebUpdate.js` | GPL-3.0-only with the linking exception |
+| The library (RTOS, USB / Bluetooth MIDI, flash, updates), the boot and update resources, M-VAVE's V16 | `sdk/lib`, `sdk/tools/pack`, `sdk/firmware` | M-VAVE's binary terms (the kit's `THIRD_PARTY.md`): SMK-37 Pro / Elite only; Apache-2.0 (resources) |
+
 The host harness and the plugin use `src/core` too. The FM-1 build keeps X0X's platform, `gfx.c` and `plat.h`
 (`src/hardware/dn_main_fm1.c` names its font type and pool section for the app); the FM-1 links nothing closed.
 
